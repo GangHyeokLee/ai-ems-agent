@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any
 
 import numpy as np
@@ -40,7 +41,9 @@ def run_line_contingency(
             "base_converged": False,
             "post_status": None,
             "violation_count": 0,
+            "violated_equipment_count": 0,
             "limit_violations": [],
+            "violated_equipment": [],
             "monitored_branches": [],
         }
 
@@ -67,6 +70,7 @@ def run_line_contingency(
         _serialize_violation(item)
         for item in post.limit_violations
     ]
+    violated_equipment = _summarize_violations(violations)
     monitored_results = _serialize_branch_results(
         result.branch_results,
         contingency_id,
@@ -79,9 +83,67 @@ def run_line_contingency(
         "base_converged": True,
         "post_status": post.status.name,
         "violation_count": len(violations),
+        "violated_equipment_count": len(violated_equipment),
         "limit_violations": violations,
+        "violated_equipment": violated_equipment,
         "monitored_branches": monitored_results,
     }
+
+
+def _summarize_violations(
+    violations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Group side-specific violation records into equipment-level summaries."""
+    grouped: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+
+    for item in violations:
+        key = (
+            str(item.get("subject_id", "")),
+            str(item.get("limit_type", "")),
+            str(item.get("limit_name", "")),
+        )
+        grouped[key].append(item)
+
+    summaries: list[dict[str, Any]] = []
+    for (equipment_id, limit_type, limit_name), items in grouped.items():
+        values = [
+            float(item["value"])
+            for item in items
+            if isinstance(item.get("value"), (int, float))
+        ]
+        limits = [
+            float(item["limit"])
+            for item in items
+            if isinstance(item.get("limit"), (int, float))
+        ]
+        sides = [
+            str(item["side"])
+            for item in items
+            if item.get("side") is not None
+        ]
+
+        summary: dict[str, Any] = {
+            "equipment_id": equipment_id,
+            "limit_type": limit_type,
+            "limit_name": limit_name,
+            "sides": sorted(set(sides)),
+            "record_count": len(items),
+        }
+        if limits:
+            summary["limit"] = min(limits)
+        if values:
+            summary["max_value"] = max(values)
+        if limits and values:
+            limit = min(limits)
+            max_value = max(values)
+            summary["excess"] = max_value - limit
+            summary["loading_percent"] = (
+                max_value / limit * 100.0 if limit != 0 else None
+            )
+
+        summaries.append(summary)
+
+    return summaries
 
 
 def _line_flow_snapshot(network, line_id: str) -> dict[str, float]:
