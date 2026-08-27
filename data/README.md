@@ -6,6 +6,8 @@ Expected local file:
 
 `KPG193_ver2_0_pypowsybl.mat`
 
+The MAT file itself is **not committed to this public repository**. The repository keeps only provenance and setup documentation. During development, the file is kept on the developer machine; for the final offline Linux workstation demo, the required case file is transferred separately and placed in this directory.
+
 ## Original dataset
 
 The source system is **KPG 193: A Synthetic Korean Power Grid Test System for Decarbonization Studies**, developed by the AGM Center at KENTECH.
@@ -28,4 +30,4 @@ The current conversion follows the previously validated KPG practice code:
 - fixed HVDC transfers are represented using terminal dummy generators, consistent with the earlier KPG/PYPOWER practice;
 - the resulting case has been used successfully for AC load flow and PyPowSyBl Security Analysis.
 
-This repository's code and any derived case do not replace the upstream KPG documentation or dataset. Refer to the upstream project and paper for the authoritative description of KPG-193.
+This repository's code and derived-case description do not replace the upstream KPG documentation or dataset. Refer to the upstream project and paper for the authoritative description of KPG-193.
