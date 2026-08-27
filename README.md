@@ -23,7 +23,7 @@ ai-ems-agent/
 │
 ├─ data/
 │  ├─ README.md
-│  └─ KPG193_ver2_0_pypowsybl.mat
+│  └─ KPG193_ver2_0_pypowsybl.mat   # local only, gitignored
 │
 ├─ tests/
 │  └─ smoke_test.py
@@ -73,9 +73,15 @@ KPG 193은 KENTECH AGM Center에서 개발한 synthetic Korean power grid test s
 }
 ```
 
+### Local dataset policy
+
+KPG case 데이터는 이 public repository에 포함하지 않는다. `*.mat` 파일은 `.gitignore`로 제외하며, 개발 시에는 개인 개발 환경의 `data/` 디렉터리에만 보관한다.
+
+회사 오프라인 Linux 워크스테이션에서 실습 또는 시연할 때는 repository의 코드와 별도로 필요한 case 파일을 직접 전달하여 동일한 `data/` 경로에 배치한다. 따라서 공개 repository는 코드, 구조, 분석 로직과 데이터 provenance만 포함하고 실제 KPG MAT 데이터는 포함하지 않는다.
+
 ### PyPowSyBl-compatible case
 
-`data/KPG193_ver2_0_pypowsybl.mat`은 upstream의 원본 MAT 파일을 그대로 복사한 파일이 아니라, 기존 `kpg-testgrid` 실습에서 PyPowSyBl import를 위해 변환한 derived MATPOWER case이다.
+로컬에서 사용하는 `data/KPG193_ver2_0_pypowsybl.mat`은 upstream의 원본 MAT 파일을 그대로 복사한 파일이 아니라, 기존 `kpg-testgrid` 실습에서 PyPowSyBl import를 위해 변환한 derived MATPOWER case이다.
 
 현재 변환 방식은 다음과 같다.
 
@@ -118,9 +124,19 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Local Data Setup
+
+KPG MAT 파일은 저장소에 포함되지 않으므로 별도로 준비하여 다음 경로에 배치한다.
+
+```text
+data/KPG193_ver2_0_pypowsybl.mat
+```
+
+예를 들어 기존 `kpg-testgrid` 실습 환경에서 생성한 PyPowSyBl 호환 case를 사용할 수 있다.
+
 ## Smoke Test
 
-`data/KPG193_ver2_0_pypowsybl.mat` 파일이 있으면 기본 검증 시나리오는 인자 없이 실행할 수 있다.
+로컬 `data/KPG193_ver2_0_pypowsybl.mat` 파일이 있으면 기본 검증 시나리오는 인자 없이 실행할 수 있다.
 
 ```bash
 python tests/smoke_test.py
