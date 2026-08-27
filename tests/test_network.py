@@ -41,3 +41,13 @@ def test_kpg_line_contingency():
 
   assert result["base_converged"] is True
   assert result["post_status"] == "CONVERGED"
+
+  violations = result["limit_violations"]
+
+  has_target_violation = any(
+    violation["subject_id"] == "LINE-16-22"
+    and violation["limit_type"] == "APPARENT_POWER"
+    for violation in violations
+  )
+
+  assert has_target_violation is True
