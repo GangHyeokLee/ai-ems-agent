@@ -79,3 +79,6 @@ dmypy.json
 *.mat
 *.xiidm
 *.iidm
+
+
+KPG193_ver2_0_pypowsybl.mat
