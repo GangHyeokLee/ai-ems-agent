@@ -93,6 +93,7 @@ def get_line(network, line_id: str) -> dict[str, Any]:
 def list_generators(
     network,
     limit: int | None = None,
+    connected_only: bool = False,
 ) -> list[dict[str, Any]]:
     """Return generator identifiers and key operating attributes."""
     generators = network.get_generators(all_attributes=True)
@@ -112,6 +113,9 @@ def list_generators(
         ]
         if column in generators.columns
     ]
+
+    if connected_only and "connected" in generators.columns:
+        generators = generators[generators["connected"]]
 
     if limit is not None:
         generators = generators.head(limit)
