@@ -48,3 +48,34 @@ ranked = ranked.sort_values(
 
 print("\n=== Top 10 Generators ===")
 print(ranked.head(10))
+
+signed = sensitivity["LINE-16-22"].sort_values(
+  ascending=False
+)
+
+print("\n=== Highest Positive Sensitivity ===")
+print(signed.head(5))
+
+print("\n=== Most Negative Sensitivity ===")
+print(signed.tail(5))
+
+candidate_ids = (
+  list(signed.head(5).index)
+  + list(signed.tail(5).index)
+)
+
+generators = network.get_generators()
+
+print("\n=== Candidate Generator Limits ===")
+print(
+  generators.loc[
+    candidate_ids,
+    [
+      "target_p",
+      "min_p",
+      "max_p",
+      "connected",
+      "bus_id",
+    ],
+  ]
+)
