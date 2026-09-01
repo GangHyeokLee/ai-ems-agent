@@ -1,5 +1,6 @@
 from langchain_core.messages import AIMessage
 from langgraph.prebuilt import ToolNode
+from langgraph.graph import StateGraph, MessagesState, START, END
 
 from ai_ems import load_network
 from ai_ems.agent.tools import create_agent_tools
@@ -17,6 +18,25 @@ for item in tools:
 
 tool_node = ToolNode(tools)
 
+builder = StateGraph(MessagesState)
+
+builder.add_node(
+    "tools",
+    tool_node,
+)
+
+builder.add_edge(
+    START,
+    "tools",
+)
+
+builder.add_edge(
+    "tools",
+    END,
+)
+
+graph = builder.compile()
+
 request = AIMessage(
     content="",
     tool_calls=[
@@ -32,11 +52,11 @@ request = AIMessage(
     ],
 )
 
-result = tool_node.invoke(
+result = graph.invoke(
     {
         "messages": [request],
     }
 )
 
 print("\n=== Tool Result ===")
-print(result["messages"][0].content)
+print(result["messages"][-1].content)
