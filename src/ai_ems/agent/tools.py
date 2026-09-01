@@ -1,6 +1,6 @@
 from typing import Any
 from langchain_core.tools import tool
-from ai_ems.tools.network_tools import(
+from ai_ems.tools.network_tools import (
     get_line,
     get_network_summary,
     list_generators,
@@ -8,6 +8,7 @@ from ai_ems.tools.network_tools import(
 )
 from ai_ems.tools.security_tools import run_line_contingency
 from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
+
 
 def create_agent_tools(network):
     @tool
@@ -40,9 +41,14 @@ def create_agent_tools(network):
     @tool
     def line_contingency(
         outage_line_id: str,
-        monitored_line_ids: list[str] | None = None,
+        monitored_line_id: str | None = None,
     ) -> dict[str, Any]:
-        """Analyze a transmission line outage using AC Security Analysis."""
+        """Analyze a transmission line outage and optionally monitor one line."""
+
+        monitored_line_ids = (
+            [monitored_line_id] if monitored_line_id is not None else None
+        )
+
         return run_line_contingency(
             network,
             outage_line_id=outage_line_id,
