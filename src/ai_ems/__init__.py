@@ -8,6 +8,7 @@ from .tools.network_tools import (
     list_lines,
 )
 from .tools.security_tools import run_line_contingency
+from .tools.sensitivity_tools import rank_generator_sensitivities
 
 __all__ = [
     "load_network",
@@ -17,4 +18,5 @@ __all__ = [
     "get_line",
     "list_generators",
     "run_line_contingency",
+    "rank_generator_sensitivities",
 ]

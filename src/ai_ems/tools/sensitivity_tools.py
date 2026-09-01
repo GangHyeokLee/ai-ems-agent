@@ -7,7 +7,7 @@ def rank_generator_sensitivities(
     network,
     outage_line_id: str,
     monitored_line_id: str,
-    limit: int = 10,
+    top_n: int = 10,
 ) -> dict[str, Any]:
     """Rank connected generators by post-contingency branch-flow sensitivity."""
 
@@ -64,7 +64,7 @@ def rank_generator_sensitivities(
 
     candidates = []
 
-    for generator_id, row in ranked.head(limit).iterrows():
+    for generator_id, row in ranked.head(top_n).iterrows():
         candidates.append(
             {
                 "generator_id": str(generator_id),
