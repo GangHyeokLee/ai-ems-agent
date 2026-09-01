@@ -2,3 +2,4 @@ pypowsybl==1.16.1
 numpy>=2.3,<3
 pandas>=3.0,<4
 pytest>=8.3,<9
+langgraph==1.2.11
