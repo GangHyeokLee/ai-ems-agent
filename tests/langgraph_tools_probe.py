@@ -4,7 +4,10 @@ from langgraph.prebuilt import ToolNode
 from ai_ems import load_network
 from ai_ems.agent.tools import create_agent_tools
 
-network = load_network("data/KPG193_ver2_0_pypowsybl.mat")
+
+network = load_network(
+    "data/KPG193_ver2_0_pypowsybl.mat"
+)
 
 tools = create_agent_tools(network)
 
@@ -20,8 +23,8 @@ request = AIMessage(
         {
             "name": "line_contingency",
             "args": {
-                "outage_line_id": "LINE_16-28",
-                "monitored_line_ids": ["LINE_16-22"],
+                "outage_line_id": "LINE-16-28",
+                "monitored_line_ids": ["LINE-16-22"],
             },
             "id": "test-call-1",
             "type": "tool_call",
