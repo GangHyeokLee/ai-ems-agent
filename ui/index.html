@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>AI-EMS Agent</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+        }
+
+        header {
+            height: 64px;
+            padding: 0 24px;
+
+            display: flex;
+            align-items: center;
+
+            background: #1f2937;
+            color: white;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 22px;
+        }
+
+        main {
+            height: calc(100vh - 64px);
+            padding: 16px;
+
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 16px;
+        }
+
+        .panel {
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            overflow: hidden;
+        }
+
+        .panel-title {
+            padding: 12px 16px;
+
+            font-weight: bold;
+
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        #map {
+            height: calc(100% - 46px);
+
+            display: flex;
+            align-items: center;
+            justify-content: center;
+
+            color: #6b7280;
+        }
+
+        #chat {
+            height: calc(100% - 46px);
+
+            padding: 16px;
+
+            display: flex;
+            flex-direction: column;
+        }
+
+        #messages {
+            flex: 1;
+        }
+
+        #chat-input {
+            display: flex;
+            gap: 8px;
+        }
+
+        #chat-input input {
+            flex: 1;
+
+            padding: 10px;
+
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+        }
+
+        #chat-input button {
+            padding: 10px 16px;
+
+            border: none;
+            border-radius: 6px;
+
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+
+<header>
+    <h1>AI-EMS Agent</h1>
+</header>
+
+<main>
+
+    <section class="panel">
+        <div class="panel-title">
+            KPG-193 Network
+        </div>
+
+        <div id="map">
+            계통 지도 영역
+        </div>
+    </section>
+
+
+    <section class="panel">
+        <div class="panel-title">
+            AI Assistant
+        </div>
+
+        <div id="chat">
+
+            <div id="messages">
+                Agent와의 대화 영역
+            </div>
+
+            <div id="chat-input">
+                <input
+                    type="text"
+                    placeholder="계통 분석을 요청하세요."
+                >
+
+                <button>
+                    전송
+                </button>
+            </div>
+
+        </div>
+    </section>
+
+</main>
+
+</body>
+</html>
