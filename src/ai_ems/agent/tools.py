@@ -49,11 +49,30 @@ def create_agent_tools(network):
             [monitored_line_id] if monitored_line_id is not None else None
         )
 
-        return run_line_contingency(
+        result = run_line_contingency(
             network,
             outage_line_id=outage_line_id,
             monitored_line_ids=monitored_line_ids,
         )
+
+        result = run_line_contingency(...)
+
+        return {
+            "analysis_type": "AC Security Analysis",
+            "outage_line_id": result["outage_line_id"],
+            "base_converged": result["base_converged"],
+            "post_status": result["post_status"],
+            "violated_equipment_count": result["violated_equipment_count"],
+            "violated_equipment": result["violated_equipment"],
+            "monitored_branches": [
+                {
+                    "line_id": item["line_id"],
+                    "base_apparent_power_mva": item["base"]["apparent_power_mva"],
+                    "post_apparent_power_mva": item["apparent_power_mva"],
+                }
+                for item in result["monitored_branches"]
+            ],
+        }
 
     @tool
     def generator_sensitivity(
