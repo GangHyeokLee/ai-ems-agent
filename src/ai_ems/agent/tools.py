@@ -55,21 +55,50 @@ def create_agent_tools(network):
             monitored_line_ids=monitored_line_ids,
         )
 
+        equipment = (
+            result["violated_equipment"][0]
+            if result["violated_equipment"]
+            else None
+        )
+
+        branch = (
+            result["monitored_branches"][0]
+            if result["monitored_branches"]
+            else None
+        )
+
         return {
             "analysis_type": "AC Security Analysis",
             "outage_line_id": result["outage_line_id"],
             "base_converged": result["base_converged"],
             "post_status": result["post_status"],
             "violated_equipment_count": result["violated_equipment_count"],
-            "violated_equipment": result["violated_equipment"],
-            "monitored_branches": [
+            "violation": (
                 {
-                    "line_id": item["line_id"],
-                    "base_apparent_power_mva": item["base"]["apparent_power_mva"],
-                    "post_apparent_power_mva": item["apparent_power_mva"],
+                    "equipment_id": equipment["equipment_id"],
+                    "quantity": "apparent_power",
+                    "limit_mva": equipment["limit"],
+                    "post_value_mva": equipment["max_value"],
+                    "excess_mva": equipment["excess"],
+                    "loading_percent": equipment["loading_percent"],
+                    "overload_percent": equipment["loading_percent"] - 100.0,
                 }
-                for item in result["monitored_branches"]
-            ],
+                if equipment is not None
+                else None
+            ),
+            "monitored_branch": (
+                {
+                    "line_id": branch["line_id"],
+                    "base_apparent_power_flow_mva": (
+                        branch["base"]["apparent_power_mva"]
+                    ),
+                    "post_apparent_power_flow_mva": (
+                        branch["apparent_power_mva"]
+                    ),
+                }
+                if branch is not None
+                else None
+            ),
         }
 
     @tool
