@@ -4,9 +4,18 @@ from .network_tools import get_network_summary, list_lines
 from .security_tools import run_line_contingency
 from .sensitivity_tools import rank_generator_sensitivities
 
+from .network_tools import (
+    get_line,
+    get_network_summary,
+    list_generators,
+    list_lines,
+)
+
 __all__ = [
     "get_network_summary",
     "list_lines",
     "run_line_contingency",
     "rank_generator_sensitivities",
+    "get_line",
+    "list_generators",
 ]
