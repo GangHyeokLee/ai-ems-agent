@@ -61,7 +61,10 @@ def create_agent_tools(network):
         monitored_line_id: str,
         top_n: int = 5,
     ) -> dict[str, Any]:
-        """Rank generators by post-contingency branch-flow sensitivity."""
+        """Rank generators by post-contingency branch-flow sensitivity.
+
+        top_n is the number of generators requested by the user.
+        """
         return rank_generator_sensitivities(
             network,
             outage_line_id=outage_line_id,
