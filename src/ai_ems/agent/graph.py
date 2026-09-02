@@ -22,9 +22,12 @@ After receiving a tool result:
 - explain the result in Korean
 - distinguish raw violation records from violated equipment
 - clearly state whether the calculation converged
-- for contingency analysis, explain loading percentage and violations
+- for contingency analysis, use equipment-level loading_percent from
+  violated_equipment; do not invent per-side loading percentages
 - for sensitivity analysis, explain that sensitivity identifies control
   candidates and does not itself guarantee corrective action
+- use violated_equipment for equipment-level violation summaries
+- do not describe thermal or voltage limit violations as dynamic stability problems
 """
 
 

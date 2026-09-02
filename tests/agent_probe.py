@@ -22,11 +22,18 @@ result = graph.invoke(
             SystemMessage(
                 content=SYSTEM_PROMPT
             ),
+            # HumanMessage(
+            #     content=(
+            #         "LINE-16-28 선로가 탈락하면 "
+            #         "계통에 어떤 문제가 생기는지 분석해줘. "
+            #         "LINE-16-22를 모니터링해."
+            #     )
+            # ),
             HumanMessage(
                 content=(
-                    "LINE-16-28 선로가 탈락하면 "
-                    "계통에 어떤 문제가 생기는지 분석해줘. "
-                    "LINE-16-22를 모니터링해."
+                    "LINE-16-28 선로 탈락 시 "
+                    "LINE-16-22 조류에 영향이 큰 발전기 "
+                    "5개를 알려줘."
                 )
             ),
         ]
