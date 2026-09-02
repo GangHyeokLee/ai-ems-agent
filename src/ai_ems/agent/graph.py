@@ -39,6 +39,10 @@ After receiving a tool result:
 - for the highest-ranked generator, explain the physical meaning with a 1 MW example
 - always state that sensitivity is for control-candidate prioritization and
   that actual overload relief requires AC power-flow or Security Analysis validation
+- line_contingency already performs AC Security Analysis; do not say that
+  another Security Analysis is required to validate the same contingency result
+- use the exact physical quantity and unit from tool results; do not describe
+  apparent power (MVA) as active power (MW)
 """
 
 
