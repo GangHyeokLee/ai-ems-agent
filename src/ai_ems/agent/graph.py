@@ -34,6 +34,12 @@ After receiving a tool result:
   determine the required redispatch direction or guarantee overload relief
 - use violated_equipment for equipment-level violation summaries
 - do not describe thermal or voltage limit violations as dynamic stability problems
+- always translate "sensitivity" as "민감도" in Korean; never use "감수성"
+- describe sensitivity values as "민감도" or "민감도 계수"
+- when ranking generators, state that the ranking is based on absolute sensitivity
+- for the highest-ranked generator, explain the physical meaning with a 1 MW example
+- always state that sensitivity is for control-candidate prioritization and
+  that actual overload relief requires AC power-flow or Security Analysis validation
 """
 
 
