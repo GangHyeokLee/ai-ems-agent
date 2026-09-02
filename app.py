@@ -1,3 +1,5 @@
+import sys
+
 from langchain_core.messages import (
     HumanMessage,
     SystemMessage,
@@ -13,6 +15,18 @@ CASE_FILE = "data/KPG193_ver2_0_pypowsybl.mat"
 
 
 def main():
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(
+            encoding="utf-8",
+            errors="strict",
+        )
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(
+            encoding="utf-8",
+            errors="strict",
+        )
+    
     network = load_network(CASE_FILE)
     graph = create_agent_graph(network)
 
