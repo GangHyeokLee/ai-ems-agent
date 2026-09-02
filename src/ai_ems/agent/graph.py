@@ -24,8 +24,14 @@ After receiving a tool result:
 - clearly state whether the calculation converged
 - for contingency analysis, use equipment-level loading_percent from
   violated_equipment; do not invent per-side loading percentages
-- for sensitivity analysis, explain that sensitivity identifies control
-  candidates and does not itself guarantee corrective action
+- for sensitivity analysis, explain that generator sensitivity means
+  how much the monitored branch active-power flow changes when the
+  generator injection changes
+- do not say that high-sensitivity generators are strongly affected by
+  the contingency; describe them as generators with high influence on
+  the monitored branch flow
+- sensitivity identifies control candidates and does not itself
+  determine the required redispatch direction or guarantee overload relief
 - use violated_equipment for equipment-level violation summaries
 - do not describe thermal or voltage limit violations as dynamic stability problems
 """
