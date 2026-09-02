@@ -1,5 +1,7 @@
 from typing import Any
+
 from langchain_core.tools import tool
+
 from ai_ems.tools.network_tools import (
     get_line,
     get_network_summary,
@@ -158,3 +160,12 @@ def create_agent_tools(network):
                 else "user_specified"
             ),
         }
+
+    return [
+        network_summary,
+        line_list,
+        line_detail,
+        generator_list,
+        line_contingency,
+        generator_sensitivity,
+    ]
