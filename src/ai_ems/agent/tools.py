@@ -55,8 +55,6 @@ def create_agent_tools(network):
             monitored_line_ids=monitored_line_ids,
         )
 
-        result = run_line_contingency(...)
-
         return {
             "analysis_type": "AC Security Analysis",
             "outage_line_id": result["outage_line_id"],
