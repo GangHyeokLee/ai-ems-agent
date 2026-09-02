@@ -104,25 +104,57 @@ def create_agent_tools(network):
     @tool
     def generator_sensitivity(
         outage_line_id: str,
-        monitored_line_id: str,
+        monitored_line_id: str | None = None,
         top_n: int = 5,
     ) -> dict[str, Any]:
         """Rank generators by post-contingency branch-flow sensitivity.
 
-        top_n is the number of generators requested by the user.
+        If monitored_line_id is omitted, select the most severely overloaded
+        transmission line from Security Analysis.
         """
-        return rank_generator_sensitivities(
+
+        auto_selected = monitored_line_id is None
+
+        if monitored_line_id is None:
+            security_result = run_line_contingency(
+                network,
+                outage_line_id=outage_line_id,
+            )
+
+            lines = network.get_lines()
+
+            violated_lines = [
+                item
+                for item in security_result["violated_equipment"]
+                if item["equipment_id"] in lines.index
+                and item.get("loading_percent") is not None
+            ]
+
+            if not violated_lines:
+                raise ValueError(
+                    "No violated transmission line found. "
+                    "Please specify monitored_line_id."
+                )
+
+            violated_lines.sort(
+                key=lambda item: item["loading_percent"],
+                reverse=True,
+            )
+
+            monitored_line_id = violated_lines[0]["equipment_id"]
+
+        result = rank_generator_sensitivities(
             network,
             outage_line_id=outage_line_id,
             monitored_line_id=monitored_line_id,
             top_n=top_n,
         )
 
-    return [
-        network_summary,
-        line_list,
-        line_detail,
-        generator_list,
-        line_contingency,
-        generator_sensitivity,
-    ]
+        return {
+            **result,
+            "target_selection": (
+                "most_severe_violation"
+                if auto_selected
+                else "user_specified"
+            ),
+        }
