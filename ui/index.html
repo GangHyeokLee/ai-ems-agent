@@ -173,6 +173,36 @@
         margin-top: 12px;
         line-height: 1.6;
       }
+
+      #sensitivity-result {
+        margin-top: 12px;
+        line-height: 1.6;
+      }
+
+      .sensitivity-button {
+        margin-top: 10px;
+      }
+
+      .sensitivity-candidate {
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid #e5e7eb;
+      }
+
+      .sensitivity-marker circle {
+        fill: #7c3aed;
+        stroke: white;
+        stroke-width: 2;
+      }
+
+      .sensitivity-marker text {
+        fill: white;
+        font-size: 9px;
+        font-weight: bold;
+        text-anchor: middle;
+        dominant-baseline: middle;
+        pointer-events: none;
+      }
     </style>
   </head>
 
@@ -212,6 +242,13 @@
               <button id="analyze-button">Analyze</button>
 
               <div id="security-result">사고 선로를 입력하고 분석하세요.</div>
+              <button id="sensitivity-button" class="sensitivity-button">
+                Sensitivity Analysis
+              </button>
+
+              <div id="sensitivity-result">
+                Security Analysis 후 민감도를 분석할 수 있습니다.
+              </div>
             </div>
           </div>
 
@@ -225,6 +262,7 @@
     </main>
     <script>
       const SVG_NS = "http://www.w3.org/2000/svg";
+      let mapProjection = null;
 
       async function loadNetworkMap() {
         const response = await fetch("/api/network-map");
@@ -272,6 +310,8 @@
             y,
           };
         }
+
+        mapProjection = project;
 
         for (const line of data.lines) {
           const bus1 = busMap.get(line.bus1_id);
@@ -365,6 +405,10 @@
         resultElement.textContent = "분석 중...";
 
         resetSecurityHighlight();
+        resetSensitivityMarkers();
+
+        document.getElementById("sensitivity-result").textContent =
+          "Security Analysis 후 민감도를 분석할 수 있습니다.";
 
         try {
           const url =
@@ -441,9 +485,174 @@
         element.innerHTML = html;
       }
 
+      function resetSensitivityMarkers() {
+        const markers = document.querySelectorAll(".sensitivity-marker");
+
+        for (const marker of markers) {
+          marker.remove();
+        }
+      }
+
+      async function runSensitivityAnalysis() {
+        const outageLineId = document
+          .getElementById("outage-line")
+          .value.trim();
+
+        if (!outageLineId) {
+          return;
+        }
+
+        const resultElement = document.getElementById("sensitivity-result");
+
+        resultElement.textContent = "민감도 분석 중...";
+
+        resetSensitivityMarkers();
+
+        try {
+          const url =
+            "/api/sensitivity-analysis" +
+            "?outage_line_id=" +
+            encodeURIComponent(outageLineId) +
+            "&top_n=5";
+
+          const response = await fetch(url);
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const result = await response.json();
+
+          renderSensitivityResult(result);
+          renderSensitivityMarkers(result.candidates);
+        } catch (error) {
+          resultElement.textContent = `민감도 분석 실패: ${error.message}`;
+        }
+      }
+
+      function renderSensitivityResult(result) {
+        const element = document.getElementById("sensitivity-result");
+
+        if (!result.candidates || result.candidates.length === 0) {
+          element.textContent = result.message || "민감도 후보가 없습니다.";
+
+          return;
+        }
+
+        let html = `
+        <div>
+            <strong>Target Line</strong>:
+            ${result.monitored_line_id}
+        </div>
+
+        <div>
+            <strong>Top Candidates</strong>:
+            ${result.candidate_count}
+        </div>
+    `;
+
+        result.candidates.forEach((candidate, index) => {
+          html += `
+                <div class="sensitivity-candidate">
+
+                    <strong>
+                        ${index + 1}.
+                        ${candidate.generator_id}
+                    </strong>
+
+                    <div>
+                        Bus ${candidate.bus_id}
+                        · ${candidate.name_korean}
+                    </div>
+
+                    <div>
+                        민감도:
+                        ${candidate.sensitivity.toFixed(4)}
+                    </div>
+
+                </div>
+            `;
+        });
+
+        element.innerHTML = html;
+      }
+
+      function renderSensitivityMarkers(candidates) {
+        if (!mapProjection) {
+          return;
+        }
+
+        const svg = document.getElementById("network-map");
+
+        const groups = new Map();
+
+        for (const candidate of candidates) {
+          if (candidate.latitude == null || candidate.longitude == null) {
+            continue;
+          }
+
+          if (!groups.has(candidate.bus_id)) {
+            groups.set(candidate.bus_id, []);
+          }
+
+          groups.get(candidate.bus_id).push(candidate);
+        }
+
+        for (const [busId, generators] of groups.entries()) {
+          const first = generators[0];
+
+          const point = mapProjection({
+            latitude: first.latitude,
+            longitude: first.longitude,
+          });
+
+          const group = document.createElementNS(SVG_NS, "g");
+
+          group.setAttribute("class", "sensitivity-marker");
+
+          const circle = document.createElementNS(SVG_NS, "circle");
+
+          circle.setAttribute("cx", point.x);
+
+          circle.setAttribute("cy", point.y);
+
+          circle.setAttribute("r", 11);
+
+          const text = document.createElementNS(SVG_NS, "text");
+
+          text.setAttribute("x", point.x);
+
+          text.setAttribute("y", point.y);
+
+          text.textContent = generators.length;
+
+          const title = document.createElementNS(SVG_NS, "title");
+
+          const generatorText = generators
+            .map(
+              (item) =>
+                `${item.generator_id}: ` + `${item.sensitivity.toFixed(4)}`,
+            )
+            .join("\n");
+
+          title.textContent =
+            `Bus ${busId} | ` + `${first.name_korean}\n` + generatorText;
+
+          group.appendChild(circle);
+          group.appendChild(text);
+          group.appendChild(title);
+
+          svg.appendChild(group);
+        }
+      }
+
       document
         .getElementById("analyze-button")
         .addEventListener("click", runSecurityAnalysis);
+
+      document
+        .getElementById("sensitivity-button")
+        .addEventListener("click", runSensitivityAnalysis);
 
       loadNetworkMap();
     </script>
