@@ -1,7 +1,9 @@
+from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import tool
 
+from ai_ems.tools.control_tools import validate_balanced_redispatch
 from ai_ems.tools.network_tools import (
     get_line,
     get_network_summary,
@@ -17,7 +19,13 @@ from ai_ems.tools.security_tools import (
 from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
 
 
-def create_agent_tools(network):
+DEFAULT_CASE_FILE = "data/KPG193_ver2_0_pypowsybl.mat"
+
+
+def create_agent_tools(
+    network,
+    case_path: str | Path = DEFAULT_CASE_FILE,
+):
     @tool
     def network_summary() -> dict[str, Any]:
         """Get a summary of the current power network."""
@@ -154,6 +162,29 @@ def create_agent_tools(network):
             ),
         }
 
+    @tool
+    def balanced_redispatch_validation(
+        outage_line_id: str,
+        monitored_line_id: str,
+        up_generator_id: str,
+        down_generator_id: str,
+        delta_mw: float,
+    ) -> dict[str, Any]:
+        """Validate a balanced generator redispatch with post-contingency AC power flow.
+
+        Increase one generator target by delta_mw and decrease another by the
+        same amount, then compare the monitored line before and after the
+        redispatch. This is a what-if validation, not an optimization.
+        """
+        return validate_balanced_redispatch(
+            case_path=case_path,
+            outage_line_id=outage_line_id,
+            monitored_line_id=monitored_line_id,
+            up_generator_id=up_generator_id,
+            down_generator_id=down_generator_id,
+            delta_mw=delta_mw,
+        )
+
     return [
         network_summary,
         line_list,
@@ -161,4 +192,5 @@ def create_agent_tools(network):
         generator_list,
         line_contingency,
         generator_sensitivity,
+        balanced_redispatch_validation,
     ]
