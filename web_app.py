@@ -1,17 +1,16 @@
 from pathlib import Path
 
+import pandas as pd
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
 from ai_ems import load_network
-import pandas as pd
-
-from ai_ems.tools.security_tools import run_line_contingency
-from ai_ems.tools.sensitivity_tools import (
+from ai_ems.tools.security_tools import (
     get_limit_unit,
     run_line_contingency,
     select_most_severe_violated_line,
 )
+from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
 
 CASE_FILE = "data/KPG193_ver2_0_pypowsybl.mat"
 BUS_LOCATION_FILE = "data/bus_location.csv"
@@ -79,7 +78,6 @@ def network_map():
         voltage_level2_id = row["voltage_level2_id"]
 
         bus1_id = int(voltage_level1_id.replace("VL-", ""))
-
         bus2_id = int(voltage_level2_id.replace("VL-", ""))
 
         if bus1_id not in bus_location_map or bus2_id not in bus_location_map:
@@ -107,40 +105,27 @@ def security_analysis(
     monitored_line_ids = [monitored_line_id] if monitored_line_id is not None else None
 
     result = run_line_contingency(
-        network, outage_line_id=outage_line_id, monitored_line_ids=monitored_line_ids
+        network,
+        outage_line_id=outage_line_id,
+        monitored_line_ids=monitored_line_ids,
     )
 
     violations = []
 
     for item in result["violated_equipment"]:
-        limit_type = item.get(
-            "limit_type"
-        )
+        limit_type = item.get("limit_type")
 
         violations.append(
             {
-                "equipment_id": item[
-                    "equipment_id"
-                ],
+                "equipment_id": item["equipment_id"],
                 "limit_type": limit_type,
-                "limit_name": item.get(
-                    "limit_name"
-                ),
-                "unit": get_limit_unit(
-                    limit_type
-                ),
-                "limit": item.get(
-                    "limit"
-                ),
-                "value": item.get(
-                    "value"
-                ),
-                "violation_amount": item.get(
-                    "violation_amount"
-                ),
-                "loading_percent": item.get(
-                    "loading_percent"
-                ),
+                "limit_name": item.get("limit_name"),
+                "unit": item.get("unit") or get_limit_unit(limit_type),
+                "limit": item.get("limit"),
+                "value": item.get("value"),
+                "violation_amount": item.get("violation_amount"),
+                "violation_direction": item.get("violation_direction"),
+                "loading_percent": item.get("loading_percent"),
             }
         )
 
@@ -165,26 +150,20 @@ def sensitivity_analysis(
             outage_line_id=outage_line_id,
         )
 
-        selected = (
-            select_most_severe_violated_line(
-                network,
-                security_result,
-            )
+        selected = select_most_severe_violated_line(
+            network,
+            security_result,
         )
 
         if selected is None:
             return {
-                "outage_line_id":
-                    outage_line_id,
+                "outage_line_id": outage_line_id,
                 "monitored_line_id": None,
                 "candidates": [],
-                "message":
-                    "No violated transmission line found.",
+                "message": "No overloaded transmission line found.",
             }
 
-        monitored_line_id = selected[
-            "equipment_id"
-        ]
+        monitored_line_id = selected["equipment_id"]
 
     result = rank_generator_sensitivities(
         network,
@@ -199,13 +178,9 @@ def sensitivity_analysis(
 
     for candidate in result["candidates"]:
         generator_id = candidate["generator_id"]
-
         row = generators.loc[generator_id]
-
         voltage_level_id = row["voltage_level_id"]
-
         bus_id = int(voltage_level_id.replace("VL-", ""))
-
         location = bus_location_map.get(bus_id)
 
         candidates.append(
