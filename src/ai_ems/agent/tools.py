@@ -12,6 +12,7 @@ from ai_ems.tools.security_tools import (
     get_limit_unit,
     run_line_contingency,
     select_most_severe_violated_line,
+    select_primary_violation,
 )
 from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
 
@@ -61,12 +62,11 @@ def create_agent_tools(network):
             monitored_line_ids=monitored_line_ids,
         )
 
-        equipment = (
-            result["violated_equipment"][0] if result["violated_equipment"] else None
-        )
-
+        equipment = select_primary_violation(result)
         branch = (
-            result["monitored_branches"][0] if result["monitored_branches"] else None
+            result["monitored_branches"][0]
+            if result["monitored_branches"]
+            else None
         )
 
         return {
@@ -76,48 +76,29 @@ def create_agent_tools(network):
             "post_status": result["post_status"],
             "violated_equipment_count": result["violated_equipment_count"],
             "violation": (
-                            {
-                                "equipment_id":
-                                    equipment[
-                                        "equipment_id"
-                                    ],
-                                "limit_type":
-                                    equipment.get(
-                                        "limit_type"
-                                    ),
-                                "unit":
-                                    get_limit_unit(
-                                        equipment.get(
-                                            "limit_type"
-                                        )
-                                    ),
-                                "limit":
-                                    equipment.get(
-                                        "limit"
-                                    ),
-                                "post_value":
-                                    equipment.get(
-                                        "value"
-                                    ),
-                                "violation_amount":
-                                    equipment.get(
-                                        "violation_amount"
-                                    ),
-                                "loading_percent":
-                                    equipment.get(
-                                        "loading_percent"
-                                    ),
-                            }
-                            if equipment is not None
-                            else None
-                        ),
+                {
+                    "equipment_id": equipment["equipment_id"],
+                    "limit_type": equipment.get("limit_type"),
+                    "unit": equipment.get("unit")
+                    or get_limit_unit(equipment.get("limit_type")),
+                    "limit": equipment.get("limit"),
+                    "post_value": equipment.get("value"),
+                    "violation_amount": equipment.get("violation_amount"),
+                    "violation_direction": equipment.get("violation_direction"),
+                    "loading_percent": equipment.get("loading_percent"),
+                }
+                if equipment is not None
+                else None
+            ),
             "monitored_branch": (
                 {
                     "line_id": branch["line_id"],
                     "base_apparent_power_flow_mva": (
                         branch["base"]["apparent_power_mva"]
                     ),
-                    "post_apparent_power_flow_mva": (branch["apparent_power_mva"]),
+                    "post_apparent_power_flow_mva": branch[
+                        "apparent_power_mva"
+                    ],
                 }
                 if branch is not None
                 else None
@@ -144,27 +125,18 @@ def create_agent_tools(network):
                 outage_line_id=outage_line_id,
             )
 
-            lines = network.get_lines()
+            selected = select_most_severe_violated_line(
+                network,
+                security_result,
+            )
 
-            violated_lines = [
-                item
-                for item in security_result["violated_equipment"]
-                if item["equipment_id"] in lines.index
-                and item.get("loading_percent") is not None
-            ]
-
-            if not violated_lines:
+            if selected is None:
                 raise ValueError(
-                    "No violated transmission line found. "
+                    "No overloaded transmission line found. "
                     "Please specify monitored_line_id."
                 )
 
-            violated_lines.sort(
-                key=lambda item: item["loading_percent"],
-                reverse=True,
-            )
-
-            monitored_line_id = violated_lines[0]["equipment_id"]
+            monitored_line_id = selected["equipment_id"]
 
         result = rank_generator_sensitivities(
             network,
@@ -176,7 +148,9 @@ def create_agent_tools(network):
         return {
             **result,
             "target_selection": (
-                "most_severe_violation" if auto_selected else "user_specified"
+                "most_severe_violation"
+                if auto_selected
+                else "user_specified"
             ),
         }
 
