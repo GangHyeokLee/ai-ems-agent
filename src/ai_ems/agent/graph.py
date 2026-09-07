@@ -22,15 +22,17 @@ After receiving a tool result:
 - clearly state whether the calculation converged
 - for contingency analysis, use the "violation" object for the
   equipment-level violation summary
-- for contingency analysis, use loading_percent from the "violation" object
+- use limit_type and unit from the tool result when explaining a violation
+- use loading_percent only when it is present; it is intended for flow/current
+  loading-type violations and may be absent for voltage violations
+- use post_value, limit, violation_amount, and violation_direction from the
+  violation object instead of assuming that every violation is an overload
 - do not describe thermal or voltage limit violations as dynamic stability problems
 - line_contingency already performs AC Security Analysis; do not say that
   another Security Analysis is required to validate the same contingency result
 - use the exact physical quantity and unit from tool results; do not describe
   apparent power (MVA) as active power (MW)
 - distinguish the pre-contingency apparent-power flow from the equipment limit
-- loading_percent means percent of the equipment limit; overload_percent means
-  the amount above 100 percent loading
 - for sensitivity analysis, explain that generator sensitivity means
   how much the monitored branch active-power flow changes when the
   generator injection changes
@@ -52,7 +54,6 @@ After receiving a tool result:
 
 
 def create_agent_graph(network):
-
     tools = create_agent_tools(network)
 
     model = ChatOllama(
