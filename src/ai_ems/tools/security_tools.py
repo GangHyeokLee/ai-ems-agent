@@ -8,18 +8,21 @@ import pypowsybl as pp
 
 from ai_ems.network import LOADFLOW_PARAMETERS
 
+
 def get_limit_unit(
     limit_type: str | None,
 ) -> str | None:
+    """Return the physical unit used by a Security Analysis limit type."""
     units = {
         "APPARENT_POWER": "MVA",
         "ACTIVE_POWER": "MW",
         "CURRENT": "A",
         "LOW_VOLTAGE": "kV",
         "HIGH_VOLTAGE": "kV",
+        "VOLTAGE": "kV",
     }
-
     return units.get(limit_type)
+
 
 def run_line_contingency(
     network,
@@ -102,6 +105,55 @@ def run_line_contingency(
     }
 
 
+def select_primary_violation(
+    security_result: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Select one representative violation for compact Agent summaries."""
+    violations = security_result.get("violated_equipment", [])
+    if not violations:
+        return None
+
+    def severity(item: dict[str, Any]) -> float:
+        loading_percent = item.get("loading_percent")
+        if loading_percent is not None:
+            return float(loading_percent) / 100.0 - 1.0
+
+        violation_amount = item.get("violation_amount")
+        limit = item.get("limit")
+        if violation_amount is None:
+            return float("-inf")
+        if limit not in (None, 0):
+            return float(violation_amount) / abs(float(limit))
+        return float(violation_amount)
+
+    return max(violations, key=severity)
+
+
+def select_most_severe_violated_line(
+    network,
+    security_result: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Select the most overloaded transmission line for Sensitivity Analysis."""
+    lines = network.get_lines()
+
+    candidates = [
+        item
+        for item in security_result.get("violated_equipment", [])
+        if (
+            item["equipment_id"] in lines.index
+            and item.get("loading_percent") is not None
+        )
+    ]
+
+    if not candidates:
+        return None
+
+    return max(
+        candidates,
+        key=lambda item: float(item["loading_percent"]),
+    )
+
+
 def _summarize_violations(
     violations: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -138,30 +190,27 @@ def _summarize_violations(
             "equipment_id": equipment_id,
             "limit_type": limit_type,
             "limit_name": limit_name,
+            "unit": get_limit_unit(limit_type),
             "sides": sorted(set(sides)),
             "record_count": len(items),
         }
+
         if limits and values:
             if limit_type == "LOW_VOLTAGE":
                 limit = max(limits)
                 value = min(values)
-
-                violation_amount = (
-                    limit - value
-                )
+                violation_amount = limit - value
+                violation_direction = "below_minimum"
             else:
                 limit = min(limits)
                 value = max(values)
-
-                violation_amount = (
-                    value - limit
-                )
+                violation_amount = value - limit
+                violation_direction = "above_maximum"
 
             summary["limit"] = limit
             summary["value"] = value
-            summary["violation_amount"] = (
-                violation_amount
-            )
+            summary["violation_amount"] = violation_amount
+            summary["violation_direction"] = violation_direction
 
             if limit_type in {
                 "CURRENT",
@@ -284,34 +333,3 @@ def _is_missing(value: Any) -> bool:
         return bool(np.isnan(value))
     except (TypeError, ValueError):
         return value is None
-
-def select_most_severe_violated_line(
-    network,
-    security_result: dict[str, Any],
-) -> dict[str, Any] | None:
-    lines = network.get_lines()
-
-    candidates = [
-        item
-        for item in security_result[
-            "violated_equipment"
-        ]
-        if (
-            item["equipment_id"]
-            in lines.index
-            and item.get(
-                "loading_percent"
-            )
-            is not None
-        )
-    ]
-
-    if not candidates:
-        return None
-
-    return max(
-        candidates,
-        key=lambda item: item[
-            "loading_percent"
-        ],
-    )
