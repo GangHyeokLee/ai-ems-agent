@@ -20,10 +20,8 @@
       header {
         height: 64px;
         padding: 0 24px;
-
         display: flex;
         align-items: center;
-
         background: #1f2937;
         color: white;
       }
@@ -36,7 +34,6 @@
       main {
         height: calc(100vh - 64px);
         padding: 16px;
-
         display: grid;
         grid-template-columns: 2fr 1fr;
         gap: 16px;
@@ -51,56 +48,17 @@
 
       .panel-title {
         padding: 12px 16px;
-
         font-weight: bold;
-
         border-bottom: 1px solid #e5e7eb;
       }
 
       #map {
+        position: relative;
         height: calc(100% - 46px);
-
         display: flex;
         align-items: center;
         justify-content: center;
-
         color: #6b7280;
-      }
-
-      #chat {
-        height: calc(100% - 46px);
-
-        padding: 16px;
-
-        display: flex;
-        flex-direction: column;
-      }
-
-      #messages {
-        flex: 1;
-      }
-
-      #chat-input {
-        display: flex;
-        gap: 8px;
-      }
-
-      #chat-input input {
-        flex: 1;
-
-        padding: 10px;
-
-        border: 1px solid #d1d5db;
-        border-radius: 6px;
-      }
-
-      #chat-input button {
-        padding: 10px 16px;
-
-        border: none;
-        border-radius: 6px;
-
-        cursor: pointer;
       }
 
       #network-map {
@@ -112,6 +70,34 @@
         stroke: #94a3b8;
         stroke-width: 1;
         opacity: 0.65;
+        pointer-events: none;
+      }
+
+      .network-line.hover-line,
+      .network-line.selected-line {
+        stroke: #475569;
+        stroke-width: 3;
+        opacity: 1;
+      }
+
+      .network-line.outage-line {
+        stroke: #dc2626;
+        stroke-width: 5;
+        opacity: 1;
+      }
+
+      .network-line.violation-line {
+        stroke: #f59e0b;
+        stroke-width: 5;
+        opacity: 1;
+      }
+
+      .network-line-hit {
+        stroke: transparent;
+        stroke-width: 14;
+        fill: none;
+        pointer-events: stroke;
+        cursor: pointer;
       }
 
       .network-bus {
@@ -126,29 +112,92 @@
         fill: #dc2626;
       }
 
-      .map-info {
-        font-size: 14px;
-        fill: #475569;
-      }
-      .network-line.outage-line {
-        stroke: #dc2626;
-        stroke-width: 5;
-        opacity: 1;
+      .network-bus.selected-bus {
+        r: 5;
+        fill: #0f172a;
       }
 
-      .network-line.violation-line {
-        stroke: #f59e0b;
-        stroke-width: 5;
-        opacity: 1;
+      .map-tooltip {
+        position: absolute;
+        z-index: 20;
+        display: none;
+        min-width: 220px;
+        max-width: 320px;
+        padding: 12px 14px;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.98);
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+        color: #0f172a;
+        font-size: 13px;
+        line-height: 1.55;
+        pointer-events: auto;
+      }
+
+      .map-tooltip-title {
+        margin: 0 24px 6px 0;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .map-tooltip-row {
+        color: #475569;
+      }
+
+      .map-tooltip-row strong {
+        color: #0f172a;
+      }
+
+      .map-tooltip-close {
+        position: absolute;
+        top: 5px;
+        right: 7px;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: #64748b;
+        font-size: 18px;
+        cursor: pointer;
+      }
+
+      #chat {
+        height: calc(100% - 46px);
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      #messages {
+        flex: 1;
+        overflow-y: auto;
+      }
+
+      #chat-input {
+        display: flex;
+        gap: 8px;
+      }
+
+      #chat-input input {
+        flex: 1;
+        padding: 10px;
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+      }
+
+      #chat-input button {
+        padding: 10px 16px;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
       }
 
       .analysis-box {
         margin-bottom: 16px;
         padding: 12px;
-
         border: 1px solid #e5e7eb;
         border-radius: 8px;
-
         background: #f8fafc;
       }
 
@@ -162,18 +211,12 @@
       .analysis-box button {
         width: 100%;
         padding: 9px;
-
         border: none;
         border-radius: 6px;
-
         cursor: pointer;
       }
 
-      #security-result {
-        margin-top: 12px;
-        line-height: 1.6;
-      }
-
+      #security-result,
       #sensitivity-result {
         margin-top: 12px;
         line-height: 1.6;
@@ -187,6 +230,10 @@
         margin-top: 8px;
         padding-top: 8px;
         border-top: 1px solid #e5e7eb;
+      }
+
+      .sensitivity-marker {
+        cursor: pointer;
       }
 
       .sensitivity-marker circle {
@@ -221,6 +268,11 @@
             viewBox="0 0 700 900"
             preserveAspectRatio="xMidYMid meet"
           ></svg>
+
+          <div id="map-tooltip" class="map-tooltip">
+            <button id="map-tooltip-close" class="map-tooltip-close">×</button>
+            <div id="map-tooltip-content"></div>
+          </div>
         </div>
       </section>
 
@@ -242,6 +294,7 @@
               <button id="analyze-button">Analyze</button>
 
               <div id="security-result">사고 선로를 입력하고 분석하세요.</div>
+
               <button id="sensitivity-button" class="sensitivity-button">
                 Sensitivity Analysis
               </button>
@@ -254,12 +307,12 @@
 
           <div id="chat-input">
             <input type="text" placeholder="계통 분석을 요청하세요." />
-
             <button>전송</button>
           </div>
         </div>
       </section>
     </main>
+
     <script>
       const SVG_NS = "http://www.w3.org/2000/svg";
       let mapProjection = null;
@@ -267,29 +320,23 @@
       async function loadNetworkMap() {
         const response = await fetch("/api/network-map");
         const data = await response.json();
-
         drawNetwork(data);
       }
 
       function drawNetwork(data) {
         const svg = document.getElementById("network-map");
-
         const width = 700;
         const height = 900;
         const padding = 40;
 
         const latitudes = data.buses.map((bus) => bus.latitude);
-
         const longitudes = data.buses.map((bus) => bus.longitude);
-
         const minLat = Math.min(...latitudes);
         const maxLat = Math.max(...latitudes);
-
         const minLon = Math.min(...longitudes);
         const maxLon = Math.max(...longitudes);
 
         const busMap = new Map();
-
         for (const bus of data.buses) {
           busMap.set(bus.bus_id, bus);
         }
@@ -305,10 +352,7 @@
             ((maxLat - bus.latitude) / (maxLat - minLat)) *
               (height - padding * 2);
 
-          return {
-            x,
-            y,
-          };
+          return { x, y };
         }
 
         mapProjection = project;
@@ -325,52 +369,159 @@
           const p2 = project(bus2);
 
           const element = document.createElementNS(SVG_NS, "line");
-
           element.setAttribute("x1", p1.x);
           element.setAttribute("y1", p1.y);
           element.setAttribute("x2", p2.x);
           element.setAttribute("y2", p2.y);
-
           element.setAttribute("class", "network-line");
-
           element.dataset.lineId = line.line_id;
-
-          const title = document.createElementNS(SVG_NS, "title");
-
-          title.textContent = `${line.line_id}: Bus ${line.bus1_id} ↔ Bus ${line.bus2_id}`;
-
-          element.appendChild(title);
-
           svg.appendChild(element);
+
+          const hitElement = document.createElementNS(SVG_NS, "line");
+          hitElement.setAttribute("x1", p1.x);
+          hitElement.setAttribute("y1", p1.y);
+          hitElement.setAttribute("x2", p2.x);
+          hitElement.setAttribute("y2", p2.y);
+          hitElement.setAttribute("class", "network-line-hit");
+          hitElement.dataset.lineId = line.line_id;
+
+          hitElement.addEventListener("mouseenter", () => {
+            element.classList.add("hover-line");
+          });
+
+          hitElement.addEventListener("mouseleave", () => {
+            element.classList.remove("hover-line");
+          });
+
+          hitElement.addEventListener("click", (event) => {
+            event.stopPropagation();
+            clearMapSelection();
+            element.classList.add("selected-line");
+            showLineTooltip(event, line, bus1, bus2);
+          });
+
+          svg.appendChild(hitElement);
         }
 
         for (const bus of data.buses) {
           const point = project(bus);
-
           const element = document.createElementNS(SVG_NS, "circle");
 
           element.setAttribute("cx", point.x);
           element.setAttribute("cy", point.y);
           element.setAttribute("r", 3);
-
           element.setAttribute("class", "network-bus");
-
           element.dataset.busId = bus.bus_id;
 
-          const title = document.createElementNS(SVG_NS, "title");
-
-          title.textContent =
-            `Bus ${bus.bus_id} | ` + `${bus.name_korean} (${bus.name_english})`;
-
-          element.appendChild(title);
+          element.addEventListener("click", (event) => {
+            event.stopPropagation();
+            clearMapSelection();
+            element.classList.add("selected-bus");
+            showBusTooltip(event, bus);
+          });
 
           svg.appendChild(element);
         }
 
         console.log(
-          `Rendered ${data.buses.length} buses, ` +
-            `${data.lines.length} lines`,
+          `Rendered ${data.buses.length} buses, ${data.lines.length} lines`,
         );
+      }
+
+      function clearMapSelection() {
+        document
+          .querySelectorAll(".network-line.selected-line")
+          .forEach((line) => line.classList.remove("selected-line"));
+
+        document
+          .querySelectorAll(".network-bus.selected-bus")
+          .forEach((bus) => bus.classList.remove("selected-bus"));
+      }
+
+      function showBusTooltip(event, bus) {
+        showMapTooltip(
+          event,
+          `
+            <div class="map-tooltip-title">Bus ${bus.bus_id}</div>
+            <div class="map-tooltip-row"><strong>지역</strong>: ${bus.name_korean}</div>
+            <div class="map-tooltip-row"><strong>English</strong>: ${bus.name_english}</div>
+            <div class="map-tooltip-row"><strong>위도</strong>: ${bus.latitude.toFixed(6)}</div>
+            <div class="map-tooltip-row"><strong>경도</strong>: ${bus.longitude.toFixed(6)}</div>
+          `,
+        );
+      }
+
+      function showLineTooltip(event, line, bus1, bus2) {
+        showMapTooltip(
+          event,
+          `
+            <div class="map-tooltip-title">${line.line_id}</div>
+            <div class="map-tooltip-row">
+              <strong>From</strong>: Bus ${line.bus1_id} · ${bus1.name_korean}
+            </div>
+            <div class="map-tooltip-row">
+              <strong>To</strong>: Bus ${line.bus2_id} · ${bus2.name_korean}
+            </div>
+            <div class="map-tooltip-row">
+              ${bus1.name_english} ↔ ${bus2.name_english}
+            </div>
+          `,
+        );
+      }
+
+      function showSensitivityTooltip(event, busId, generators) {
+        const first = generators[0];
+        const rows = generators
+          .map(
+            (item) => `
+              <div class="map-tooltip-row">
+                <strong>${item.generator_id}</strong>: ${item.sensitivity.toFixed(4)}
+              </div>
+            `,
+          )
+          .join("");
+
+        showMapTooltip(
+          event,
+          `
+            <div class="map-tooltip-title">Bus ${busId} · ${first.name_korean}</div>
+            <div class="map-tooltip-row"><strong>민감도 후보</strong>: ${generators.length}개</div>
+            ${rows}
+          `,
+        );
+      }
+
+      function showMapTooltip(event, html) {
+        const map = document.getElementById("map");
+        const tooltip = document.getElementById("map-tooltip");
+        const content = document.getElementById("map-tooltip-content");
+        const rect = map.getBoundingClientRect();
+
+        content.innerHTML = html;
+        tooltip.style.display = "block";
+
+        const tooltipWidth = tooltip.offsetWidth;
+        const tooltipHeight = tooltip.offsetHeight;
+        const margin = 12;
+
+        let left = event.clientX - rect.left + margin;
+        let top = event.clientY - rect.top + margin;
+
+        if (left + tooltipWidth > rect.width - margin) {
+          left = event.clientX - rect.left - tooltipWidth - margin;
+        }
+
+        if (top + tooltipHeight > rect.height - margin) {
+          top = rect.height - tooltipHeight - margin;
+        }
+
+        tooltip.style.left = `${Math.max(margin, left)}px`;
+        tooltip.style.top = `${Math.max(margin, top)}px`;
+      }
+
+      function hideMapTooltip() {
+        document.getElementById("map-tooltip").style.display = "none";
+        clearMapSelection();
       }
 
       function resetSecurityHighlight() {
@@ -401,11 +552,11 @@
         }
 
         const resultElement = document.getElementById("security-result");
-
         resultElement.textContent = "분석 중...";
 
         resetSecurityHighlight();
         resetSensitivityMarkers();
+        hideMapTooltip();
 
         document.getElementById("sensitivity-result").textContent =
           "Security Analysis 후 민감도를 분석할 수 있습니다.";
@@ -440,57 +591,28 @@
         const element = document.getElementById("security-result");
 
         let html = `
-                    <div>
-                        <strong>Outage</strong>:
-                        ${result.outage_line_id}
-                    </div>
-
-                    <div>
-                        <strong>Status</strong>:
-                        ${result.post_status}
-                    </div>
-
-                    <div>
-                        <strong>Violations</strong>:
-                        ${result.violated_equipment_count}
-                    </div>
-                `;
+          <div><strong>Outage</strong>: ${result.outage_line_id}</div>
+          <div><strong>Status</strong>: ${result.post_status}</div>
+          <div><strong>Violations</strong>: ${result.violated_equipment_count}</div>
+        `;
 
         for (const violation of result.violations) {
           html += `
-                    <hr>
-
-                    <div>
-                        <strong>Violated Line</strong>:
-                        ${violation.equipment_id}
-                    </div>
-
-                    <div>
-                        <strong>Loading</strong>:
-                        ${violation.loading_percent.toFixed(2)} %
-                    </div>
-
-                    <div>
-                        <strong>Limit</strong>:
-                        ${violation.limit.toFixed(2)} MVA
-                    </div>
-
-                    <div>
-                        <strong>Post-contingency</strong>:
-                        ${violation.max_value.toFixed(2)} MVA
-                    </div>
-                `;
+            <hr>
+            <div><strong>Violated Line</strong>: ${violation.equipment_id}</div>
+            <div><strong>Loading</strong>: ${violation.loading_percent.toFixed(2)} %</div>
+            <div><strong>Limit</strong>: ${violation.limit.toFixed(2)} MVA</div>
+            <div><strong>Post-contingency</strong>: ${violation.max_value.toFixed(2)} MVA</div>
+          `;
         }
 
         element.innerHTML = html;
       }
 
       function resetSensitivityMarkers() {
-        const markers = document.querySelectorAll(".sensitivity-marker");
-
-        for (const marker of markers) {
-          marker.remove();
-        }
+        document
+          .querySelectorAll(".sensitivity-marker")
+          .forEach((marker) => marker.remove());
       }
 
       async function runSensitivityAnalysis() {
@@ -503,9 +625,7 @@
         }
 
         const resultElement = document.getElementById("sensitivity-result");
-
         resultElement.textContent = "민감도 분석 중...";
-
         resetSensitivityMarkers();
 
         try {
@@ -535,43 +655,22 @@
 
         if (!result.candidates || result.candidates.length === 0) {
           element.textContent = result.message || "민감도 후보가 없습니다.";
-
           return;
         }
 
         let html = `
-        <div>
-            <strong>Target Line</strong>:
-            ${result.monitored_line_id}
-        </div>
-
-        <div>
-            <strong>Top Candidates</strong>:
-            ${result.candidate_count}
-        </div>
-    `;
+          <div><strong>Target Line</strong>: ${result.monitored_line_id}</div>
+          <div><strong>Top Candidates</strong>: ${result.candidate_count}</div>
+        `;
 
         result.candidates.forEach((candidate, index) => {
           html += `
-                <div class="sensitivity-candidate">
-
-                    <strong>
-                        ${index + 1}.
-                        ${candidate.generator_id}
-                    </strong>
-
-                    <div>
-                        Bus ${candidate.bus_id}
-                        · ${candidate.name_korean}
-                    </div>
-
-                    <div>
-                        민감도:
-                        ${candidate.sensitivity.toFixed(4)}
-                    </div>
-
-                </div>
-            `;
+            <div class="sensitivity-candidate">
+              <strong>${index + 1}. ${candidate.generator_id}</strong>
+              <div>Bus ${candidate.bus_id} · ${candidate.name_korean}</div>
+              <div>민감도: ${candidate.sensitivity.toFixed(4)}</div>
+            </div>
+          `;
         });
 
         element.innerHTML = html;
@@ -583,7 +682,6 @@
         }
 
         const svg = document.getElementById("network-map");
-
         const groups = new Map();
 
         for (const candidate of candidates) {
@@ -600,47 +698,31 @@
 
         for (const [busId, generators] of groups.entries()) {
           const first = generators[0];
-
           const point = mapProjection({
             latitude: first.latitude,
             longitude: first.longitude,
           });
 
           const group = document.createElementNS(SVG_NS, "g");
-
           group.setAttribute("class", "sensitivity-marker");
 
           const circle = document.createElementNS(SVG_NS, "circle");
-
           circle.setAttribute("cx", point.x);
-
           circle.setAttribute("cy", point.y);
-
           circle.setAttribute("r", 11);
 
           const text = document.createElementNS(SVG_NS, "text");
-
           text.setAttribute("x", point.x);
-
           text.setAttribute("y", point.y);
-
           text.textContent = generators.length;
-
-          const title = document.createElementNS(SVG_NS, "title");
-
-          const generatorText = generators
-            .map(
-              (item) =>
-                `${item.generator_id}: ` + `${item.sensitivity.toFixed(4)}`,
-            )
-            .join("\n");
-
-          title.textContent =
-            `Bus ${busId} | ` + `${first.name_korean}\n` + generatorText;
 
           group.appendChild(circle);
           group.appendChild(text);
-          group.appendChild(title);
+
+          group.addEventListener("click", (event) => {
+            event.stopPropagation();
+            showSensitivityTooltip(event, busId, generators);
+          });
 
           svg.appendChild(group);
         }
@@ -653,6 +735,17 @@
       document
         .getElementById("sensitivity-button")
         .addEventListener("click", runSensitivityAnalysis);
+
+      document
+        .getElementById("map-tooltip-close")
+        .addEventListener("click", (event) => {
+          event.stopPropagation();
+          hideMapTooltip();
+        });
+
+      document.getElementById("map").addEventListener("click", () => {
+        hideMapTooltip();
+      });
 
       loadNetworkMap();
     </script>
