@@ -1,158 +1,451 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
     <title>AI-EMS Agent</title>
 
     <style>
-        * {
-            box-sizing: border-box;
-        }
+      * {
+        box-sizing: border-box;
+      }
 
-        body {
-            margin: 0;
-            font-family: Arial, sans-serif;
-            background: #f4f6f8;
-        }
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #f4f6f8;
+      }
 
-        header {
-            height: 64px;
-            padding: 0 24px;
+      header {
+        height: 64px;
+        padding: 0 24px;
 
-            display: flex;
-            align-items: center;
+        display: flex;
+        align-items: center;
 
-            background: #1f2937;
-            color: white;
-        }
+        background: #1f2937;
+        color: white;
+      }
 
-        header h1 {
-            margin: 0;
-            font-size: 22px;
-        }
+      header h1 {
+        margin: 0;
+        font-size: 22px;
+      }
 
-        main {
-            height: calc(100vh - 64px);
-            padding: 16px;
+      main {
+        height: calc(100vh - 64px);
+        padding: 16px;
 
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 16px;
-        }
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 16px;
+      }
 
-        .panel {
-            background: white;
-            border-radius: 8px;
-            border: 1px solid #d1d5db;
-            overflow: hidden;
-        }
+      .panel {
+        background: white;
+        border-radius: 8px;
+        border: 1px solid #d1d5db;
+        overflow: hidden;
+      }
 
-        .panel-title {
-            padding: 12px 16px;
+      .panel-title {
+        padding: 12px 16px;
 
-            font-weight: bold;
+        font-weight: bold;
 
-            border-bottom: 1px solid #e5e7eb;
-        }
+        border-bottom: 1px solid #e5e7eb;
+      }
 
-        #map {
-            height: calc(100% - 46px);
+      #map {
+        height: calc(100% - 46px);
 
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
 
-            color: #6b7280;
-        }
+        color: #6b7280;
+      }
 
-        #chat {
-            height: calc(100% - 46px);
+      #chat {
+        height: calc(100% - 46px);
 
-            padding: 16px;
+        padding: 16px;
 
-            display: flex;
-            flex-direction: column;
-        }
+        display: flex;
+        flex-direction: column;
+      }
 
-        #messages {
-            flex: 1;
-        }
+      #messages {
+        flex: 1;
+      }
 
-        #chat-input {
-            display: flex;
-            gap: 8px;
-        }
+      #chat-input {
+        display: flex;
+        gap: 8px;
+      }
 
-        #chat-input input {
-            flex: 1;
+      #chat-input input {
+        flex: 1;
 
-            padding: 10px;
+        padding: 10px;
 
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-        }
+        border: 1px solid #d1d5db;
+        border-radius: 6px;
+      }
 
-        #chat-input button {
-            padding: 10px 16px;
+      #chat-input button {
+        padding: 10px 16px;
 
-            border: none;
-            border-radius: 6px;
+        border: none;
+        border-radius: 6px;
 
-            cursor: pointer;
-        }
+        cursor: pointer;
+      }
+
+      #network-map {
+        width: 100%;
+        height: 100%;
+      }
+
+      .network-line {
+        stroke: #94a3b8;
+        stroke-width: 1;
+        opacity: 0.65;
+      }
+
+      .network-bus {
+        fill: #2563eb;
+        stroke: white;
+        stroke-width: 0.6;
+        cursor: pointer;
+      }
+
+      .network-bus:hover {
+        r: 5;
+        fill: #dc2626;
+      }
+
+      .map-info {
+        font-size: 14px;
+        fill: #475569;
+      }
+      .network-line.outage-line {
+        stroke: #dc2626;
+        stroke-width: 5;
+        opacity: 1;
+      }
+
+      .network-line.violation-line {
+        stroke: #f59e0b;
+        stroke-width: 5;
+        opacity: 1;
+      }
+
+      .analysis-box {
+        margin-bottom: 16px;
+        padding: 12px;
+
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+
+        background: #f8fafc;
+      }
+
+      .analysis-box input {
+        width: 100%;
+        margin-top: 6px;
+        margin-bottom: 8px;
+        padding: 8px;
+      }
+
+      .analysis-box button {
+        width: 100%;
+        padding: 9px;
+
+        border: none;
+        border-radius: 6px;
+
+        cursor: pointer;
+      }
+
+      #security-result {
+        margin-top: 12px;
+        line-height: 1.6;
+      }
     </style>
-</head>
+  </head>
 
-<body>
+  <body>
+    <header>
+      <h1>AI-EMS Agent</h1>
+    </header>
 
-<header>
-    <h1>AI-EMS Agent</h1>
-</header>
-
-<main>
-
-    <section class="panel">
-        <div class="panel-title">
-            KPG-193 Network
-        </div>
+    <main>
+      <section class="panel">
+        <div class="panel-title">KPG-193 Network</div>
 
         <div id="map">
-            계통 지도 영역
+          <svg
+            id="network-map"
+            viewBox="0 0 700 900"
+            preserveAspectRatio="xMidYMid meet"
+          ></svg>
         </div>
-    </section>
+      </section>
 
-
-    <section class="panel">
-        <div class="panel-title">
-            AI Assistant
-        </div>
+      <section class="panel">
+        <div class="panel-title">AI Assistant</div>
 
         <div id="chat">
+          <div id="messages">
+            <div class="analysis-box">
+              <strong>Security Analysis</strong>
 
-            <div id="messages">
-                Agent와의 대화 영역
+              <input
+                id="outage-line"
+                type="text"
+                value="LINE-16-28"
+                placeholder="Outage line ID"
+              />
+
+              <button id="analyze-button">Analyze</button>
+
+              <div id="security-result">사고 선로를 입력하고 분석하세요.</div>
             </div>
+          </div>
 
-            <div id="chat-input">
-                <input
-                    type="text"
-                    placeholder="계통 분석을 요청하세요."
-                >
+          <div id="chat-input">
+            <input type="text" placeholder="계통 분석을 요청하세요." />
 
-                <button>
-                    전송
-                </button>
-            </div>
-
+            <button>전송</button>
+          </div>
         </div>
-    </section>
+      </section>
+    </main>
+    <script>
+      const SVG_NS = "http://www.w3.org/2000/svg";
 
-</main>
+      async function loadNetworkMap() {
+        const response = await fetch("/api/network-map");
+        const data = await response.json();
 
-</body>
+        drawNetwork(data);
+      }
+
+      function drawNetwork(data) {
+        const svg = document.getElementById("network-map");
+
+        const width = 700;
+        const height = 900;
+        const padding = 40;
+
+        const latitudes = data.buses.map((bus) => bus.latitude);
+
+        const longitudes = data.buses.map((bus) => bus.longitude);
+
+        const minLat = Math.min(...latitudes);
+        const maxLat = Math.max(...latitudes);
+
+        const minLon = Math.min(...longitudes);
+        const maxLon = Math.max(...longitudes);
+
+        const busMap = new Map();
+
+        for (const bus of data.buses) {
+          busMap.set(bus.bus_id, bus);
+        }
+
+        function project(bus) {
+          const x =
+            padding +
+            ((bus.longitude - minLon) / (maxLon - minLon)) *
+              (width - padding * 2);
+
+          const y =
+            padding +
+            ((maxLat - bus.latitude) / (maxLat - minLat)) *
+              (height - padding * 2);
+
+          return {
+            x,
+            y,
+          };
+        }
+
+        for (const line of data.lines) {
+          const bus1 = busMap.get(line.bus1_id);
+          const bus2 = busMap.get(line.bus2_id);
+
+          if (!bus1 || !bus2) {
+            continue;
+          }
+
+          const p1 = project(bus1);
+          const p2 = project(bus2);
+
+          const element = document.createElementNS(SVG_NS, "line");
+
+          element.setAttribute("x1", p1.x);
+          element.setAttribute("y1", p1.y);
+          element.setAttribute("x2", p2.x);
+          element.setAttribute("y2", p2.y);
+
+          element.setAttribute("class", "network-line");
+
+          element.dataset.lineId = line.line_id;
+
+          const title = document.createElementNS(SVG_NS, "title");
+
+          title.textContent = `${line.line_id}: Bus ${line.bus1_id} ↔ Bus ${line.bus2_id}`;
+
+          element.appendChild(title);
+
+          svg.appendChild(element);
+        }
+
+        for (const bus of data.buses) {
+          const point = project(bus);
+
+          const element = document.createElementNS(SVG_NS, "circle");
+
+          element.setAttribute("cx", point.x);
+          element.setAttribute("cy", point.y);
+          element.setAttribute("r", 3);
+
+          element.setAttribute("class", "network-bus");
+
+          element.dataset.busId = bus.bus_id;
+
+          const title = document.createElementNS(SVG_NS, "title");
+
+          title.textContent =
+            `Bus ${bus.bus_id} | ` + `${bus.name_korean} (${bus.name_english})`;
+
+          element.appendChild(title);
+
+          svg.appendChild(element);
+        }
+
+        console.log(
+          `Rendered ${data.buses.length} buses, ` +
+            `${data.lines.length} lines`,
+        );
+      }
+
+      function resetSecurityHighlight() {
+        const lines = document.querySelectorAll(".network-line");
+
+        for (const line of lines) {
+          line.classList.remove("outage-line", "violation-line");
+        }
+      }
+
+      function highlightLine(lineId, className) {
+        const lines = document.querySelectorAll(".network-line");
+
+        for (const line of lines) {
+          if (line.dataset.lineId === lineId) {
+            line.classList.add(className);
+          }
+        }
+      }
+
+      async function runSecurityAnalysis() {
+        const outageLineId = document
+          .getElementById("outage-line")
+          .value.trim();
+
+        if (!outageLineId) {
+          return;
+        }
+
+        const resultElement = document.getElementById("security-result");
+
+        resultElement.textContent = "분석 중...";
+
+        resetSecurityHighlight();
+
+        try {
+          const url =
+            "/api/security-analysis" +
+            "?outage_line_id=" +
+            encodeURIComponent(outageLineId);
+
+          const response = await fetch(url);
+
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+
+          const result = await response.json();
+
+          highlightLine(result.outage_line_id, "outage-line");
+
+          for (const violation of result.violations) {
+            highlightLine(violation.equipment_id, "violation-line");
+          }
+
+          renderSecurityResult(result);
+        } catch (error) {
+          resultElement.textContent = `분석 실패: ${error.message}`;
+        }
+      }
+
+      function renderSecurityResult(result) {
+        const element = document.getElementById("security-result");
+
+        let html = `
+                    <div>
+                        <strong>Outage</strong>:
+                        ${result.outage_line_id}
+                    </div>
+
+                    <div>
+                        <strong>Status</strong>:
+                        ${result.post_status}
+                    </div>
+
+                    <div>
+                        <strong>Violations</strong>:
+                        ${result.violated_equipment_count}
+                    </div>
+                `;
+
+        for (const violation of result.violations) {
+          html += `
+                    <hr>
+
+                    <div>
+                        <strong>Violated Line</strong>:
+                        ${violation.equipment_id}
+                    </div>
+
+                    <div>
+                        <strong>Loading</strong>:
+                        ${violation.loading_percent.toFixed(2)} %
+                    </div>
+
+                    <div>
+                        <strong>Limit</strong>:
+                        ${violation.limit.toFixed(2)} MVA
+                    </div>
+
+                    <div>
+                        <strong>Post-contingency</strong>:
+                        ${violation.max_value.toFixed(2)} MVA
+                    </div>
+                `;
+        }
+
+        element.innerHTML = html;
+      }
+
+      document
+        .getElementById("analyze-button")
+        .addEventListener("click", runSecurityAnalysis);
+
+      loadNetworkMap();
+    </script>
+  </body>
 </html>
