@@ -132,6 +132,7 @@
         font-size: 13px;
         line-height: 1.55;
         pointer-events: auto;
+        user-select: text;
       }
 
       .map-tooltip-title {
@@ -743,8 +744,19 @@
           hideMapTooltip();
         });
 
-      document.getElementById("map").addEventListener("click", () => {
-        hideMapTooltip();
+      document.getElementById("map-tooltip").addEventListener("click", (event) => {
+        event.stopPropagation();
+      });
+
+      document.addEventListener("click", (event) => {
+        const tooltip = document.getElementById("map-tooltip");
+
+        if (
+          tooltip.style.display !== "none" &&
+          !tooltip.contains(event.target)
+        ) {
+          hideMapTooltip();
+        }
       });
 
       loadNetworkMap();
