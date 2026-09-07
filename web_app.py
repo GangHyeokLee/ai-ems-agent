@@ -165,29 +165,26 @@ def sensitivity_analysis(
             outage_line_id=outage_line_id,
         )
 
-        lines = network.get_lines()
-
-        violated_lines = [
-            item
-            for item in security_result["violated_equipment"]
-            if item["equipment_id"] in lines.index
-            and item.get("loading_percent") is not None
-        ]
-
-        if not violated_lines:
-            return {
-                "outage_line_id": outage_line_id,
-                "monitored_line_id": None,
-                "candidates": [],
-                "message": "No violated transmission line found.",
-            }
-
-        violated_lines.sort(
-            key=lambda item: item["loading_percent"],
-            reverse=True,
+        selected = (
+            select_most_severe_violated_line(
+                network,
+                security_result,
+            )
         )
 
-        monitored_line_id = violated_lines[0]["equipment_id"]
+        if selected is None:
+            return {
+                "outage_line_id":
+                    outage_line_id,
+                "monitored_line_id": None,
+                "candidates": [],
+                "message":
+                    "No violated transmission line found.",
+            }
+
+        monitored_line_id = selected[
+            "equipment_id"
+        ]
 
     result = rank_generator_sensitivities(
         network,

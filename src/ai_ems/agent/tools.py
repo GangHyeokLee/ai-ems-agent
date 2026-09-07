@@ -8,7 +8,11 @@ from ai_ems.tools.network_tools import (
     list_generators,
     list_lines,
 )
-from ai_ems.tools.security_tools import run_line_contingency
+from ai_ems.tools.security_tools import (
+    get_limit_unit,
+    run_line_contingency,
+    select_most_severe_violated_line,
+)
 from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
 
 
@@ -58,15 +62,11 @@ def create_agent_tools(network):
         )
 
         equipment = (
-            result["violated_equipment"][0]
-            if result["violated_equipment"]
-            else None
+            result["violated_equipment"][0] if result["violated_equipment"] else None
         )
 
         branch = (
-            result["monitored_branches"][0]
-            if result["monitored_branches"]
-            else None
+            result["monitored_branches"][0] if result["monitored_branches"] else None
         )
 
         return {
@@ -76,27 +76,48 @@ def create_agent_tools(network):
             "post_status": result["post_status"],
             "violated_equipment_count": result["violated_equipment_count"],
             "violation": (
-                {
-                    "equipment_id": equipment["equipment_id"],
-                    "quantity": "apparent_power",
-                    "limit_mva": equipment["limit"],
-                    "post_value_mva": equipment["max_value"],
-                    "excess_mva": equipment["excess"],
-                    "loading_percent": equipment["loading_percent"],
-                    "overload_percent": equipment["loading_percent"] - 100.0,
-                }
-                if equipment is not None
-                else None
-            ),
+                            {
+                                "equipment_id":
+                                    equipment[
+                                        "equipment_id"
+                                    ],
+                                "limit_type":
+                                    equipment.get(
+                                        "limit_type"
+                                    ),
+                                "unit":
+                                    get_limit_unit(
+                                        equipment.get(
+                                            "limit_type"
+                                        )
+                                    ),
+                                "limit":
+                                    equipment.get(
+                                        "limit"
+                                    ),
+                                "post_value":
+                                    equipment.get(
+                                        "value"
+                                    ),
+                                "violation_amount":
+                                    equipment.get(
+                                        "violation_amount"
+                                    ),
+                                "loading_percent":
+                                    equipment.get(
+                                        "loading_percent"
+                                    ),
+                            }
+                            if equipment is not None
+                            else None
+                        ),
             "monitored_branch": (
                 {
                     "line_id": branch["line_id"],
                     "base_apparent_power_flow_mva": (
                         branch["base"]["apparent_power_mva"]
                     ),
-                    "post_apparent_power_flow_mva": (
-                        branch["apparent_power_mva"]
-                    ),
+                    "post_apparent_power_flow_mva": (branch["apparent_power_mva"]),
                 }
                 if branch is not None
                 else None
@@ -155,9 +176,7 @@ def create_agent_tools(network):
         return {
             **result,
             "target_selection": (
-                "most_severe_violation"
-                if auto_selected
-                else "user_specified"
+                "most_severe_violation" if auto_selected else "user_specified"
             ),
         }
 

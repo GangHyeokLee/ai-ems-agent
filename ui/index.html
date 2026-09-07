@@ -588,6 +588,16 @@
         }
       }
 
+      function formatValue(value, unit) {
+        if (value == null) {
+          return "-";
+        }
+
+        const suffix = unit ? ` ${unit}` : "";
+
+        return value.toFixed(2) + suffix;
+      }
+
       function renderSecurityResult(result) {
         const element = document.getElementById("security-result");
 
@@ -598,13 +608,46 @@
         `;
 
         for (const violation of result.violations) {
-          html += `
-            <hr>
-            <div><strong>Violated Line</strong>: ${violation.equipment_id}</div>
-            <div><strong>Loading</strong>: ${violation.loading_percent.toFixed(2)} %</div>
-            <div><strong>Limit</strong>: ${violation.limit.toFixed(2)} MVA</div>
-            <div><strong>Post-contingency</strong>: ${violation.max_value.toFixed(2)} MVA</div>
-          `;
+          const loading =
+            violation.loading_percent == null
+              ? ""
+              : `
+              <div>
+                <strong>Loading</strong>:
+                ${violation.loading_percent.toFixed(2)} %
+              </div>
+            `;
+
+                html += `
+                  <hr>
+
+                  <div>
+                    <strong>Violated Equipment</strong>:
+                    ${violation.equipment_id}
+                  </div>
+
+                  <div>
+                    <strong>Limit Type</strong>:
+                    ${violation.limit_type}
+                  </div>
+
+                  ${loading}
+
+                  <div>
+                    <strong>Limit</strong>:
+                    ${formatValue(violation.limit, violation.unit)}
+                  </div>
+
+                  <div>
+                    <strong>Post-contingency</strong>:
+                    ${formatValue(violation.value, violation.unit)}
+                  </div>
+
+                  <div>
+                    <strong>Violation Amount</strong>:
+                    ${formatValue(violation.violation_amount, violation.unit)}
+                  </div>
+                `;
         }
 
         element.innerHTML = html;
@@ -744,9 +787,11 @@
           hideMapTooltip();
         });
 
-      document.getElementById("map-tooltip").addEventListener("click", (event) => {
-        event.stopPropagation();
-      });
+      document
+        .getElementById("map-tooltip")
+        .addEventListener("click", (event) => {
+          event.stopPropagation();
+        });
 
       document.addEventListener("click", (event) => {
         const tooltip = document.getElementById("map-tooltip");
