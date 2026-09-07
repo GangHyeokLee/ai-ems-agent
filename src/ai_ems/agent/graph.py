@@ -1,3 +1,5 @@
+import os
+
 from langchain_ollama import ChatOllama
 from langgraph.graph import (
     START,
@@ -7,6 +9,10 @@ from langgraph.graph import (
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from ai_ems.agent.tools import create_agent_tools
+
+
+DEFAULT_MODEL = "qwen2:7b"
+DEFAULT_LLM_BASE_URL = "http://host.docker.internal:11434"
 
 
 SYSTEM_PROMPT = """
@@ -71,12 +77,27 @@ Sensitivity Analysis:
 """
 
 
-def create_agent_graph(network):
+def create_agent_graph(
+    network,
+    model_name: str | None = None,
+    base_url: str | None = None,
+):
     tools = create_agent_tools(network)
 
+    resolved_model_name = (
+        model_name
+        or os.getenv("AI_EMS_MODEL")
+        or DEFAULT_MODEL
+    )
+    resolved_base_url = (
+        base_url
+        or os.getenv("AI_EMS_LLM_BASE_URL")
+        or DEFAULT_LLM_BASE_URL
+    )
+
     model = ChatOllama(
-        model="qwen2:7b",
-        base_url="http://host.docker.internal:11434",
+        model=resolved_model_name,
+        base_url=resolved_base_url,
         temperature=0,
     )
 
