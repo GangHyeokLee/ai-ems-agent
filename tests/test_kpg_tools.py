@@ -14,6 +14,7 @@ from ai_ems import (  # noqa: E402
     load_network,
     run_ac_load_flow,
     run_line_contingency,
+    validate_balanced_redispatch,
 )
 
 
@@ -72,3 +73,22 @@ def test_kpg_security_known_violation() -> None:
     assert equipment["violation_amount"] > 0.0
     assert equipment["violation_direction"] == "above_maximum"
     assert equipment["loading_percent"] > 100.0
+
+
+def test_kpg_balanced_redispatch_improves_known_violation() -> None:
+    result = validate_balanced_redispatch(
+        case_path=CASE_FILE,
+        outage_line_id="LINE-16-28",
+        monitored_line_id="LINE-16-22",
+        up_generator_id="GEN-19#0",
+        down_generator_id="GEN-36#0",
+        delta_mw=10.0,
+    )
+
+    assert result["analysis_type"] == "Balanced Redispatch AC Validation"
+    assert result["after_redispatch"]["converged"] is True
+    assert result["redispatch"]["net_requested_change_mw"] == 0.0
+    assert result["improved"] is True
+    assert result["improvement_mva"] > 0.0
+    assert result["loading_after_percent"] < result["loading_before_percent"]
+    assert result["violation_remaining"] is True
