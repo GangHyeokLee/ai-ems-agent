@@ -8,7 +8,9 @@ import pandas as pd
 
 from ai_ems.tools.security_tools import run_line_contingency
 from ai_ems.tools.sensitivity_tools import (
-    rank_generator_sensitivities,
+    get_limit_unit,
+    run_line_contingency,
+    select_most_severe_violated_line,
 )
 
 CASE_FILE = "data/KPG193_ver2_0_pypowsybl.mat"
@@ -30,15 +32,13 @@ bus_location_map = {
 }
 
 app = FastAPI(
-  title="AI-EMS Agent",
+    title="AI-EMS Agent",
 )
 
 
 @app.get("/")
 def index():
-    return FileResponse(
-        UI_DIR / "index.html"
-    )
+    return FileResponse(UI_DIR / "index.html")
 
 
 @app.get("/api/health")
@@ -56,6 +56,7 @@ def network_summary():
         "generators": len(network.get_generators()),
         "loads": len(network.get_loads()),
     }
+
 
 @app.get("/api/network-map")
 def network_map():
@@ -77,18 +78,11 @@ def network_map():
         voltage_level1_id = row["voltage_level1_id"]
         voltage_level2_id = row["voltage_level2_id"]
 
-        bus1_id = int(
-            voltage_level1_id.replace("VL-", "")
-        )
+        bus1_id = int(voltage_level1_id.replace("VL-", ""))
 
-        bus2_id = int(
-            voltage_level2_id.replace("VL-", "")
-        )
+        bus2_id = int(voltage_level2_id.replace("VL-", ""))
 
-        if(
-            bus1_id not in bus_location_map
-            or bus2_id not in bus_location_map
-        ):
+        if bus1_id not in bus_location_map or bus2_id not in bus_location_map:
             continue
 
         lines.append(
@@ -104,30 +98,49 @@ def network_map():
         "lines": lines,
     }
 
+
 @app.get("/api/security-analysis")
 def security_analysis(
     outage_line_id: str,
     monitored_line_id: str | None = None,
 ):
-    monitored_line_ids = (
-        [monitored_line_id] if monitored_line_id is not None else None
-    )
+    monitored_line_ids = [monitored_line_id] if monitored_line_id is not None else None
 
     result = run_line_contingency(
-        network,
-        outage_line_id=outage_line_id,
-        monitored_line_ids=monitored_line_ids
+        network, outage_line_id=outage_line_id, monitored_line_ids=monitored_line_ids
     )
 
-    violations  = []
+    violations = []
 
     for item in result["violated_equipment"]:
+        limit_type = item.get(
+            "limit_type"
+        )
+
         violations.append(
             {
-                "equipment_id": item["equipment_id"],
-                "limit": item["limit"],
-                "max_value": item["max_value"],
-                "loading_percent": item["loading_percent"],
+                "equipment_id": item[
+                    "equipment_id"
+                ],
+                "limit_type": limit_type,
+                "limit_name": item.get(
+                    "limit_name"
+                ),
+                "unit": get_limit_unit(
+                    limit_type
+                ),
+                "limit": item.get(
+                    "limit"
+                ),
+                "value": item.get(
+                    "value"
+                ),
+                "violation_amount": item.get(
+                    "violation_amount"
+                ),
+                "loading_percent": item.get(
+                    "loading_percent"
+                ),
             }
         )
 
@@ -135,11 +148,10 @@ def security_analysis(
         "outage_line_id": result["outage_line_id"],
         "base_converged": result["base_converged"],
         "post_status": result["post_status"],
-        "violated_equipment_count": result[
-            "violated_equipment_count"
-        ],
+        "violated_equipment_count": result["violated_equipment_count"],
         "violations": violations,
     }
+
 
 @app.get("/api/sensitivity-analysis")
 def sensitivity_analysis(
@@ -175,9 +187,7 @@ def sensitivity_analysis(
             reverse=True,
         )
 
-        monitored_line_id = (
-            violated_lines[0]["equipment_id"]
-        )
+        monitored_line_id = violated_lines[0]["equipment_id"]
 
     result = rank_generator_sensitivities(
         network,
@@ -186,9 +196,7 @@ def sensitivity_analysis(
         top_n=top_n,
     )
 
-    generators = network.get_generators(
-        all_attributes=True
-    )
+    generators = network.get_generators(all_attributes=True)
 
     candidates = []
 
@@ -197,13 +205,9 @@ def sensitivity_analysis(
 
         row = generators.loc[generator_id]
 
-        voltage_level_id = row[
-            "voltage_level_id"
-        ]
+        voltage_level_id = row["voltage_level_id"]
 
-        bus_id = int(
-            voltage_level_id.replace("VL-", "")
-        )
+        bus_id = int(voltage_level_id.replace("VL-", ""))
 
         location = bus_location_map.get(bus_id)
 
@@ -211,26 +215,10 @@ def sensitivity_analysis(
             {
                 **candidate,
                 "bus_id": bus_id,
-                "latitude": (
-                    location["latitude"]
-                    if location
-                    else None
-                ),
-                "longitude": (
-                    location["longitude"]
-                    if location
-                    else None
-                ),
-                "name_korean": (
-                    location["name_korean"]
-                    if location
-                    else None
-                ),
-                "name_english": (
-                    location["name_english"]
-                    if location
-                    else None
-                ),
+                "latitude": (location["latitude"] if location else None),
+                "longitude": (location["longitude"] if location else None),
+                "name_korean": (location["name_korean"] if location else None),
+                "name_english": (location["name_english"] if location else None),
             }
         )
 

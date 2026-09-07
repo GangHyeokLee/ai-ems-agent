@@ -8,6 +8,18 @@ import pypowsybl as pp
 
 from ai_ems.network import LOADFLOW_PARAMETERS
 
+def get_limit_unit(
+    limit_type: str | None,
+) -> str | None:
+    units = {
+        "APPARENT_POWER": "MVA",
+        "ACTIVE_POWER": "MW",
+        "CURRENT": "A",
+        "LOW_VOLTAGE": "kV",
+        "HIGH_VOLTAGE": "kV",
+    }
+
+    return units.get(limit_type)
 
 def run_line_contingency(
     network,
@@ -129,17 +141,38 @@ def _summarize_violations(
             "sides": sorted(set(sides)),
             "record_count": len(items),
         }
-        if limits:
-            summary["limit"] = min(limits)
-        if values:
-            summary["max_value"] = max(values)
         if limits and values:
-            limit = min(limits)
-            max_value = max(values)
-            summary["excess"] = max_value - limit
-            summary["loading_percent"] = (
-                max_value / limit * 100.0 if limit != 0 else None
+            if limit_type == "LOW_VOLTAGE":
+                limit = max(limits)
+                value = min(values)
+
+                violation_amount = (
+                    limit - value
+                )
+            else:
+                limit = min(limits)
+                value = max(values)
+
+                violation_amount = (
+                    value - limit
+                )
+
+            summary["limit"] = limit
+            summary["value"] = value
+            summary["violation_amount"] = (
+                violation_amount
             )
+
+            if limit_type in {
+                "CURRENT",
+                "ACTIVE_POWER",
+                "APPARENT_POWER",
+            }:
+                summary["loading_percent"] = (
+                    value / limit * 100.0
+                    if limit != 0
+                    else None
+                )
 
         summaries.append(summary)
 
@@ -251,3 +284,34 @@ def _is_missing(value: Any) -> bool:
         return bool(np.isnan(value))
     except (TypeError, ValueError):
         return value is None
+
+def select_most_severe_violated_line(
+    network,
+    security_result: dict[str, Any],
+) -> dict[str, Any] | None:
+    lines = network.get_lines()
+
+    candidates = [
+        item
+        for item in security_result[
+            "violated_equipment"
+        ]
+        if (
+            item["equipment_id"]
+            in lines.index
+            and item.get(
+                "loading_percent"
+            )
+            is not None
+        )
+    ]
+
+    if not candidates:
+        return None
+
+    return max(
+        candidates,
+        key=lambda item: item[
+            "loading_percent"
+        ],
+    )
