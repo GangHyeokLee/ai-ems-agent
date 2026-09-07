@@ -66,6 +66,9 @@ def test_kpg_security_known_violation() -> None:
     equipment = result["violated_equipment"][0]
     assert equipment["equipment_id"] == "LINE-16-22"
     assert equipment["limit_type"] == "APPARENT_POWER"
+    assert equipment["unit"] == "MVA"
     assert equipment["sides"] == ["ONE", "TWO"]
-    assert equipment["max_value"] > equipment["limit"]
+    assert equipment["value"] > equipment["limit"]
+    assert equipment["violation_amount"] > 0.0
+    assert equipment["violation_direction"] == "above_maximum"
     assert equipment["loading_percent"] > 100.0
