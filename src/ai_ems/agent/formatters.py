@@ -6,6 +6,7 @@ def format_contingency_response(result: dict[str, Any]) -> str:
     monitored_line_id = result["monitored_line_id"]
     candidate_count = result["candidate_count"]
     initial_security = result.get("initial_security")
+    comparison = {}
     best = result["best_tested_candidate"]
 
     target_label = (
@@ -14,12 +15,21 @@ def format_contingency_response(result: dict[str, Any]) -> str:
         else "분석 대상 선로"
     )
 
-    if best is None:
-        return (
-            f"{outage_line_id} 사고에 대한 대응방안 분석 결과입니다.\n\n"
-            f"- {target_label}: {monitored_line_id}\n"
-            "- 검토 가능한 Redispatch 후보를 찾지 못했습니다."
+    if initial_security is not None:
+        comparison = initial_security.get(
+            "violation_comparison",
+            {},
         )
+
+    if best is None:
+        lines = [
+            f"{outage_line_id} 사고에 대한 대응방안 분석 결과입니다.",
+            "",
+            f"- {target_label}: {monitored_line_id}",
+        ]
+        _append_initial_security_summary(lines, initial_security, comparison)
+        lines.append("- 검토 가능한 Redispatch 후보를 찾지 못했습니다.")
+        return "\n".join(lines)
 
     redispatch = best["redispatch"]
     validation = best["ac_validation"]
@@ -28,43 +38,21 @@ def format_contingency_response(result: dict[str, Any]) -> str:
     lines = [
         f"{outage_line_id} 사고에 대한 대응방안 분석 결과입니다.",
         "",
-        f"- {target_label}: {monitored_line_id}",
-        f"- 검토한 Redispatch 후보: {candidate_count}개",
-        (
-            f"- 시험 후보 중 1순위: "
-            f"{redispatch['up_generator_id']} +{redispatch['delta_mw']:.1f} MW / "
-            f"{redispatch['down_generator_id']} -{redispatch['delta_mw']:.1f} MW"
-        ),
     ]
 
-    if initial_security is not None:
-        comparison = initial_security.get(
-            "violation_comparison",
-            {},
-        )
+    _append_initial_security_summary(lines, initial_security, comparison)
 
-        pre_count = initial_security.get(
-            "pre_violated_equipment_count",
-            0,
-        )
-        new_count = comparison.get("new_count", 0)
-
-        lines.append(
-            f"- 사고 전 위반 설비: {pre_count}개 / "
-            f"사고 후 신규 위반: {new_count}개"
-        )
-
-    new_violations = comparison.get("new", [])
-
-    if new_violations:
-        new_ids = ", ".join(
-            item["equipment_id"]
-            for item in new_violations
-        )
-
-        lines.append(
-            f"- 사고로 새로 발생한 위반 설비: {new_ids}"
-        )
+    lines.extend(
+        [
+            f"- {target_label}: {monitored_line_id}",
+            f"- 검토한 Redispatch 후보: {candidate_count}개",
+            (
+                f"- 시험 후보 중 1순위: "
+                f"{redispatch['up_generator_id']} +{redispatch['delta_mw']:.1f} MW / "
+                f"{redispatch['down_generator_id']} -{redispatch['delta_mw']:.1f} MW"
+            ),
+        ]
+    )
 
     if not after_redispatch["converged"]:
         lines.extend(
@@ -125,11 +113,13 @@ def format_contingency_response(result: dict[str, Any]) -> str:
                 item["equipment_id"] for item in whole["new_violations"]
             )
             lines.append(
-                f"- 전체 계통 Security 재검증 결과 신규 위반이 확인되었습니다: {new_ids}"
+                "- 전체 계통 Security 재검증 결과 Redispatch로 인해 추가로 발생한 "
+                f"신규 위반이 확인되었습니다: {new_ids}"
             )
         else:
             lines.append(
-                "- 전체 계통 Security 재검증 결과 새로운 위반은 확인되지 않았습니다."
+                "- 전체 계통 Security 재검증 결과 Redispatch로 인해 추가로 발생한 "
+                "신규 위반은 확인되지 않았습니다."
             )
 
         remaining = whole["remaining_violations"]
@@ -137,11 +127,60 @@ def format_contingency_response(result: dict[str, Any]) -> str:
         if remaining:
             remaining_ids = ", ".join(item["equipment_id"] for item in remaining)
             lines.append(
-                f"- 재검증 후에도 기존 위반 설비가 남아 있습니다: {remaining_ids}"
+                "- 사고 후 발생한 위반 설비 중 제어 후에도 남아 있습니다: "
+                f"{remaining_ids}"
             )
         else:
-            lines.append("- 재검증 후 기존 위반 설비도 모두 해소되었습니다.")
+            lines.append("- 사고 후 발생한 위반 설비는 재검증 결과 모두 해소되었습니다.")
     else:
         lines.append("- 전체 계통의 신규 위반 여부는 별도 검증이 필요합니다.")
 
     return "\n".join(lines)
+
+
+def _append_initial_security_summary(
+    lines: list[str],
+    initial_security: dict[str, Any] | None,
+    comparison: dict[str, Any],
+) -> None:
+    if initial_security is None:
+        return
+
+    pre_count = initial_security.get(
+        "pre_violated_equipment_count",
+        0,
+    )
+    post_count = initial_security.get(
+        "post_violated_equipment_count",
+        0,
+    )
+    new_count = comparison.get("new_count", 0)
+
+    lines.append(
+        f"- 사고 전 위반 설비: {pre_count}개 / "
+        f"사고 후 위반 설비: {post_count}개 / "
+        f"사고로 인한 신규 위반: {new_count}개"
+    )
+
+    new_violations = comparison.get("new", [])
+    if new_violations:
+        new_ids = ", ".join(
+            item["equipment_id"]
+            for item in new_violations
+        )
+        lines.append(
+            f"- 사고로 새로 발생한 위반 설비: {new_ids}"
+        )
+
+    remaining = comparison.get("remaining", [])
+    if remaining:
+        worsened_ids = [
+            item["after"]["equipment_id"]
+            for item in remaining
+            if item.get("trend") == "worsened"
+        ]
+        if worsened_ids:
+            lines.append(
+                "- 사고 전부터 존재했고 사고 후 악화된 위반 설비: "
+                + ", ".join(worsened_ids)
+            )
