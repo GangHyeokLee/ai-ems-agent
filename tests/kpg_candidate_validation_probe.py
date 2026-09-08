@@ -25,7 +25,7 @@ for candidate in candidate_result["candidates"]:
 			outage_line_id="LINE-16-28",
 			monitored_line_id="LINE-16-22",
 			up_generator_id=candidate["up_generator_id"],
-			down_generatorid=candidate["down_generator_id"],
+			down_generator_id=candidate["down_generator_id"],
 			delta_mw=candidate["delta_mw"],
 	)
 	
