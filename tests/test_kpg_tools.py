@@ -8,6 +8,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_ROOT))
 
 from ai_ems import (  # noqa: E402
+    generate_redispatch_candidates,
     get_line,
     get_network_summary,
     list_generators,
@@ -73,6 +74,45 @@ def test_kpg_security_known_violation() -> None:
     assert equipment["violation_amount"] > 0.0
     assert equipment["violation_direction"] == "above_maximum"
     assert equipment["loading_percent"] > 100.0
+
+
+def test_kpg_redispatch_candidate_generation() -> None:
+    network = load_network(CASE_FILE)
+
+    result = generate_redispatch_candidates(
+        network,
+        outage_line_id="LINE-16-28",
+        monitored_line_id="LINE-16-22",
+        delta_mw=10.0,
+        top_n=3,
+    )
+
+    assert result["analysis_type"] == (
+        "Sensitivity-based Redispatch Candidate Generation"
+    )
+    assert result["prediction_quantity"] == "ACTIVE_POWER"
+    assert result["prediction_unit"] == "MW"
+    assert result["candidate_count"] == 3
+    assert result["post_contingency_p1_mw"] < 0.0
+
+    previous_reduction = float("inf")
+    for expected_rank, candidate in enumerate(result["candidates"], start=1):
+        assert candidate["rank"] == expected_rank
+        assert candidate["up_generator_id"] != candidate["down_generator_id"]
+        assert candidate["net_requested_change_mw"] == 0.0
+        assert candidate["predicted_abs_p1_reduction_mw"] > 0.0
+        assert (
+            candidate["predicted_abs_p1_reduction_mw"]
+            <= previous_reduction
+        )
+        previous_reduction = candidate["predicted_abs_p1_reduction_mw"]
+
+        assert candidate["up_target_after_mw"] == (
+            candidate["up_target_before_mw"] + 10.0
+        )
+        assert candidate["down_target_after_mw"] == (
+            candidate["down_target_before_mw"] - 10.0
+        )
 
 
 def test_kpg_balanced_redispatch_improves_known_violation() -> None:
