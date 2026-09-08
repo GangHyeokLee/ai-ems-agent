@@ -8,13 +8,32 @@ from ai_ems.tools.security_tools import (
     select_most_severe_violated_line,
 )
 
+
 def _ac_sort_key(item):
-    improvement = item["ac_validation"]["improvement_mva"]
+    validation = item["ac_validation"]
+    whole = validation["whole_network_validation"]
 
-    if improvement is None:
-        return (float("inf"), item["rank"])
+    converged = (
+        validation["after_redispatch"]["converged"]
+        and whole["operator_strategy_status"] == "CONVERGED"
+    )
 
-    return (-round(improvement, 6), item["rank"])
+    new_violation = whole["new_violation_detected"]
+    violation_count = whole["violated_equipment_count_after"]
+
+    improvement = validation["improvement_mva"]
+    improvement_key = (
+        -round(improvement, 6) if improvement is not None else float("inf")
+    )
+
+    return (
+        0 if converged else 1,
+        0 if not new_violation else 1,
+        violation_count,
+        improvement_key,
+        item["rank"],
+    )
+
 
 def analyze_contingency_response(
     case_path,

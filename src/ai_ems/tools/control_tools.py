@@ -3,11 +3,12 @@ from __future__ import annotations
 from math import hypot, isfinite
 from pathlib import Path
 from typing import Any
+import pypowsybl as pp
 
 from ai_ems.network import load_network, run_ac_load_flow
 from ai_ems.tools.security_tools import run_line_contingency
 from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
-
+from ai_ems.network import LOADFLOW_PARAMETERS, load_network, run_ac_load_flow
 
 def generate_redispatch_candidates(
     network,
@@ -163,6 +164,122 @@ def generate_redispatch_candidates(
         "candidates": candidates,
     }
 
+def validate_whole_network_redispatch(
+    case_path: str | Path,
+    outage_line_id: str,
+    up_generator_id: str,
+    down_generator_id: str,
+    delta_mw: float,
+) -> dict[str, Any]:
+    network = load_network(case_path)
+
+    generators = network.get_generators()
+
+    _require_id(generators.index, up_generator_id, "Up generator")
+    _require_id(generators.index, down_generator_id, "Down generator")
+
+    up_before = float(generators.loc[up_generator_id, "target_p"])
+    down_before = float(generators.loc[down_generator_id, "target_p"])
+
+    _validate_generator_target(
+        generators,
+        up_generator_id,
+        up_before + delta_mw,
+    )
+    _validate_generator_target(
+        generators,
+        down_generator_id,
+        down_before - delta_mw,
+    )
+
+    contingency_id = f"OUT_{outage_line_id}"
+    strategy_id = "REDISPATCH_VALIDATION"
+    up_action_id = "UP_GENERATOR"
+    down_action_id = "DOWN_GENERATOR"
+
+    analysis = pp.security.create_analysis()
+
+    analysis.add_single_element_contingency(
+        outage_line_id,
+        contingency_id,
+    )
+
+    analysis.add_generator_active_power_action(
+        up_action_id,
+        up_generator_id,
+        True,
+        float(delta_mw),
+    )
+
+    analysis.add_generator_active_power_action(
+        down_action_id,
+        down_generator_id,
+        True,
+        -float(delta_mw),
+    )
+
+    analysis.add_operator_strategy(
+        strategy_id,
+        contingency_id,
+        [
+            up_action_id,
+            down_action_id,
+        ],
+    )
+
+    result = analysis.run_ac(
+        network,
+        parameters=LOADFLOW_PARAMETERS,
+    )
+
+    post = result.find_post_contingency_result(contingency_id)
+    strategy = result.find_operator_strategy_results(strategy_id)
+
+    before = _summarize_whole_network_violations(
+        post.limit_violations
+    )
+    after = _summarize_whole_network_violations(
+        strategy.limit_violations
+    )
+
+    before_map = {
+        _whole_network_violation_key(item): item
+        for item in before
+    }
+    after_map = {
+        _whole_network_violation_key(item): item
+        for item in after
+    }
+
+    before_keys = set(before_map)
+    after_keys = set(after_map)
+
+    new_keys = after_keys - before_keys
+    resolved_keys = before_keys - after_keys
+    remaining_keys = before_keys & after_keys
+
+    return {
+        "analysis_type": "Whole-network Redispatch Security Validation",
+        "post_contingency_status": post.status.name,
+        "operator_strategy_status": strategy.status.name,
+        "violation_record_count_before": len(post.limit_violations),
+        "violation_record_count_after": len(strategy.limit_violations),
+        "violated_equipment_count_before": len(before),
+        "violated_equipment_count_after": len(after),
+        "new_violation_detected": bool(new_keys),
+        "new_violations": [
+            after_map[key]
+            for key in sorted(new_keys)
+        ],
+        "resolved_violations": [
+            before_map[key]
+            for key in sorted(resolved_keys)
+        ],
+        "remaining_violations": [
+            after_map[key]
+            for key in sorted(remaining_keys)
+        ],
+    }
 
 def validate_balanced_redispatch(
     case_path: str | Path,
@@ -358,3 +475,59 @@ def _finite_float(value: Any) -> float | None:
 def _require_id(index, equipment_id: str, label: str) -> None:
     if equipment_id not in index:
         raise ValueError(f"{label} not found: {equipment_id}")
+
+def _whole_network_violation_key(
+    item: dict[str, Any],
+) -> tuple[str, str, str]:
+    return (
+        item["equipment_id"],
+        item["limit_type"],
+        item["limit_name"],
+    )
+
+def _summarize_whole_network_violations(
+    violations,
+) -> list[dict[str, Any]]:
+    grouped: dict[
+        tuple[str, str, str],
+        list[Any],
+    ] = {}
+
+    for violation in violations:
+        key = (
+            str(violation.subject_id),
+            violation.limit_type.name,
+            str(violation.limit_name),
+        )
+
+        grouped.setdefault(key, []).append(violation)
+
+    summaries = []
+
+    for (
+        equipment_id,
+        limit_type,
+        limit_name,
+    ), items in grouped.items():
+        values = [
+            float(item.value)
+            for item in items
+        ]
+
+        limits = [
+            float(item.limit)
+            for item in items
+        ]
+
+        summaries.append(
+            {
+                "equipment_id": equipment_id,
+                "limit_type": limit_type,
+                "limit_name": limit_name,
+                "limit": min(limits),
+                "value": max(values),
+                "record_count": len(items),
+            }
+        )
+
+    return summaries
