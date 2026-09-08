@@ -5,6 +5,7 @@ def format_contingency_response(result: dict[str, Any]) -> str:
     outage_line_id = result["outage_line_id"]
     monitored_line_id = result["monitored_line_id"]
     candidate_count = result["candidate_count"]
+    initial_security = result.get("initial_security")
     best = result["best_tested_candidate"]
 
     target_label = (
@@ -35,6 +36,35 @@ def format_contingency_response(result: dict[str, Any]) -> str:
             f"{redispatch['down_generator_id']} -{redispatch['delta_mw']:.1f} MW"
         ),
     ]
+
+    if initial_security is not None:
+        comparison = initial_security.get(
+            "violation_comparison",
+            {},
+        )
+
+        pre_count = initial_security.get(
+            "pre_violated_equipment_count",
+            0,
+        )
+        new_count = comparison.get("new_count", 0)
+
+        lines.append(
+            f"- 사고 전 위반 설비: {pre_count}개 / "
+            f"사고 후 신규 위반: {new_count}개"
+        )
+
+    new_violations = comparison.get("new", [])
+
+    if new_violations:
+        new_ids = ", ".join(
+            item["equipment_id"]
+            for item in new_violations
+        )
+
+        lines.append(
+            f"- 사고로 새로 발생한 위반 설비: {new_ids}"
+        )
 
     if not after_redispatch["converged"]:
         lines.extend(

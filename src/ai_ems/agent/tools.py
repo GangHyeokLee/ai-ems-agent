@@ -72,9 +72,7 @@ def create_agent_tools(
 
         equipment = select_primary_violation(result)
         branch = (
-            result["monitored_branches"][0]
-            if result["monitored_branches"]
-            else None
+            result["monitored_branches"][0] if result["monitored_branches"] else None
         )
 
         return {
@@ -104,13 +102,13 @@ def create_agent_tools(
                     "base_apparent_power_flow_mva": (
                         branch["base"]["apparent_power_mva"]
                     ),
-                    "post_apparent_power_flow_mva": branch[
-                        "apparent_power_mva"
-                    ],
+                    "post_apparent_power_flow_mva": branch["apparent_power_mva"],
                 }
                 if branch is not None
                 else None
             ),
+            "pre_violated_equipment_count": result["pre_violated_equipment_count"],
+            "violation_comparison": result["violation_comparison"],
         }
 
     @tool
@@ -156,9 +154,7 @@ def create_agent_tools(
         return {
             **result,
             "target_selection": (
-                "most_severe_violation"
-                if auto_selected
-                else "user_specified"
+                "most_severe_violation" if auto_selected else "user_specified"
             ),
         }
 

@@ -44,14 +44,14 @@ def analyze_contingency_response(
 ) -> dict:
     network = load_network(case_path)
 
+    security_result = run_line_contingency(
+        network,
+        outage_line_id=outage_line_id,
+    )
+
     target_selection = "user_specified"
 
     if monitored_line_id is None:
-        security_result = run_line_contingency(
-            network,
-            outage_line_id=outage_line_id,
-        )
-
         selected = select_most_severe_violated_line(
             network,
             security_result,
@@ -120,4 +120,13 @@ def analyze_contingency_response(
         "best_tested_candidate": (
             validated_candidates[0] if validated_candidates else None
         ),
+        "initial_security": {
+            "pre_violated_equipment_count": security_result[
+                "pre_violated_equipment_count"
+            ],
+            "post_violated_equipment_count": security_result[
+                "violated_equipment_count"
+            ],
+            "violation_comparison": security_result["violation_comparison"],
+        },
     }

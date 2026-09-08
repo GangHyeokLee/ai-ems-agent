@@ -60,6 +60,19 @@ def run_line_contingency(
             "limit_violations": [],
             "violated_equipment": [],
             "monitored_branches": [],
+            "pre_status": None,
+            "pre_violation_count": 0,
+            "pre_violated_equipment_count": 0,
+            "pre_limit_violations": [],
+            "pre_violated_equipment": [],
+            "violation_comparison": {
+                "new_count": 0,
+                "resolved_count": 0,
+                "remaining_count": 0,
+                "new": [],
+                "resolved": [],
+                "remaining": [],
+            },
         }
 
     base_monitored = {
@@ -105,28 +118,17 @@ def run_line_contingency(
         "contingency_id": contingency_id,
         "outage_line_id": outage_line_id,
         "base_converged": True,
-
         "pre_status": pre.status.name,
         "pre_violation_count": len(pre_violations),
-        "pre_violated_equipment_count": len(
-            pre_violated_equipment
-        ),
+        "pre_violated_equipment_count": len(pre_violated_equipment),
         "pre_limit_violations": pre_violations,
-        "pre_violated_equipment": (
-            pre_violated_equipment
-        ),
-
+        "pre_violated_equipment": (pre_violated_equipment),
         "post_status": post.status.name,
         "violation_count": len(violations),
-        "violated_equipment_count": len(
-            violated_equipment
-        ),
+        "violated_equipment_count": len(violated_equipment),
         "limit_violations": violations,
         "violated_equipment": violated_equipment,
-
-        "violation_comparison": (
-            violation_comparison
-        ),
+        "violation_comparison": (violation_comparison),
         "monitored_branches": monitored_results,
     }
 
@@ -247,8 +249,9 @@ def _summarize_violations(
 
     return summaries
 
+
 def _violation_summary_key(
-    item:  dict[str, Any],
+    item: dict[str, Any],
 ) -> tuple[str, str, str]:
     return (
         str(item.get("equipment_id", "")),
@@ -256,14 +259,64 @@ def _violation_summary_key(
         str(item.get("limit_name", "")),
     )
 
-def _compare_violation_summarize(
+
+def _compare_violation_summaries(
     pre: list[dict[str, Any]],
     post: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    pre_map = {
-        _violation_summary_key(item): item
-        for  item in pre
+    pre_map = {_violation_summary_key(item): item for item in pre}
+
+    post_map = {_violation_summary_key(item): item for item in post}
+
+    pre_keys = set(pre_map)
+    post_keys = set(post_map)
+
+    new_keys = post_keys - pre_keys
+    resolved_keys = pre_keys - post_keys
+    remaining_keys = pre_keys & post_keys
+
+    remaining = []
+
+    for key in sorted(remaining_keys):
+        before = pre_map[key]
+        after = post_map[key]
+
+        before_amount = before.get("violation_amount")
+        after_amount = after.get("violation_amount")
+
+        change = None
+        trend = "unknown"
+
+        if before_amount is not None and after_amount is not None:
+            change = float(after_amount) - float(before_amount)
+
+            tolerance = 1e-6
+
+            if change > tolerance:
+                trend = "worsened"
+            elif change < -tolerance:
+                trend = "improved"
+            else:
+                trend = "unchanged"
+
+        remaining.append(
+            {
+                "before": before,
+                "after": after,
+                "violation_amount_change": change,
+                "trend": trend,
+            }
+        )
+
+    return {
+        "new_count": len(new_keys),
+        "resolved_count": len(resolved_keys),
+        "remaining_count": len(remaining_keys),
+        "new": [post_map[key] for key in sorted(new_keys)],
+        "resolved": [pre_map[key] for key in sorted(resolved_keys)],
+        "remaining": remaining,
     }
+
 
 def _line_flow_snapshot(network, line_id: str) -> dict[str, float]:
     row = network.get_lines().loc[line_id]
