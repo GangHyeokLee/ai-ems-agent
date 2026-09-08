@@ -3,12 +3,17 @@ from __future__ import annotations
 from math import hypot, isfinite
 from pathlib import Path
 from typing import Any
+
 import pypowsybl as pp
 
-from ai_ems.network import load_network, run_ac_load_flow
+from ai_ems.network import (
+    LOADFLOW_PARAMETERS,
+    load_network,
+    run_ac_load_flow,
+)
 from ai_ems.tools.security_tools import run_line_contingency
 from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
-from ai_ems.network import LOADFLOW_PARAMETERS, load_network, run_ac_load_flow
+
 
 def generate_redispatch_candidates(
     network,
@@ -164,6 +169,7 @@ def generate_redispatch_candidates(
         "candidates": candidates,
     }
 
+
 def validate_whole_network_redispatch(
     case_path: str | Path,
     outage_line_id: str,
@@ -281,6 +287,7 @@ def validate_whole_network_redispatch(
         ],
     }
 
+
 def validate_balanced_redispatch(
     case_path: str | Path,
     outage_line_id: str,
@@ -356,6 +363,14 @@ def validate_balanced_redispatch(
         down_after,
     )
 
+    whole_network_validation = validate_whole_network_redispatch(
+        case_path=case_path,
+        outage_line_id=outage_line_id,
+        up_generator_id=up_generator_id,
+        down_generator_id=down_generator_id,
+        delta_mw=delta_mw,
+    )
+
     control_network.update_generators(
         id=[up_generator_id, down_generator_id],
         target_p=[up_after, down_after],
@@ -396,6 +411,7 @@ def validate_balanced_redispatch(
         ),
         "loading_after_percent": None,
         "violation_remaining": None,
+        "whole_network_validation": whole_network_validation,
     }
 
     if not loadflow_result["converged"]:
@@ -476,6 +492,7 @@ def _require_id(index, equipment_id: str, label: str) -> None:
     if equipment_id not in index:
         raise ValueError(f"{label} not found: {equipment_id}")
 
+
 def _whole_network_violation_key(
     item: dict[str, Any],
 ) -> tuple[str, str, str]:
@@ -484,6 +501,7 @@ def _whole_network_violation_key(
         item["limit_type"],
         item["limit_name"],
     )
+
 
 def _summarize_whole_network_violations(
     violations,
