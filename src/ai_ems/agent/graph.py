@@ -2,6 +2,7 @@ import os
 
 from langchain_ollama import ChatOllama
 from langgraph.graph import (
+    END,
     START,
     MessagesState,
     StateGraph,
@@ -9,7 +10,11 @@ from langgraph.graph import (
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from ai_ems.agent.tools import create_agent_tools
+from ai_ems.agent.formatters import format_contingency_response
 
+import json
+
+from langchain_core.messages import AIMessage
 
 DEFAULT_MODEL = "qwen2:7b"
 DEFAULT_LLM_BASE_URL = "http://host.docker.internal:11434"
@@ -149,6 +154,19 @@ def create_agent_graph(
         return {
             "messages": [response]
         }
+
+    def deterministic_response_node(state: MessagesState):
+      tool_message = state["messages"][-1]
+
+      result = json.loads(tool_message.content)
+
+      response = format_contingency_response(result)
+
+      return {
+          "messages": [
+              AIMessage(content=response)
+          ]
+      }
 
     builder = StateGraph(MessagesState)
 
