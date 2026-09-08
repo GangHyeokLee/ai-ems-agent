@@ -73,19 +73,45 @@ def format_contingency_response(result: dict[str, Any]) -> str:
             ]
         )
     elif validation["violation_remaining"] is False:
-        lines.append(
-            "- 결과: 시험한 조치에서 해당 선로의 과부하가 해소되었습니다."
-        )
+        lines.append("- 결과: 시험한 조치에서 해당 선로의 과부하가 해소되었습니다.")
     else:
         lines.append(
             "- 결과: 설비 한계 정보가 없어 위반 해소 여부를 판정할 수 없습니다."
         )
 
-    lines.extend(
-        [
-            "- 주의: 현재 결과는 시험한 후보 중 최선의 결과이며 최적 Redispatch를 의미하지 않습니다.",
-            "- 현재 검증은 지정된 대상 선로 기준이며, 전체 계통의 신규 위반 여부는 별도 검증이 필요합니다.",
-        ]
+    lines.append(
+        "- 주의: 현재 결과는 시험한 후보 중 최선의 결과이며 최적 Redispatch를 의미하지 않습니다."
     )
+
+    whole = validation.get("whole_network_validation")
+
+    if whole is not None:
+        if whole["operator_strategy_status"] != "CONVERGED":
+            lines.append(
+                "- 전체 계통 Security 재검증이 수렴하지 않아 계통 전체 영향은 판정할 수 없습니다."
+            )
+        elif whole["new_violation_detected"]:
+            new_ids = ", ".join(
+                item["equipment_id"] for item in whole["new_violations"]
+            )
+            lines.append(
+                f"- 전체 계통 Security 재검증 결과 신규 위반이 확인되었습니다: {new_ids}"
+            )
+        else:
+            lines.append(
+                "- 전체 계통 Security 재검증 결과 새로운 위반은 확인되지 않았습니다."
+            )
+
+        remaining = whole["remaining_violations"]
+
+        if remaining:
+            remaining_ids = ", ".join(item["equipment_id"] for item in remaining)
+            lines.append(
+                f"- 재검증 후에도 기존 위반 설비가 남아 있습니다: {remaining_ids}"
+            )
+        else:
+            lines.append("- 재검증 후 기존 위반 설비도 모두 해소되었습니다.")
+    else:
+        lines.append("- 전체 계통의 신규 위반 여부는 별도 검증이 필요합니다.")
 
     return "\n".join(lines)
