@@ -121,6 +121,8 @@ def analyze_contingency_response(
             validated_candidates[0] if validated_candidates else None
         ),
         "initial_security": {
+            "pre_status": security_result["pre_status"],
+            "post_status": security_result["post_status"],
             "pre_violated_equipment_count": security_result[
                 "pre_violated_equipment_count"
             ],
