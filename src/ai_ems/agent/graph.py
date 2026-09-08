@@ -45,6 +45,15 @@ Contingency / Security Analysis:
   this calculation as transient or dynamic stability analysis
 - line_contingency already performs AC Security Analysis; do not say that another
   Security Analysis is required to validate that same contingency result
+- pre_violated_equipment_count means violations already present before the
+  contingency is applied
+- violation_comparison.new contains violations that appear after the contingency
+  but were not present before it
+- violation_comparison.remaining contains violations that were present both
+  before and after the contingency; use each item's trend to distinguish worsened,
+  improved, unchanged, or unknown cases
+- do not confuse contingency-induced new violations with new violations caused by
+  a redispatch action during corrective-action validation
 - distinguish pre-contingency flow, equipment limit, post-contingency value,
   and violation amount
 - use the exact physical quantity and unit from tool results; never describe
