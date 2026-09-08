@@ -164,6 +164,7 @@
             event.stopPropagation();
             clearMapSelection();
             element.classList.add("selected-line");
+            document.getElementById("outage-line").value = line.line_id;
             showLineTooltip(event, line, bus1, bus2);
           });
           svg.appendChild(hitElement);
