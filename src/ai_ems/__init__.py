@@ -1,7 +1,10 @@
 """Core package for the AI-EMS Agent project."""
 
 from .network import load_network, run_ac_load_flow
-from .tools.control_tools import validate_balanced_redispatch
+from .tools.control_tools import (
+    generate_redispatch_candidates,
+    validate_balanced_redispatch,
+)
 from .tools.network_tools import (
     get_line,
     get_network_summary,
@@ -20,5 +23,6 @@ __all__ = [
     "list_generators",
     "run_line_contingency",
     "rank_generator_sensitivities",
+    "generate_redispatch_candidates",
     "validate_balanced_redispatch",
 ]
