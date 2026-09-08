@@ -1,6 +1,9 @@
 """Plain Python tools exposed to the LangGraph agent layer."""
 
-from .control_tools import validate_balanced_redispatch
+from .control_tools import (
+    generate_redispatch_candidates,
+    validate_balanced_redispatch,
+)
 from .network_tools import (
     get_line,
     get_network_summary,
@@ -17,5 +20,6 @@ __all__ = [
     "list_generators",
     "run_line_contingency",
     "rank_generator_sensitivities",
+    "generate_redispatch_candidates",
     "validate_balanced_redispatch",
 ]
