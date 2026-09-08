@@ -127,15 +127,9 @@ def create_agent_graph(
 ):
     tools = create_agent_tools(network)
 
-    resolved_model_name = (
-        model_name
-        or os.getenv("AI_EMS_MODEL")
-        or DEFAULT_MODEL
-    )
+    resolved_model_name = model_name or os.getenv("AI_EMS_MODEL") or DEFAULT_MODEL
     resolved_base_url = (
-        base_url
-        or os.getenv("AI_EMS_LLM_BASE_URL")
-        or DEFAULT_LLM_BASE_URL
+        base_url or os.getenv("AI_EMS_LLM_BASE_URL") or DEFAULT_LLM_BASE_URL
     )
 
     model = ChatOllama(
@@ -147,26 +141,26 @@ def create_agent_graph(
     model_with_tools = model.bind_tools(tools)
 
     def agent_node(state: MessagesState):
-        response = model_with_tools.invoke(
-            state["messages"]
-        )
+        response = model_with_tools.invoke(state["messages"])
 
-        return {
-            "messages": [response]
-        }
+        return {"messages": [response]}
 
     def deterministic_response_node(state: MessagesState):
-      tool_message = state["messages"][-1]
+        tool_message = state["messages"][-1]
 
-      result = json.loads(tool_message.content)
+        result = json.loads(tool_message.content)
 
-      response = format_contingency_response(result)
+        response = format_contingency_response(result)
 
-      return {
-          "messages": [
-              AIMessage(content=response)
-          ]
-      }
+        return {"messages": [AIMessage(content=response)]}
+
+    def route_after_tools(state: MessagesState):
+        last_message = state["messages"][-1]
+
+        if getattr(last_message, "name", None) == "contingency_response_analysis":
+            return "deterministic_response"
+
+        return "agent"
 
     builder = StateGraph(MessagesState)
 
@@ -180,6 +174,11 @@ def create_agent_graph(
         ToolNode(tools),
     )
 
+    builder.add_node(
+        "deterministic_response",
+        deterministic_response_node,
+    )
+
     builder.add_edge(
         START,
         "agent",
@@ -190,9 +189,18 @@ def create_agent_graph(
         tools_condition,
     )
 
-    builder.add_edge(
+    builder.add_conditional_edges(
         "tools",
-        "agent",
+        route_after_tools,
+        {
+            "deterministic_response": "deterministic_response",
+            "agent": "agent",
+        },
+    )
+
+    builder.add_edge(
+        "deterministic_response",
+        END,
     )
 
     return builder.compile()
