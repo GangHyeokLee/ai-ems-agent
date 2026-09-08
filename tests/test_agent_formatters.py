@@ -61,3 +61,43 @@ def test_format_contingency_response_handles_nonconvergence() -> None:
 
     assert "AC 조류계산이 수렴하지 않아" in text
     assert "개선 효과를 확인할 수 없습니다." in text
+
+
+def test_format_contingency_response_distinguishes_contingency_and_redispatch_violations() -> None:
+    result = _base_result()
+    result["outage_line_id"] = "LINE-81-84"
+    result["monitored_line_id"] = "LINE-16-28"
+    result["initial_security"] = {
+        "pre_status": "CONVERGED",
+        "post_status": "CONVERGED",
+        "pre_violated_equipment_count": 0,
+        "post_violated_equipment_count": 2,
+        "violation_comparison": {
+            "new_count": 2,
+            "resolved_count": 0,
+            "remaining_count": 0,
+            "new": [
+                {"equipment_id": "LINE-134-193"},
+                {"equipment_id": "LINE-16-28"},
+            ],
+            "resolved": [],
+            "remaining": [],
+        },
+    }
+    result["best_tested_candidate"]["ac_validation"]["whole_network_validation"] = {
+        "operator_strategy_status": "CONVERGED",
+        "new_violation_detected": False,
+        "new_violations": [],
+        "remaining_violations": [
+            {"equipment_id": "LINE-134-193"},
+            {"equipment_id": "LINE-16-28"},
+        ],
+    }
+
+    text = format_contingency_response(result)
+
+    assert "사고 전 위반 설비: 0개 / 사고 후 위반 설비: 2개 / 사고로 인한 신규 위반: 2개" in text
+    assert "사고로 새로 발생한 위반 설비: LINE-134-193, LINE-16-28" in text
+    assert "Redispatch로 인해 추가로 발생한 신규 위반은 확인되지 않았습니다." in text
+    assert "사고 후 발생한 위반 설비 중 제어 후에도 남아 있습니다: LINE-134-193, LINE-16-28" in text
+    assert "기존 위반 설비가 남아 있습니다" not in text
