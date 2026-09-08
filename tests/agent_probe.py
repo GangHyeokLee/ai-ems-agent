@@ -9,19 +9,14 @@ from ai_ems.agent.graph import (
     create_agent_graph,
 )
 
-
-network = load_network(
-    "data/KPG193_ver2_0_pypowsybl.mat"
-)
+network = load_network("data/KPG193_ver2_0_pypowsybl.mat")
 
 graph = create_agent_graph(network)
 
 result = graph.invoke(
     {
         "messages": [
-            SystemMessage(
-                content=SYSTEM_PROMPT
-            ),
+            SystemMessage(content=SYSTEM_PROMPT),
             # HumanMessage(
             #     content=(
             #         "LINE-16-28 선로가 탈락하면 "
@@ -29,12 +24,15 @@ result = graph.invoke(
             #         "LINE-16-22를 모니터링해."
             #     )
             # ),
+            # HumanMessage(
+            #     content=(
+            #         "LINE-16-28 선로 탈락 시 "
+            #         "LINE-16-22 조류에 영향이 큰 발전기 "
+            #         "5개를 알려줘."
+            #     )
+            # ),
             HumanMessage(
-                content=(
-                    "LINE-16-28 선로 탈락 시 "
-                    "LINE-16-22 조류에 영향이 큰 발전기 "
-                    "5개를 알려줘."
-                )
+                content=("LINE-16-28 사고를 분석하고 " "대응방안까지 검토해줘.")
             ),
         ]
     }
@@ -43,9 +41,7 @@ result = graph.invoke(
 print("=== Conversation ===")
 
 for message in result["messages"]:
-    print(
-        f"\n[{message.__class__.__name__}]"
-    )
+    print(f"\n[{message.__class__.__name__}]")
 
     print(message.content)
 

@@ -17,6 +17,7 @@ from ai_ems import (  # noqa: E402
     run_line_contingency,
     validate_balanced_redispatch,
 )
+from ai_ems.tools.workflow_tools import analyze_contingency_response
 
 
 CASE_FILE = PROJECT_ROOT / "data" / "KPG193_ver2_0_pypowsybl.mat"
@@ -132,3 +133,24 @@ def test_kpg_balanced_redispatch_improves_known_violation() -> None:
     assert result["improvement_mva"] > 0.0
     assert result["loading_after_percent"] < result["loading_before_percent"]
     assert result["violation_remaining"] is True
+
+def test_kpg_contingency_response_workflow() -> None:
+    result = analyze_contingency_response(
+        case_path = CASE_FILE,
+        outage_line_id = "LINE-16-28",
+        delta_mw = 10.0,
+        top_n = 3,
+    )
+
+    assert result["analysis_type"] == "Contingency Response Analysis"
+    assert result["monitored_line_id"] == "LINE-16-22"
+    assert result["target_selection"] == "most_severe_violation"
+    assert result["candidate_count"] == 3
+
+    best = result["best_tested_candidate"]
+
+    assert best is not None
+    assert best["ac_validation_rank"] == 1
+    assert best["ac_validation"]["after_redispatch"]["converged"] is True
+    assert best["ac_validation"]["improved"] is True
+    assert best["ac_validation"]["improvement_mva"] > 0.0

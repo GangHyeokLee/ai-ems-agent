@@ -3,16 +3,48 @@ from ai_ems.tools.control_tools import (
     generate_redispatch_candidates,
     validate_balanced_redispatch,
 )
+from ai_ems.tools.security_tools import (
+    run_line_contingency,
+    select_most_severe_violated_line,
+)
 
+def _ac_sort_key(item):
+    improvement = item["ac_validation"]["improvement_mva"]
+
+    if improvement is None:
+        return (float("inf"), item["rank"])
+
+    return (-round(improvement, 6), item["rank"])
 
 def analyze_contingency_response(
     case_path,
     outage_line_id: str,
-    monitored_line_id: str,
+    monitored_line_id: str | None = None,
     delta_mw: float = 10.0,
     top_n: int = 3,
 ) -> dict:
     network = load_network(case_path)
+
+    target_selection = "user_specified"
+
+    if monitored_line_id is None:
+        security_result = run_line_contingency(
+            network,
+            outage_line_id=outage_line_id,
+        )
+
+        selected = select_most_severe_violated_line(
+            network,
+            security_result,
+        )
+
+        if selected is None:
+            raise ValueError(
+                "No overloaded transmission line found after the contingency."
+            )
+
+        monitored_line_id = selected["equipment_id"]
+        target_selection = "most_severe_violation"
 
     candidate_result = generate_redispatch_candidates(
         network,
@@ -49,17 +81,11 @@ def analyze_contingency_response(
                     "abs_p1_reduction_mw": candidate["predicted_abs_p1_reduction_mw"],
                 },
                 "ac_validation": validation,
+                "target_selection": target_selection,
             }
         )
 
-    validated_candidates.sort(
-        key=lambda x: (
-            x["ac_validation"]["improvement_mva"]
-            if x["ac_validation"]["improvement_mva"] is not None
-            else float("-inf")
-        ),
-        reverse=True,
-    )
+    validated_candidates.sort(key=_ac_sort_key)
 
     for rank, item in enumerate(validated_candidates, start=1):
         item["ac_validation_rank"] = rank
@@ -68,6 +94,7 @@ def analyze_contingency_response(
         "analysis_type": "Contingency Response Analysis",
         "outage_line_id": outage_line_id,
         "monitored_line_id": monitored_line_id,
+        "target_selection": target_selection,
         "delta_mw": delta_mw,
         "candidate_count": len(validated_candidates),
         "candidates": validated_candidates,

@@ -17,7 +17,7 @@ from ai_ems.tools.security_tools import (
     select_primary_violation,
 )
 from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
-
+from ai_ems.tools.workflow_tools import analyze_contingency_response
 
 DEFAULT_CASE_FILE = "data/KPG193_ver2_0_pypowsybl.mat"
 
@@ -185,6 +185,24 @@ def create_agent_tools(
             delta_mw=delta_mw,
         )
 
+    @tool
+    def contingency_response_analysis(
+        outage_line_id: str,
+        delta_mw: float = 10.0,
+        top_n: int = 3,
+    ) -> dict[str, Any]:
+        """Analyze a line contingency and evaluate redispatch response candidates.
+
+        Automatically select the most severely overloaded line, generate sensitivity-based balanced redispatch candidates, and validate them with AC power flow. This is candidate analysis, not optimization.
+        """
+
+        return analyze_contingency_response(
+            case_path=case_path,
+            outage_line_id=outage_line_id,
+            delta_mw=delta_mw,
+            top_n=top_n,
+        )
+
     return [
         network_summary,
         line_list,
@@ -193,4 +211,5 @@ def create_agent_tools(
         line_contingency,
         generator_sensitivity,
         balanced_redispatch_validation,
+        contingency_response_analysis,
     ]
