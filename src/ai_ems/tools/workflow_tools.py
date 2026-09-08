@@ -1,6 +1,3 @@
-from pathlib import Path
-from typing import Any
-
 from ai_ems.network import load_network
 from ai_ems.tools.control_tools import (
     generate_redispatch_candidates,
@@ -27,7 +24,7 @@ def analyze_contingency_response(
 
     validated_candidates = []
 
-    for candidate in candidate_result["candidats"]:
+    for candidate in candidate_result["candidates"]:
         validation = validate_balanced_redispatch(
             case_path=case_path,
             outage_line_id=outage_line_id,
