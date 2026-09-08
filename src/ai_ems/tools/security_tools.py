@@ -63,8 +63,7 @@ def run_line_contingency(
         }
 
     base_monitored = {
-        line_id: _line_flow_snapshot(network, line_id)
-        for line_id in monitored
+        line_id: _line_flow_snapshot(network, line_id) for line_id in monitored
     }
 
     analysis = pp.security.create_analysis()
@@ -79,13 +78,23 @@ def run_line_contingency(
         network,
         parameters=LOADFLOW_PARAMETERS,
     )
+
+    pre = result.pre_contingency_result
     post = result.find_post_contingency_result(contingency_id)
 
-    violations = [
-        _serialize_violation(item)
-        for item in post.limit_violations
-    ]
+    pre_violations = [_serialize_violation(item) for item in pre.limit_violations]
+
+    pre_violated_equipment = _summarize_violations(pre_violations)
+
+    violations = [_serialize_violation(item) for item in post.limit_violations]
+
     violated_equipment = _summarize_violations(violations)
+
+    violation_comparison = _compare_violation_summaries(
+        pre_violated_equipment,
+        violated_equipment,
+    )
+
     monitored_results = _serialize_branch_results(
         result.branch_results,
         contingency_id,
@@ -96,11 +105,28 @@ def run_line_contingency(
         "contingency_id": contingency_id,
         "outage_line_id": outage_line_id,
         "base_converged": True,
+
+        "pre_status": pre.status.name,
+        "pre_violation_count": len(pre_violations),
+        "pre_violated_equipment_count": len(
+            pre_violated_equipment
+        ),
+        "pre_limit_violations": pre_violations,
+        "pre_violated_equipment": (
+            pre_violated_equipment
+        ),
+
         "post_status": post.status.name,
         "violation_count": len(violations),
-        "violated_equipment_count": len(violated_equipment),
+        "violated_equipment_count": len(
+            violated_equipment
+        ),
         "limit_violations": violations,
         "violated_equipment": violated_equipment,
+
+        "violation_comparison": (
+            violation_comparison
+        ),
         "monitored_branches": monitored_results,
     }
 
@@ -180,11 +206,7 @@ def _summarize_violations(
             for item in items
             if isinstance(item.get("limit"), (int, float))
         ]
-        sides = [
-            str(item["side"])
-            for item in items
-            if item.get("side") is not None
-        ]
+        sides = [str(item["side"]) for item in items if item.get("side") is not None]
 
         summary: dict[str, Any] = {
             "equipment_id": equipment_id,
@@ -218,15 +240,30 @@ def _summarize_violations(
                 "APPARENT_POWER",
             }:
                 summary["loading_percent"] = (
-                    value / limit * 100.0
-                    if limit != 0
-                    else None
+                    value / limit * 100.0 if limit != 0 else None
                 )
 
         summaries.append(summary)
 
     return summaries
 
+def _violation_summary_key(
+    item:  dict[str, Any],
+) -> tuple[str, str, str]:
+    return (
+        str(item.get("equipment_id", "")),
+        str(item.get("limit_type", "")),
+        str(item.get("limit_name", "")),
+    )
+
+def _compare_violation_summarize(
+    pre: list[dict[str, Any]],
+    post: list[dict[str, Any]],
+) -> dict[str, Any]:
+    pre_map = {
+        _violation_summary_key(item): item
+        for  item in pre
+    }
 
 def _line_flow_snapshot(network, line_id: str) -> dict[str, float]:
     row = network.get_lines().loc[line_id]
@@ -314,10 +351,7 @@ def _serialize_branch_results(
             if source in row.index and not _is_missing(row[source]):
                 item[target] = float(row[source])
 
-        if all(
-            key in item
-            for key in ["p1_mw", "q1_mvar", "p2_mw", "q2_mvar"]
-        ):
+        if all(key in item for key in ["p1_mw", "q1_mvar", "p2_mw", "q2_mvar"]):
             item["apparent_power_mva"] = max(
                 float(np.hypot(item["p1_mw"], item["q1_mvar"])),
                 float(np.hypot(item["p2_mw"], item["q2_mvar"])),
