@@ -280,15 +280,59 @@ AC Power Flow / Security Analysis
 
 ## Local LLM
 
-현재 개발 환경에서는 Ollama의 `qwen2:7b`를 사용한다.
+프로젝트 루트의 `.env`에서 사용할 Ollama 모델과 API 주소를 설정한다.
+`.env`는 Git에서 제외되므로 새 환경에서는 아래 내용으로 직접 생성한다.
 
-Docker container에서는 Windows host의 Ollama API에 다음 주소로 접근한다.
-
-```text
-http://host.docker.internal:11434
+```dotenv
+AI_EMS_MODEL=qwen3.5:9b
+AI_EMS_LLM_BASE_URL=http://172.19.32.1:11434
 ```
 
-Ollama host는 container에서 접근할 수 있도록 별도로 설정되어 있어야 한다.
+코드는 `.env`를 자동으로 읽지 않는다. **새 터미널마다 프로젝트 루트에서** 다음 명령으로 환경변수를 불러온다.
+
+```bash
+source .venv/bin/activate
+set -a
+source .env
+set +a
+export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
+```
+
+이후 같은 터미널에서 원하는 명령을 실행한다.
+
+```bash
+# 대화형 CLI (종료: exit 또는 quit)
+python app.py
+
+# 웹 UI (종료: Ctrl+C, 브라우저: http://localhost:8000)
+python -m uvicorn web_app:app --host 127.0.0.1 --port 8000
+
+# Agent 동작 확인
+python tests/agent_probe.py
+```
+
+CLI와 웹 UI는 각각 실행하며, 동시에 사용할 때는 별도 터미널에서 환경변수를 불러온다.
+가상환경이 없다면 아래 Installation의 Python 설치 단계를 먼저 수행한다.
+CLI에는 `data/KPG193_ver2_0_pypowsybl.mat`이 필요하고, 웹 UI에는 `data/bus_location.csv`도 필요하다.
+
+Docker에서는 `--env-file .env`로 같은 설정을 전달한다. 호스트 가상환경 활성화나 `source .env`는 필요 없다.
+
+```bash
+docker run --rm -it --env-file .env \
+  -v "$(pwd):/app" \
+  ai-ems-agent:dev python app.py
+
+docker run --rm --env-file .env \
+  -p 127.0.0.1:8000:8000 \
+  -v "$(pwd):/app" \
+  ai-ems-agent:dev \
+  python -m uvicorn web_app:app --host 0.0.0.0 --port 8000
+```
+
+아래 Tests 및 Interactive CLI의 Docker 명령에도 `--env-file .env`를 추가하면 이 설정이 적용된다.
+환경변수가 없으면 코드 기본값인 `qwen2:7b`, `http://host.docker.internal:11434`를 사용한다.
+Ollama 서버에 `qwen3.5:9b` 모델이 준비되어 있고 실행 환경에서 API 주소에 접근할 수 있어야 한다.
+서버 주소가 바뀌면 `.env`를 수정하고 환경변수를 다시 불러온 뒤 프로그램을 재시작한다.
 
 Agent의 자연어 설명은 Local LLM의 크기와 품질에 영향을 받을 수 있다. 따라서 전력계통 수치와 상태 판단은 가능한 한 Domain Tool의 구조화 결과로 고정하고, LLM에는 Tool 선택과 설명 역할을 중심으로 맡긴다.
 

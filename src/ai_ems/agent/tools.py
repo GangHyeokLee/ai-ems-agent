@@ -170,11 +170,12 @@ def create_agent_tools(
         down_generator_id: str,
         delta_mw: float,
     ) -> dict[str, Any]:
-        """Validate a balanced generator redispatch with post-contingency AC power flow.
+        """Validate one explicitly specified balanced redispatch with AC power flow.
 
-        Increase one generator target by delta_mw and decrease another by the
-        same amount, then compare the monitored line before and after the
-        redispatch. This is a what-if validation, not an optimization.
+        Use this tool only when the up generator, down generator, and redispatch
+        amount are explicitly specified. Do not use it to generate or choose
+        corrective-action candidates. For contingency analysis with automatic
+        response-candidate generation, use contingency_response_analysis.
         """
         return validate_balanced_redispatch(
             case_path=case_path,
@@ -191,9 +192,12 @@ def create_agent_tools(
         delta_mw: float = 10.0,
         top_n: int = 3,
     ) -> dict[str, Any]:
-        """Analyze a line contingency and evaluate redispatch response candidates.
+        """Preferred high-level tool for contingency analysis and corrective-action review.
 
-        Automatically select the most severely overloaded line, generate sensitivity-based balanced redispatch candidates, and validate them with AC power flow. This is candidate analysis, not optimization.
+        Given an outage line, automatically select the most severely overloaded line,
+        generate sensitivity-based balanced redispatch candidates, and validate them
+        with AC power flow. Use this when the user asks to analyze an outage and review
+        or recommend response candidates. This is candidate analysis, not optimization.
         """
 
         return analyze_contingency_response(

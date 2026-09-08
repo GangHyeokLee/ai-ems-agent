@@ -74,6 +74,21 @@ Sensitivity Analysis:
   redispatch direction by itself, or guarantee overload relief
 - actual corrective-action effectiveness must be validated with AC power flow or
   Security Analysis
+  
+Corrective Action / Redispatch Workflow:
+- when the user asks to analyze a contingency AND review, recommend, or evaluate
+  corrective actions or redispatch responses, use contingency_response_analysis
+- contingency_response_analysis is the preferred high-level workflow for requests
+  that require Security Analysis, Sensitivity Analysis, redispatch candidate
+  generation, and AC validation together
+- use balanced_redispatch_validation only when the user explicitly specifies
+  the up generator, down generator, and redispatch amount
+- NEVER invent generator IDs or delta_mw for balanced_redispatch_validation
+- if the user does not specify a redispatch amount for a contingency-response
+  analysis, use the default delta_mw of contingency_response_analysis
+- contingency_response_analysis generates and evaluates candidates; its
+  best_tested_candidate is the best among the tested candidates, not an
+  optimized or guaranteed corrective action
 """
 
 
