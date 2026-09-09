@@ -134,9 +134,7 @@ def create_agent_graph(
     tools = create_agent_tools(network)
 
     resolved_model_name = model_name or MODEL_NAME
-    resolved_base_url = (
-        base_url  or LLM_BASE_URL
-    )
+    resolved_base_url = base_url or LLM_BASE_URL
 
     model = ChatOllama(
         model=resolved_model_name,
