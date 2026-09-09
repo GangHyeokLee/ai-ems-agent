@@ -1,5 +1,4 @@
 import json
-import os
 
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_ollama import ChatOllama
@@ -13,11 +12,10 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from ai_ems.agent.formatters import format_contingency_response
 from ai_ems.agent.tools import create_agent_tools
-
-
-DEFAULT_MODEL = "qwen2:7b"
-DEFAULT_LLM_BASE_URL = "http://host.docker.internal:11434"
-
+from ai_ems.config import (
+    LLM_BASE_URL,
+    MODEL_NAME,
+)
 
 SYSTEM_PROMPT = """
 You are an AI assistant for power-system analysis.
@@ -135,9 +133,9 @@ def create_agent_graph(
 ):
     tools = create_agent_tools(network)
 
-    resolved_model_name = model_name or os.getenv("AI_EMS_MODEL") or DEFAULT_MODEL
+    resolved_model_name = model_name or MODEL_NAME
     resolved_base_url = (
-        base_url or os.getenv("AI_EMS_LLM_BASE_URL") or DEFAULT_LLM_BASE_URL
+        base_url  or LLM_BASE_URL
     )
 
     model = ChatOllama(

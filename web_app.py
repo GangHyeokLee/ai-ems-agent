@@ -21,9 +21,11 @@ from ai_ems.tools.security_tools import (
     select_most_severe_violated_line,
 )
 from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
+from ai_ems.config import (
+    BUS_LOCATION_FILE,
+    CASE_FILE,
+)
 
-CASE_FILE = "data/KPG193_ver2_0_pypowsybl.mat"
-BUS_LOCATION_FILE = "data/bus_location.csv"
 UI_DIR = Path("ui")
 
 network = load_network(CASE_FILE)
@@ -118,11 +120,7 @@ def security_analysis(
     outage_line_id: str,
     monitored_line_id: str | None = None,
 ):
-    monitored_line_ids = (
-        [monitored_line_id]
-        if monitored_line_id is not None
-        else None
-    )
+    monitored_line_ids = [monitored_line_id] if monitored_line_id is not None else None
 
     result = run_line_contingency(
         network,
@@ -214,14 +212,10 @@ def chat(request: ChatRequest):
     output_messages = result["messages"]
     agent_sessions[session_id] = output_messages
 
-    generated_messages = output_messages[
-        len(input_messages):
-    ]
+    generated_messages = output_messages[len(input_messages) :]
 
     answer = _final_ai_answer(output_messages)
-    ui_updates = _extract_ui_updates(
-        generated_messages
-    )
+    ui_updates = _extract_ui_updates(generated_messages)
 
     return {
         "session_id": session_id,
@@ -243,19 +237,12 @@ def _security_result_for_ui(
                 "equipment_id": item["equipment_id"],
                 "limit_type": limit_type,
                 "limit_name": item.get("limit_name"),
-                "unit": item.get("unit")
-                or get_limit_unit(limit_type),
+                "unit": item.get("unit") or get_limit_unit(limit_type),
                 "limit": item.get("limit"),
                 "value": item.get("value"),
-                "violation_amount": item.get(
-                    "violation_amount"
-                ),
-                "violation_direction": item.get(
-                    "violation_direction"
-                ),
-                "loading_percent": item.get(
-                    "loading_percent"
-                ),
+                "violation_amount": item.get("violation_amount"),
+                "violation_direction": item.get("violation_direction"),
+                "loading_percent": item.get("loading_percent"),
             }
         )
 
@@ -263,9 +250,7 @@ def _security_result_for_ui(
         "outage_line_id": result["outage_line_id"],
         "base_converged": result["base_converged"],
         "post_status": result["post_status"],
-        "violated_equipment_count": result[
-            "violated_equipment_count"
-        ],
+        "violated_equipment_count": result["violated_equipment_count"],
         "violations": violations,
     }
 
@@ -279,35 +264,21 @@ def _agent_security_result_for_ui(
     if violation is not None:
         violations.append(
             {
-                "equipment_id": violation.get(
-                    "equipment_id"
-                ),
-                "limit_type": violation.get(
-                    "limit_type"
-                ),
+                "equipment_id": violation.get("equipment_id"),
+                "limit_type": violation.get("limit_type"),
                 "limit_name": None,
                 "unit": violation.get("unit"),
                 "limit": violation.get("limit"),
                 "value": violation.get("post_value"),
-                "violation_amount": violation.get(
-                    "violation_amount"
-                ),
-                "violation_direction": violation.get(
-                    "violation_direction"
-                ),
-                "loading_percent": violation.get(
-                    "loading_percent"
-                ),
+                "violation_amount": violation.get("violation_amount"),
+                "violation_direction": violation.get("violation_direction"),
+                "loading_percent": violation.get("loading_percent"),
             }
         )
 
     return {
-        "outage_line_id": result.get(
-            "outage_line_id"
-        ),
-        "base_converged": result.get(
-            "base_converged"
-        ),
+        "outage_line_id": result.get("outage_line_id"),
+        "base_converged": result.get("base_converged"),
         "post_status": result.get("post_status"),
         "violated_equipment_count": result.get(
             "violated_equipment_count",
@@ -320,59 +291,33 @@ def _agent_security_result_for_ui(
 def _sensitivity_result_for_ui(
     result: dict[str, Any],
 ) -> dict[str, Any]:
-    generators = network.get_generators(
-        all_attributes=True
-    )
+    generators = network.get_generators(all_attributes=True)
     candidates = []
 
     for candidate in result.get("candidates", []):
         generator_id = candidate["generator_id"]
         row = generators.loc[generator_id]
         voltage_level_id = row["voltage_level_id"]
-        bus_id = int(
-            voltage_level_id.replace("VL-", "")
-        )
+        bus_id = int(voltage_level_id.replace("VL-", ""))
         location = bus_location_map.get(bus_id)
 
         candidates.append(
             {
                 **candidate,
                 "bus_id": bus_id,
-                "latitude": (
-                    location["latitude"]
-                    if location
-                    else None
-                ),
-                "longitude": (
-                    location["longitude"]
-                    if location
-                    else None
-                ),
-                "name_korean": (
-                    location["name_korean"]
-                    if location
-                    else None
-                ),
-                "name_english": (
-                    location["name_english"]
-                    if location
-                    else None
-                ),
+                "latitude": (location["latitude"] if location else None),
+                "longitude": (location["longitude"] if location else None),
+                "name_korean": (location["name_korean"] if location else None),
+                "name_english": (location["name_english"] if location else None),
             }
         )
 
     return {
-        "outage_line_id": result.get(
-            "outage_line_id"
-        ),
-        "monitored_line_id": result.get(
-            "monitored_line_id"
-        ),
+        "outage_line_id": result.get("outage_line_id"),
+        "monitored_line_id": result.get("monitored_line_id"),
         "candidate_count": len(candidates),
         "candidates": candidates,
-        "target_selection": result.get(
-            "target_selection"
-        ),
+        "target_selection": result.get("target_selection"),
     }
 
 
@@ -385,21 +330,16 @@ def _extract_ui_updates(
     for message in messages:
         if isinstance(message, AIMessage):
             for tool_call in message.tool_calls:
-                tool_names[tool_call["id"]] = (
-                    tool_call["name"]
-                )
+                tool_names[tool_call["id"]] = tool_call["name"]
             continue
 
         if not isinstance(message, ToolMessage):
             continue
 
-        tool_name = (
-            getattr(message, "name", None)
-            or tool_names.get(message.tool_call_id)
+        tool_name = getattr(message, "name", None) or tool_names.get(
+            message.tool_call_id
         )
-        payload = _parse_tool_payload(
-            message.content
-        )
+        payload = _parse_tool_payload(message.content)
 
         if not isinstance(payload, dict):
             continue
@@ -408,11 +348,7 @@ def _extract_ui_updates(
             updates.append(
                 {
                     "type": "security",
-                    "result": (
-                        _agent_security_result_for_ui(
-                            payload
-                        )
-                    ),
+                    "result": (_agent_security_result_for_ui(payload)),
                 }
             )
 
@@ -420,11 +356,7 @@ def _extract_ui_updates(
             updates.append(
                 {
                     "type": "sensitivity",
-                    "result": (
-                        _sensitivity_result_for_ui(
-                            payload
-                        )
-                    ),
+                    "result": (_sensitivity_result_for_ui(payload)),
                 }
             )
 
