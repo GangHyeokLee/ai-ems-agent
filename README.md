@@ -13,7 +13,7 @@ Local LLM + LangGraph + PyPowSyBl 기반 **AI-EMS Agent PoC** 프로젝트.
 
 ## Current Status
 
-현재 다음 흐름까지 구현하고 동작을 확인하였다.
+현재 다음 흐름까지 구현하였다.
 
 ```text
 User Natural Language Request
@@ -46,6 +46,18 @@ Deterministic Formatter
 Operator-facing Response / Web UI
 ```
 
+또한 Domain Tool을 다른 Simulator에서 LLM 없이 직접 호출할 수 있도록 별도의 **Physics API**를 제공한다.
+
+```text
+Senior / External Simulator
+        ↓ HTTP
+AI-EMS Physics API
+        ↓
+Public API Adapter / Response Schema
+        ↓
+PyPowSyBl Domain Tools
+```
+
 구현·검증된 주요 기능:
 
 - KPG-193 기반 PyPowSyBl network load
@@ -65,14 +77,11 @@ Operator-facing Response / Web UI
 - LangGraph ToolNode 기반 Local LLM Tool Calling
 - 고수준 `contingency_response_analysis` workflow
 - 고위험 계통 결과의 deterministic formatter
-- CLI 및 FastAPI Web UI
+- FastAPI Web UI
 - KPG 계통 지도 / 사고·위반 선로 / 민감도 후보 시각화
-
-현재 regression test 결과:
-
-```text
-13 passed
-```
+- 독립 실행 가능한 Physics REST API
+- Pydantic 기반 Public Request / Response schema
+- Domain result → Public API response adapter
 
 ---
 
@@ -81,8 +90,6 @@ Operator-facing Response / Web UI
 ### 1. Domain Layer
 
 LLM과 독립적인 Python / PyPowSyBl 계층이다.
-
-주요 모듈:
 
 ```text
 src/ai_ems/
@@ -104,9 +111,38 @@ src/ai_ems/
 - `control_tools.py`: Redispatch 후보 생성 / 발전기 출력 제약 guardrail / AC 검증 / whole-network Operator Strategy Security validation
 - `workflow_tools.py`: Security → Sensitivity → Candidate → AC / Security Validation 연결
 
-Domain layer는 LLM 없이도 직접 호출할 수 있도록 유지한다.
+Domain layer는 LLM 없이 직접 호출할 수 있도록 유지한다.
 
-### 2. Agent Layer
+### 2. Public Physics API Layer
+
+Agent / Web UI와 별개로 실행할 수 있는 물리해석 API이다.
+
+```text
+src/ai_ems/api/
+├─ app.py
+├─ routes.py
+├─ schemas.py
+└─ adapters.py
+```
+
+역할:
+
+- `app.py`: 독립 FastAPI Physics service 생성
+- `routes.py`: 외부 Simulator가 호출할 REST endpoint
+- `schemas.py`: Public Request / Response 계약
+- `adapters.py`: 내부 Domain result를 안정된 Public Response로 변환
+
+현재 endpoint:
+
+```text
+GET  /api/health
+POST /api/v1/security-analysis
+POST /api/v1/contingency-response
+```
+
+외부 Simulator는 PyPowSyBl 객체 구조를 직접 알 필요 없이 위 API의 JSON 계약만 사용하면 된다.
+
+### 3. Agent Layer
 
 ```text
 src/ai_ems/agent/
@@ -132,7 +168,23 @@ balanced_redispatch_validation
 contingency_response_analysis
 ```
 
-### 3. Corrective-action Workflow
+### 4. Web UI Layer
+
+`web_app.py`는 Agent와 KPG 계통 시각화를 위한 별도 FastAPI app이다.
+
+```text
+Web UI / Chat
+      ↓
+web_app.py
+      ↓
+Agent + Domain Tools
+```
+
+Physics API와 Web UI는 독립된 port에서 동시에 실행할 수 있다.
+
+---
+
+## Corrective-action Workflow
 
 사용자가 다음과 같이 요청하면:
 
@@ -172,7 +224,7 @@ Whole-network Security 재검증
 
 이 결과는 **시험한 후보 중 최선의 결과**이며 OPF / SCED에 의한 최적 Redispatch를 의미하지 않는다.
 
-### 4. Deterministic Response
+### Deterministic Response
 
 작은 Local LLM이 수치 단위, 부호, `%`와 `%p`, MW와 MVA 등을 잘못 해석하는 문제를 줄이기 위해 고수준 corrective-action 결과는 두 번째 LLM inference를 거치지 않는다.
 
@@ -281,9 +333,97 @@ Sensitivity는 **유효전력 조류 변화(MW)**를 예측하며, AC validation
 
 ---
 
-## Web UI
+## Environment Configuration
 
-FastAPI + browser UI를 제공한다.
+프로젝트 설정은 repository root의 `.env`를 사용한다.
+
+실제 `.env`는 Git에 commit하지 않으며, 공유 가능한 예시는 `.env.example`에 둔다.
+
+초기 설정:
+
+```bash
+cp .env.example .env
+```
+
+예시:
+
+```dotenv
+# Local LLM
+AI_EMS_MODEL=qwen3.5:9b
+AI_EMS_LLM_BASE_URL=http://127.0.0.1:11434
+
+# Grid data
+AI_EMS_CASE_FILE=data/KPG193_ver2_0_pypowsybl.mat
+AI_EMS_BUS_LOCATION_FILE=data/bus_location.csv
+
+# Agent Web UI
+AI_EMS_WEB_HOST=127.0.0.1
+AI_EMS_WEB_PORT=8000
+
+# Physics API
+AI_EMS_PHYSICS_HOST=127.0.0.1
+AI_EMS_PHYSICS_PORT=8001
+
+# Logging
+AI_EMS_LOG_LEVEL=info
+```
+
+WSL에서 Windows에 실행 중인 Ollama를 호출하는 경우 `AI_EMS_LLM_BASE_URL`은 환경에 맞는 Windows host IP 또는 접근 가능한 Ollama 주소로 변경한다.
+
+`src/ai_ems/config.py`는 `python-dotenv`를 사용해 `.env`를 자동으로 읽는다. 이미 shell에 설정된 환경변수는 `.env`보다 우선한다.
+
+권장 shell 초기화:
+
+```bash
+source .venv/bin/activate
+set -a; source .env; set +a
+export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
+```
+
+`source .env`는 Uvicorn 실행 명령에서 `$AI_EMS_WEB_PORT`, `$AI_EMS_PHYSICS_PORT` 같은 값을 shell 변수로 사용할 수 있게 한다.
+
+---
+
+## Installation
+
+Python 3.11 기준.
+
+```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+cp .env.example .env
+```
+
+이후 `.env`를 환경에 맞게 수정하고 다음 초기화 명령을 실행한다.
+
+```bash
+source .venv/bin/activate
+set -a; source .env; set +a
+export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
+```
+
+---
+
+## Run
+
+### CLI Agent
+
+```bash
+python app.py
+```
+
+### Agent Web UI
+
+```bash
+python -m uvicorn web_app:app --host "$AI_EMS_WEB_HOST" --port "$AI_EMS_WEB_PORT" --log-level "$AI_EMS_LOG_LEVEL"
+```
+
+브라우저:
+
+```text
+http://127.0.0.1:8000/
+```
 
 주요 기능:
 
@@ -296,17 +436,84 @@ FastAPI + browser UI를 제공한다.
 - Agent chat
 - Agent Tool result 기반 UI update
 
-실행:
+### Standalone Physics API
 
 ```bash
-python -m uvicorn web_app:app --host 127.0.0.1 --port 8000
+python -m uvicorn ai_ems.api.app:app --host "$AI_EMS_PHYSICS_HOST" --port "$AI_EMS_PHYSICS_PORT" --log-level "$AI_EMS_LOG_LEVEL"
 ```
 
-브라우저:
+Swagger UI:
 
 ```text
-http://localhost:8000
+http://127.0.0.1:8001/docs
 ```
+
+Health check:
+
+```text
+http://127.0.0.1:8001/api/health
+```
+
+`AI_EMS_PHYSICS_HOST=127.0.0.1`은 local-only access이다. 다른 PC 또는 Simulator에서 접속해야 하는 환경에서는 필요한 경우 `0.0.0.0`으로 bind하고 네트워크 / 방화벽 정책에 맞게 접근을 제한한다.
+
+---
+
+## Physics API Examples
+
+### Security Analysis
+
+Request:
+
+```bash
+curl -s -X POST "http://127.0.0.1:8001/api/v1/security-analysis" \
+  -H "Content-Type: application/json" \
+  -d '{"outage_line_id":"LINE-81-84"}' | python -m json.tool
+```
+
+주요 Public Response field:
+
+```text
+outage_line_id
+base_converged
+pre_status
+post_status
+pre_violated_equipment_count
+post_violated_equipment_count
+new_violation_count
+remaining_violation_count
+resolved_violation_count
+new_violations
+remaining_violations
+resolved_violations
+```
+
+### Contingency Response Analysis
+
+Request:
+
+```bash
+curl -s -X POST "http://127.0.0.1:8001/api/v1/contingency-response" \
+  -H "Content-Type: application/json" \
+  -d '{"outage_line_id":"LINE-81-84","delta_mw":10.0,"top_n":3}' | python -m json.tool
+```
+
+이 endpoint는 다음 고수준 workflow를 실행한다.
+
+```text
+Security
+  ↓
+Sensitivity
+  ↓
+Redispatch Candidate Generation
+  ↓
+AC Validation
+  ↓
+Whole-network Security Re-validation
+  ↓
+Candidate Ranking
+```
+
+Public response는 내부 PyPowSyBl / Domain result 전체를 그대로 노출하지 않고 `schemas.py`와 `adapters.py`를 통해 외부 통합에 필요한 핵심 field만 제공한다.
 
 ---
 
@@ -314,21 +521,11 @@ http://localhost:8000
 
 Ollama를 사용한다.
 
-예시 `.env`:
+Agent가 사용하는 주요 환경변수:
 
 ```dotenv
 AI_EMS_MODEL=qwen3.5:9b
-AI_EMS_LLM_BASE_URL=http://172.19.32.1:11434
-```
-
-프로젝트는 `.env`를 자동으로 읽지 않으므로 필요한 경우 shell에서 직접 export한다.
-
-```bash
-source .venv/bin/activate
-set -a
-source .env
-set +a
-export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
+AI_EMS_LLM_BASE_URL=http://127.0.0.1:11434
 ```
 
 Agent probe:
@@ -341,40 +538,18 @@ Local LLM의 크기와 품질은 자연어 설명과 Tool selection에 영향을
 
 ---
 
-## Installation
+## Regression Test
 
-Python 3.11 기준.
-
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
-```
-
-CLI:
+전체 test:
 
 ```bash
-python app.py
+python -m pytest -q
 ```
 
-Web UI:
+테스트는 다음 두 계층을 포함한다.
 
-```bash
-python -m uvicorn web_app:app --host 127.0.0.1 --port 8000
-```
-
-Regression test:
-
-```bash
-pytest -q
-```
-
-현재 확인 결과:
-
-```text
-13 passed
-```
+- 실제 KPG / PyPowSyBl 계산 결과 regression
+- Public Physics API adapter / response contract regression
 
 ---
 
@@ -382,17 +557,25 @@ pytest -q
 
 ```text
 ai-ems-agent/
+├─ .env.example
 ├─ app.py
 ├─ web_app.py
 ├─ ui/
 │  └─ index.html
 ├─ src/
 │  └─ ai_ems/
+│     ├─ __init__.py
+│     ├─ config.py
 │     ├─ network.py
 │     ├─ agent/
 │     │  ├─ graph.py
 │     │  ├─ tools.py
 │     │  └─ formatters.py
+│     ├─ api/
+│     │  ├─ app.py
+│     │  ├─ routes.py
+│     │  ├─ schemas.py
+│     │  └─ adapters.py
 │     └─ tools/
 │        ├─ network_tools.py
 │        ├─ security_tools.py
@@ -402,6 +585,8 @@ ai-ems-agent/
 ├─ data/
 │  └─ README.md
 ├─ tests/
+│  ├─ ...
+│  └─ test_api_adapters.py
 ├─ requirements.txt
 ├─ Dockerfile
 └─ README.md
@@ -452,32 +637,26 @@ data/bus_location.csv
 - Whole-network validation은 정적 Security Analysis 기반이며 transient / dynamic stability를 의미하지 않는다.
 - 현재 dynamic simulation, frequency response, rotor angle stability는 다루지 않는다.
 - Local LLM이 생성한 자유형 문장은 신뢰 가능한 물리계산 결과 자체로 취급하지 않는다.
+- Public Physics API는 현재 line contingency 중심의 PoC interface이며 향후 integration 요구에 따라 endpoint / schema를 확장할 수 있다.
 
 ---
 
 ## Next Step
 
-기능 개발은 현재 상태에서 일단 freeze하고, 다른 AI-EMS 작업과의 통합을 위해 다음을 우선한다.
+현재 Public module boundary와 1차 Request / Response schema까지 분리하였다.
+
+다음 통합 작업의 우선순위:
 
 ```text
-Public module boundary 확정
+Physics API regression 확인
         ↓
-Input / Output schema 명세
+MODULE_SPEC / API 문서 정리
         ↓
-MODULE_SPEC / API 문서 작성
+외부 Simulator와 실제 HTTP 호출
         ↓
-Regression test 정리
+필요 endpoint 추가
         ↓
-다른 모듈과 1차 통합
+반복 호출 성능 / network reuse 개선
 ```
 
-통합 시 핵심 entry point 후보는 다음과 같다.
-
-```python
-run_line_contingency(...)
-rank_generator_sensitivities(...)
-validate_balanced_redispatch(...)
-analyze_contingency_response(...)
-```
-
-특히 `analyze_contingency_response()`를 고수준 통합 interface로 사용할 수 있도록 schema를 정리하는 것이 다음 단계의 우선 과제이다.
+핵심 방향은 Agent와 외부 Simulator가 동일한 PyPowSyBl Domain Tool을 서로 다른 interface를 통해 재사용하도록 유지하는 것이다.
