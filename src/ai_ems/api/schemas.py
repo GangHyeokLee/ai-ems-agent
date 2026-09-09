@@ -83,3 +83,63 @@ class ContingencyResponseResponse(BaseModel):
 
     candidates: list[RedispatchCandidateResponse]
     best_candidate: RedispatchCandidateResponse | None
+
+
+class SensitivityAnalysisRequest(BaseModel):
+    outage_line_id: str
+    monitored_line_id: str | None = None
+    top_n: int = Field(default=5, ge=1)
+
+
+class RedispatchValidationRequest(BaseModel):
+    outage_line_id: str
+    monitored_line_id: str
+    up_generator_id: str
+    down_generator_id: str
+    delta_mw: float = Field(gt=0)
+
+
+class SensitivityCandidateResponse(BaseModel):
+    generator_id: str
+    sensitivity: float
+    abs_sensitivity: float
+
+
+class SensitivityAnalysisResponse(BaseModel):
+    outage_line_id: str
+    monitored_line_id: str
+    target_selection: str
+    candidate_count: int
+    candidates: list[SensitivityCandidateResponse]
+
+
+class RedispatchValidationResponse(BaseModel):
+    outage_line_id: str
+    monitored_line_id: str
+
+    up_generator_id: str
+    down_generator_id: str
+    delta_mw: float
+
+    post_contingency_converged: bool
+    after_redispatch_converged: bool
+
+    limit_mva: float | None = None
+    apparent_power_before_mva: float | None = None
+    apparent_power_after_mva: float | None = None
+    apparent_power_change_mva: float | None = None
+    improvement_mva: float | None = None
+    improved: bool | None = None
+
+    loading_before_percent: float | None = None
+    loading_after_percent: float | None = None
+    violation_remaining: bool | None = None
+
+    whole_network_converged: bool
+    new_violation_detected: bool
+    violated_equipment_count_before: int | None = None
+    violated_equipment_count_after: int | None = None
+
+    new_violation_ids: list[str]
+    resolved_violation_ids: list[str]
+    remaining_violation_ids: list[str]
