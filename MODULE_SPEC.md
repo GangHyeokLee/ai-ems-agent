@@ -19,7 +19,7 @@
 
 ```text
                     ┌──────────────────────┐
-User ──> LLM Agent │                      │
+User ──> LLM Agent  │                      │
                     │   PyPowSyBl Domain   │
                     │       Tools          │
 Simulator ──> API ─>│                      │
