@@ -28,6 +28,8 @@ from ai_ems.tools.sensitivity_tools import (
     rank_generator_sensitivities,
 )
 
+from ai_ems.tools.workflow_tools import analyze_contingency_response
+
 
 def create_physics_router(
     network,
@@ -64,7 +66,7 @@ def create_physics_router(
                 status_code=400,
                 detail=str(exc),
             ) from exc
-        
+
     @router.post(
         "/sensitivity-analysis",
         response_model=SensitivityAnalysisResponse,
@@ -73,27 +75,19 @@ def create_physics_router(
         request: SensitivityAnalysisRequest,
     ):
         try:
-            monitored_line_id = (
-                request.monitored_line_id
-            )
+            monitored_line_id = request.monitored_line_id
 
             target_selection = "user_specified"
 
             if monitored_line_id is None:
-                security_result = (
-                    run_line_contingency(
-                        network,
-                        outage_line_id=(
-                            request.outage_line_id
-                        ),
-                    )
+                security_result = run_line_contingency(
+                    network,
+                    outage_line_id=(request.outage_line_id),
                 )
 
-                selected = (
-                    select_most_severe_violated_line(
-                        network,
-                        security_result,
-                    )
+                selected = select_most_severe_violated_line(
+                    network,
+                    security_result,
                 )
 
                 if selected is None:
@@ -103,22 +97,14 @@ def create_physics_router(
                         "monitored_line_id."
                     )
 
-                monitored_line_id = selected[
-                    "equipment_id"
-                ]
+                monitored_line_id = selected["equipment_id"]
 
-                target_selection = (
-                    "most_severe_violation"
-                )
+                target_selection = "most_severe_violation"
 
             result = rank_generator_sensitivities(
                 network,
-                outage_line_id=(
-                    request.outage_line_id
-                ),
-                monitored_line_id=(
-                    monitored_line_id
-                ),
+                outage_line_id=(request.outage_line_id),
+                monitored_line_id=(monitored_line_id),
                 top_n=request.top_n,
             )
 
@@ -155,7 +141,7 @@ def create_physics_router(
                 status_code=400,
                 detail=str(exc),
             ) from exc
-        
+
     @router.post(
         "/redispatch-validation",
         response_model=RedispatchValidationResponse,
@@ -166,26 +152,14 @@ def create_physics_router(
         try:
             result = validate_balanced_redispatch(
                 case_path=case_path,
-                outage_line_id=(
-                    request.outage_line_id
-                ),
-                monitored_line_id=(
-                    request.monitored_line_id
-                ),
-                up_generator_id=(
-                    request.up_generator_id
-                ),
-                down_generator_id=(
-                    request.down_generator_id
-                ),
+                outage_line_id=(request.outage_line_id),
+                monitored_line_id=(request.monitored_line_id),
+                up_generator_id=(request.up_generator_id),
+                down_generator_id=(request.down_generator_id),
                 delta_mw=request.delta_mw,
             )
 
-            return (
-                to_redispatch_validation_response(
-                    result
-                )
-            )
+            return to_redispatch_validation_response(result)
 
         except ValueError as exc:
             raise HTTPException(
