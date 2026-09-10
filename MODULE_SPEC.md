@@ -95,13 +95,22 @@ Agent layer는 Domain Tool을 재사용하며 외부 Simulator의 필수 의존�
 
 - 발전기 injection 변화 → 특정 선로 active-power flow 영향
 - 절대 민감도 기반 영향도 후보 ranking
-- corrective-action 후보 탐색의 입력으로 사용
+- monitored line 미지정 시 가장 심한 위반 선로 자동 선택
+
+### Explicit Redispatch Validation
+
+- 사용자가 지정한 `+ΔMW / -ΔMW` balanced redispatch 검증
+- 발전기 출력 범위 guardrail
+- 사고 후 / 제어 후 AC Load Flow 비교
+- 목표 선로 loading / 위반 잔존 여부 확인
+- whole-network Operator Strategy Security validation
+- Redispatch로 인한 신규 / 해소 / 잔존 위반 비교
 
 ### Corrective-action Candidate Analysis
 
-- sensitivity 기반 balanced `+ΔMW / -ΔMW` redispatch 후보 생성
+- sensitivity 기반 balanced redispatch 후보 생성
 - 발전기 출력 범위 guardrail
-- 후보별 AC load-flow validation
+- 후보별 AC validation
 - whole-network Operator Strategy Security validation
 - 신규 위반 발생 여부 / 잔존 위반 수 / 목표 선로 개선량 기반 ranking
 
@@ -158,7 +167,25 @@ Candidate Ranking
 ```text
 GET  /api/health
 POST /api/v1/security-analysis
+POST /api/v1/sensitivity-analysis
+POST /api/v1/redispatch-validation
 POST /api/v1/contingency-response
+```
+
+역할:
+
+```text
+/security-analysis
+→ 사고 후보 물리검증
+
+/sensitivity-analysis
+→ 목표 선로에 영향도가 큰 발전기 탐색
+
+/redispatch-validation
+→ 외부에서 생성한 명시적 제어 후보 검증
+
+/contingency-response
+→ Security부터 후보 생성·검증까지 고수준 workflow 수행
 ```
 
 세부 Request / Response는 `API_SPEC.md`에 정의한다.
@@ -240,10 +267,10 @@ data/bus_location.csv
 
 ## 9. Validation Status
 
-현재 regression test:
+최종 로컬 regression test:
 
 ```text
-17 passed
+19 passed
 ```
 
 테스트 범위:
@@ -253,7 +280,14 @@ data/bus_location.csv
 - sensitivity 기반 redispatch candidate generation
 - balanced redispatch AC validation
 - contingency-response workflow
-- Public API adapter / response contract
+- Security / Sensitivity / Redispatch / Contingency Public API adapter contract
+
+실제 HTTP 확인:
+
+- Swagger UI에서 4개 Physics POST endpoint 노출 확인
+- `LINE-183-190` outage에 대해 `/sensitivity-analysis` 정상 응답 확인
+- 같은 사고에 `GEN-10#0 +10 MW / GEN-190 -10 MW`를 `/redispatch-validation`으로 검증
+- `2476.13 → 2469.21 MVA`, `114.00% → 113.68%`, 신규 whole-network 위반 없음, 기존 `LINE-176-190` 위반 잔존 확인
 
 대표 검증 사례:
 
@@ -273,9 +307,9 @@ data/bus_location.csv
 - whole-network validation은 정적 Security Analysis 기반
 - transient stability, frequency response, rotor-angle stability는 범위 밖
 - 반복 `contingency-response` 실행 시 workflow 내부에서 network를 다시 load하는 경로가 있어 대량 반복 호출 성능 최적화는 아직 하지 않음
-- 유사 generator ID 후보가 중복 성격의 결과를 만들 수 있으며 candidate deduplication은 아직 하지 않음
+- 같은 bus / 설비군의 유사 generator ID가 동일하거나 매우 유사한 sensitivity를 가져 중복 성격의 후보가 나타날 수 있음
 
-위 두 성능 / candidate 정리 항목은 **현재 기능 검증이나 API 통합을 막는 blocker가 아니며**, 실제 Simulator 통합에서 필요성이 확인될 때 개선한다.
+위 성능 / candidate 정리 항목은 **현재 기능 검증이나 API 통합을 막는 blocker가 아니며**, 실제 Simulator 통합에서 필요성이 확인될 때 개선한다.
 
 ---
 
@@ -284,13 +318,16 @@ data/bus_location.csv
 현재 프로젝트는 다음 조건을 충족하므로 기능 개발을 일시 중지할 수 있다.
 
 - Security / Sensitivity 핵심 실습 완료
+- explicit Redispatch validation 구현
 - corrective-action candidate workflow 구현
 - AC 및 whole-network 재검증 구현
 - Agent Tool Calling PoC 동작 확인
 - 외부 Simulator용 Physics API 분리
 - Public Request / Response schema 분리
-- 17 regression tests 통과
-- `.env` 기반 실행 설정 및 README 정리
+- 핵심 Physics 기능 4종 API 제공
+- 19 regression tests 통과
+- 실제 HTTP 호출 검증
+- `.env` 기반 실행 설정 및 README / API / Module 문서 정리
 
 이후 기능 추가는 다음 경우에만 재개한다.
 
