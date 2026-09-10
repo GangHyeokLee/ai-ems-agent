@@ -268,4 +268,16 @@ LLM Agent
 
 ## 다음 액션
 
-- \[ \]
+- [x] PyPowSyBl 계통해석 기능 Domain Tool화
+- [x] FastAPI Physics API 구성
+- [x] Security API
+- [x] Sensitivity API
+- [x] Redispatch Validation API
+- [x] Security → Sensitivity → Redispatch 통합 Workflow
+- [x] LangGraph 기반 LLM Tool Calling
+- [x] 외부 Simulator Mock Integration
+- [x] 외부 위험 후보 → Physics 검증
+- [x] 외부 제어 후보 → AC / Security 검증
+- [ ] 실제 EMS Simulator와 Physics API 연결
+- [ ] 실제 GNN/GraphKit 위험 후보 입력 연계
+- [ ] 발표자료에 AI/Simulator ↔ Physics API 역할 분리 구조 반영
