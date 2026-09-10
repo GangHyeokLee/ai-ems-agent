@@ -25,6 +25,7 @@ def _base_result() -> dict:
                     "apparent_power_mva": 1959.6373161857662,
                 },
                 "improvement_mva": 7.63846907934726,
+                "improved": True,
                 "loading_before_percent": 103.21488904853693,
                 "loading_after_percent": 102.81412991530779,
                 "violation_remaining": True,
@@ -61,6 +62,23 @@ def test_format_contingency_response_handles_nonconvergence() -> None:
 
     assert "AC 조류계산이 수렴하지 않아" in text
     assert "개선 효과를 확인할 수 없습니다." in text
+
+
+def test_format_contingency_response_handles_worsening_candidate() -> None:
+    result = _base_result()
+    validation = result["best_tested_candidate"]["ac_validation"]
+    validation["after_redispatch"]["apparent_power_mva"] = 1972.0
+    validation["improvement_mva"] = -4.7242147348866
+    validation["improved"] = False
+    validation["loading_after_percent"] = 103.46
+    validation["violation_remaining"] = True
+
+    text = format_contingency_response(result)
+
+    assert "약 4.72 MVA 증가" in text
+    assert "약 0.25%p 증가" in text
+    assert "해당 선로 부하가 오히려 증가했고 위반도 남아 있습니다." in text
+    assert "과부하는 완화되었지만" not in text
 
 
 def test_format_contingency_response_distinguishes_contingency_and_redispatch_violations() -> None:
