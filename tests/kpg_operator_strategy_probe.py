@@ -1,9 +1,7 @@
-from pathlib import Path
 import pypowsybl as pp
-from ai_ems.network import LOADFLOW_PARAMETERS, load_network
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CASE_FILE = PROJECT_ROOT / "data" / "KPG193_ver2_0_pypowsybl.mat"
+from ai_ems.config import CASE_FILE
+from ai_ems.network import LOADFLOW_PARAMETERS, load_network
 
 network = load_network(CASE_FILE)
 
@@ -13,15 +11,15 @@ strategy_id = "REDISPATCH_GEN-19_GEN-36"
 analysis = pp.security.create_analysis()
 
 analysis.add_single_element_contingency(
-  "LINE-16-28",
-  contingency_id,
+    "LINE-16-28",
+    contingency_id,
 )
 
 analysis.add_generator_active_power_action(
-  "UP_GEN_19",
-  'GEN-19#0',
-  True,
-  10.0,
+    "UP_GEN_19",
+    "GEN-19#0",
+    True,
+    10.0,
 )
 
 analysis.add_generator_active_power_action(
