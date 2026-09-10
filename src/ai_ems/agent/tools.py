@@ -3,6 +3,7 @@ from typing import Any
 
 from langchain_core.tools import tool
 
+from ai_ems.config import CASE_FILE
 from ai_ems.tools.control_tools import validate_balanced_redispatch
 from ai_ems.tools.network_tools import (
     get_line,
@@ -19,12 +20,10 @@ from ai_ems.tools.security_tools import (
 from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
 from ai_ems.tools.workflow_tools import analyze_contingency_response
 
-DEFAULT_CASE_FILE = "data/KPG193_ver2_0_pypowsybl.mat"
-
 
 def create_agent_tools(
     network,
-    case_path: str | Path = DEFAULT_CASE_FILE,
+    case_path: str | Path = CASE_FILE,
 ):
     @tool
     def network_summary() -> dict[str, Any]:
@@ -38,7 +37,7 @@ def create_agent_tools(
 
     @tool
     def line_detail(line_id: str) -> dict[str, Any]:
-        """Get detailed information for a transmission line."""
+        """Get detailed information for one transmission line."""
         return get_line(network, line_id)
 
     @tool
