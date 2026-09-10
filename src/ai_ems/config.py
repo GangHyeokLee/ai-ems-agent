@@ -36,7 +36,6 @@ LLM_BASE_URL = os.getenv(
 
 CASE_FILE = _path_from_env(
     "AI_EMS_CASE_FILE",
-    # "data/KPG193_ver2_0_pypowsybl.mat",
     "data/KPG193_ver2_0_powsybl_full.mat",
 )
 
