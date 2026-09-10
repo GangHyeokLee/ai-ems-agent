@@ -1,13 +1,9 @@
-from pathlib import Path
 from pprint import pprint
 
+from ai_ems.config import CASE_FILE
 from ai_ems.tools.control_tools import (
     validate_whole_network_redispatch,
 )
-
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CASE_FILE = PROJECT_ROOT / "data" / "KPG193_ver2_0_pypowsybl.mat"
 
 
 result = validate_whole_network_redispatch(
