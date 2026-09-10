@@ -1,8 +1,9 @@
 import pypowsybl as pp
 
 from ai_ems import load_network
+from ai_ems.config import CASE_FILE
 
-network = load_network("data/KPG193_ver2_0_pypowsybl.mat")
+network = load_network(CASE_FILE)
 
 # 운전 중인 발전기만 후보로 사용
 generators = network.get_generators()

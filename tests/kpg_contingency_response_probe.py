@@ -2,10 +2,11 @@ from pathlib import Path
 from pprint import pprint
 
 from ai_ems.tools.workflow_tools import analyze_contingency_response
+from ai_ems.config import CASE_FILE
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-CASE_FILE = PROJECT_ROOT / "data" / "KPG193_ver2_0_pypowsybl.mat"
+CASE_FILE = PROJECT_ROOT / CASE_FILE
 
 result = analyze_contingency_response(
     CASE_FILE,

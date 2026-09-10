@@ -10,8 +10,7 @@ from ai_ems.agent.graph import (
     SYSTEM_PROMPT,
     create_agent_graph,
 )
-
-CASE_FILE = "data/KPG193_ver2_0_pypowsybl.mat"
+from ai_ems.config import CASE_FILE
 
 
 def main():

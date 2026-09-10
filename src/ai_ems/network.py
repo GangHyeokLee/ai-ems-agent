@@ -5,6 +5,7 @@ from typing import Any
 
 import pypowsybl as pp
 
+from .utils.kpg_powsybl_adapter import load_kpg_network
 
 IMPORT_PARAMETERS = {
     "matpower.import.ignore-base-voltage": "false",
@@ -16,10 +17,18 @@ LOADFLOW_PARAMETERS = pp.loadflow.Parameters(
 
 
 def load_network(case_path: str | Path):
-    """Load a PyPowSyBl-compatible network from a MATPOWER file."""
     path = Path(case_path).expanduser().resolve()
+
     if not path.exists():
-        raise FileNotFoundError(f"Network case file not found: {path}")
+        raise FileNotFoundError(
+            f"Network case file not found: {path}"
+        )
+
+    if path.name == "KPG193_ver2_0_powsybl_full.mat":
+        return load_kpg_network(
+            path,
+            ignore_base_voltage=False,
+        )
 
     return pp.network.load(
         path,
