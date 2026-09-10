@@ -122,6 +122,10 @@ Bus 51/53 전압 magnitude와 angle도 동일하게 재현되었다.
 
 따라서 기존 dummy-generator 기반 HVDC 근사와 실제 HVDC/VSC 모델은 정상상태 AC 해석 관점에서 수치 오차 수준의 동일한 결과를 나타냈다.
 
+![KPG-193 network load and AC load flow result](../assets/kpg-powsybl/01_network_loadflow.png)
+
+*그림 1. KPG-193 계통 로드 및 Base AC Power Flow 결과. 193 Bus, 201 Generator, 385 AC Line, 2 HVDC 구조에서 AC 조류계산이 정상 수렴하였다.*
+
 ---
 
 ### 2\. Security Analysis
@@ -141,6 +145,10 @@ Bus 51/53 전압 magnitude와 angle도 동일하게 재현되었다.
 
 기존에 직접 선로를 탈락시킨 뒤 AC Power Flow를 반복하던 방식과 달리, PyPowSyBl Security Analysis에서는 contingency 정의, 사고 전·후 결과, limit violation을 하나의 분석 구조에서 관리할 수 있음을 확인하였다.
 
+![LINE-16-28 security analysis result](../assets/kpg-powsybl/02_security_analysis.png)
+
+*그림 2. LINE-16-28 탈락에 대한 Security Analysis 결과. 사고 전에는 위반이 없었으나 사고 후 LINE-16-22의 피상전력이 1967.28 MVA로 증가하여 1906 MVA 한계를 약 3.21% 초과하였다.*
+
 ---
 
 ### 3\. Sensitivity Analysis
@@ -158,6 +166,10 @@ Bus 51/53 전압 magnitude와 angle도 동일하게 재현되었다.
 민감도 값은 해당 운전점의 선형화 조건에서 발전기 주입량 1 MW 변화가 감시 선로 유효전력 조류에 어느 정도 영향을 주는지를 나타낸다.
 
 Sensitivity Analysis 자체는 최적 Redispatch를 결정하지 않으며, 영향도가 큰 발전기를 제어 후보로 좁히는 용도로 사용하였다.
+
+![Generator sensitivity analysis result](../assets/kpg-powsybl/03_sensitivity_analysis.png)
+
+*그림 3. LINE-16-22 유효전력 조류에 대한 발전기 Sensitivity Analysis 결과. GEN-19#0, GEN-10#0 등 해당 선로 조류에 영향도가 큰 발전기 후보를 확인하였다.*
 
 ---
 
@@ -181,6 +193,10 @@ GEN-36#0 -10 MW
 Redispatch 후 선로 부하는 감소했으나 위반이 완전히 해소되지는 않았다.
 
 즉 Sensitivity 기반 후보가 실제로 개선 방향을 보일 수는 있지만, Sensitivity만으로 제어 효과나 위반 해소를 보장할 수 없음을 확인하였다.
+
+![Redispatch and whole-network validation result](../assets/kpg-powsybl/04_redispatch_validation.png)
+
+*그림 4. Sensitivity 기반 Redispatch 후보의 물리검증 결과. GEN-19#0 +10 MW / GEN-36#0 -10 MW 적용 후 LINE-16-22 부하율이 103.21%에서 102.81%로 감소하였으나 기존 위반은 잔존하였다. 전체 계통 Security 재검증에서는 추가 신규 위반이 발생하지 않았다.*
 
 ---
 
