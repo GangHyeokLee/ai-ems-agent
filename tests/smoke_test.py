@@ -15,9 +15,7 @@ from ai_ems import (  # noqa: E402
     run_ac_load_flow,
     run_line_contingency,
 )
-
-
-DEFAULT_CASE = PROJECT_ROOT / "data" / "KPG193_ver2_0_pypowsybl.mat"
+from ai_ems.config import CASE_FILE  # noqa: E402
 
 
 def main() -> None:
@@ -26,7 +24,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--case",
-        default=str(DEFAULT_CASE),
+        default=str(CASE_FILE),
         help="MATPOWER case path",
     )
     parser.add_argument(
