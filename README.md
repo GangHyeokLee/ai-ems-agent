@@ -61,6 +61,8 @@ PyPowSyBl Domain Tools
 구현·검증된 주요 기능:
 
 - KPG-193 기반 PyPowSyBl network load
+- KPG 병렬 dcline을 실제 IIDM HVDC / VSC로 구성하는 adapter
+- 193 Bus / 201 Generator / 385 AC Line / 2 HVDC 모델 검증
 - 계통 요약 / 선로 / 발전기 조회
 - AC Load Flow
 - Line N-1 Security Analysis
@@ -83,11 +85,12 @@ PyPowSyBl Domain Tools
 - Pydantic 기반 Public Request / Response schema
 - Domain result → Public API response adapter
 - Physics API 4종 endpoint 실제 HTTP 호출 검증
+- Mock Simulator 위험 후보 / 제어 후보를 이용한 `integration_probe.py` 연계 검증
 
 최종 로컬 regression test:
 
 ```text
-19 passed
+20 passed
 ```
 
 ---
@@ -101,6 +104,8 @@ LLM과 독립적인 Python / PyPowSyBl 계층이다.
 ```text
 src/ai_ems/
 ├─ network.py
+├─ utils/
+│  └─ kpg_powsybl_adapter.py
 └─ tools/
    ├─ network_tools.py
    ├─ security_tools.py
@@ -112,6 +117,7 @@ src/ai_ems/
 역할:
 
 - `network.py`: 계통 load / 공통 AC Load Flow parameter
+- `utils/kpg_powsybl_adapter.py`: KPG MAT의 병렬 dcline을 실제 IIDM HVDC / VSC로 재구성
 - `network_tools.py`: 계통 요약 / 선로 / 발전기 조회
 - `security_tools.py`: Line contingency Security Analysis / pre-post 위반 비교 / 주요 위반 선택
 - `sensitivity_tools.py`: 발전기 출력 변화에 대한 선로 유효전력 조류 민감도 계산
@@ -285,6 +291,23 @@ Final Response
 
 ---
 
+## Documentation
+
+상세 문서는 `docs/` 아래에 목적별로 구분한다.
+
+### Specifications
+
+- [Physics API Specification](docs/specs/API_SPEC.md)
+- [Physics Module Specification](docs/specs/MODULE_SPEC.md)
+- [KPG-193 PyPowSyBl Adapter Specification](docs/specs/KPG_POWSYBL_ADAPTER_SPEC.md)
+
+### Experiment Records
+
+- [KPG-193 기반 PyPowSyBl 계통해석 및 제어 후보 검증](docs/experiments/KPG-193%20기반%20PyPowSyBl%20계통해석%20및%20제어%20후보%20검증.md)
+- [PyPowSyBl Physics API 및 AI-EMS Agent 연계 PoC](docs/experiments/PyPowSyBl%20Physics%20API%20및%20AI-EMS%20Agent%20연계%20PoC.md)
+
+---
+
 ## Environment Configuration
 
 프로젝트 설정은 repository root의 `.env`를 사용한다.
@@ -302,7 +325,7 @@ cp .env.example .env
 ```dotenv
 AI_EMS_MODEL=qwen3.5:9b
 AI_EMS_LLM_BASE_URL=http://127.0.0.1:11434
-AI_EMS_CASE_FILE=data/KPG193_ver2_0_pypowsybl.mat
+AI_EMS_CASE_FILE=data/KPG193_ver2_0_powsybl_full.mat
 AI_EMS_BUS_LOCATION_FILE=data/bus_location.csv
 AI_EMS_WEB_HOST=127.0.0.1
 AI_EMS_WEB_PORT=8000
@@ -398,7 +421,7 @@ curl -s -X POST "http://127.0.0.1:8001/api/v1/redispatch-validation" -H "Content
 curl -s -X POST "http://127.0.0.1:8001/api/v1/contingency-response" -H "Content-Type: application/json" -d '{"outage_line_id":"LINE-81-84","delta_mw":10.0,"top_n":3}' | python -m json.tool
 ```
 
-세부 Request / Response 계약은 `API_SPEC.md`, 모듈 역할과 통합 경계는 `MODULE_SPEC.md`를 참고한다.
+세부 Request / Response 계약은 [`docs/specs/API_SPEC.md`](docs/specs/API_SPEC.md), 모듈 역할과 통합 경계는 [`docs/specs/MODULE_SPEC.md`](docs/specs/MODULE_SPEC.md)를 참고한다.
 
 ---
 
@@ -411,13 +434,31 @@ python -m pytest -q
 현재 확인 결과:
 
 ```text
-19 passed
+20 passed
+```
+
+실제 KPG case를 사용하는 smoke test:
+
+```bash
+python tests/smoke_test.py
+```
+
+검증된 기본 구조:
+
+```text
+193 Bus
+201 Generator
+193 Load
+385 AC Line
+2 HVDC
+AC Load Flow: CONVERGED
 ```
 
 테스트 범위:
 
 - 실제 KPG / PyPowSyBl 계산 결과 regression
 - Security / Sensitivity / Redispatch / Contingency Public API adapter contract
+- KPG actual HVDC/VSC 모델 load 및 대표 N-1 smoke test
 
 ---
 
@@ -434,11 +475,15 @@ python -m pytest -q
 Local-only files:
 
 ```text
-data/KPG193_ver2_0_pypowsybl.mat
+data/KPG193_ver2_0_powsybl_full.mat
 data/bus_location.csv
 ```
 
-두 파일은 public GitHub에 업로드하지 않는다.
+`KPG193_ver2_0_powsybl_full.mat`은 KPG의 주요 물리계통 및 운영/최적화 관련 필드를 유지하는 공통 MAT로 사용하고, PyPowSyBl에서는 `src/ai_ems/utils/kpg_powsybl_adapter.py`를 통해 병렬 dcline을 실제 IIDM HVDC / VSC로 구성한다.
+
+세부 사용법과 제약조건은 [`docs/specs/KPG_POWSYBL_ADAPTER_SPEC.md`](docs/specs/KPG_POWSYBL_ADAPTER_SPEC.md)를 참고한다.
+
+두 local-only 데이터 파일은 public GitHub에 업로드하지 않는다.
 
 ---
 
@@ -468,10 +513,12 @@ data/bus_location.csv
 - corrective-action candidate workflow 완료
 - Agent Tool Calling PoC 완료
 - 외부 Simulator용 Physics API 분리
+- Mock Simulator 기반 Physics API integration probe 완료
 - Public Request / Response schema 및 adapter 분리
 - 핵심 Physics 기능 4종 API 제공
+- KPG actual HVDC / VSC adapter 적용 및 regression 검증
 - Swagger / 실제 HTTP 호출 검증
-- `19 passed` regression 확인
-- README / `MODULE_SPEC.md` / `API_SPEC.md` 정리
+- `20 passed` regression 확인
+- README 및 `docs/specs/`, `docs/experiments/` 문서 정리
 
 이후 코드 변경은 외부 Simulator 실제 통합 요구, regression 오류, 발표 사실 검증에서 필요한 경우에 한해 재개한다.
