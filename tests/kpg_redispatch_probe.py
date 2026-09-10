@@ -3,8 +3,7 @@ from math import hypot
 import pypowsybl as pp
 
 from ai_ems import load_network, run_ac_load_flow
-
-CASE = "data/KPG193_ver2_0_pypowsybl.mat"
+from ai_ems.config import CASE_FILE
 
 OUTAGE_LINE = "LINE-16-28"
 MONITORED_LINE = "LINE-16-22"
@@ -17,35 +16,35 @@ DELTA_MW = 10.0
 # 1. Post-contingency sensitivity
 # ============================================================
 
-network = load_network(CASE)
+network = load_network(CASE_FILE)
 
 analysis = pp.sensitivity.create_ac_analysis()
 
 analysis.add_single_element_contingency(
-  OUTAGE_LINE,
-  "OUT_LINE-16-28",
+    OUTAGE_LINE,
+    "OUT_LINE-16-28",
 )
 
 analysis.add_postcontingency_branch_flow_factor_matrix(
-  branches_ids=[MONITORED_LINE],
-  variables_ids=[UP_GENERATOR, DOWN_GENERATOR],
-  contingencies_ids=["OUT_LINE-16-28"],
-  matrix_id="REDISPATCH",
+    branches_ids=[MONITORED_LINE],
+    variables_ids=[UP_GENERATOR, DOWN_GENERATOR],
+    contingencies_ids=["OUT_LINE-16-28"],
+    matrix_id="REDISPATCH",
 )
 
 result = analysis.run(network)
 
 sensitivity = result.get_sensitivity_matrix(
-  "REDISPATCH",
-  "OUT_LINE-16-28",
+    "REDISPATCH",
+    "OUT_LINE-16-28",
 )
 
 s_up = sensitivity.loc[UP_GENERATOR, MONITORED_LINE]
 s_down = sensitivity.loc[DOWN_GENERATOR, MONITORED_LINE]
 
 predicted_change = (
-  s_up * DELTA_MW
-  + s_down * (-DELTA_MW)
+    s_up * DELTA_MW
+    + s_down * (-DELTA_MW)
 )
 
 print("=== Redispatch Sensitivities ===")
@@ -56,18 +55,18 @@ print(f"Predicted p1 change: {predicted_change:.6f} MW")
 # 2. Create actual post-contingency network
 # ============================================================
 
-control_network = load_network(CASE)
+control_network = load_network(CASE_FILE)
 
 control_network.update_lines(
-  id=OUTAGE_LINE,
-  connected1=False,
-  connected2=False,
+    id=OUTAGE_LINE,
+    connected1=False,
+    connected2=False,
 )
 
 post_result = run_ac_load_flow(control_network)
 
 if not post_result["converged"]:
-  raise RuntimeError("Post-contingency AC load flow did not converge.")
+    raise RuntimeError("Post-contingency AC load flow did not converge.")
 
 line = control_network.get_lines().loc[MONITORED_LINE]
 
@@ -77,8 +76,8 @@ post_p2 = float(line["p2"])
 post_q2 = float(line["q2"])
 
 post_mva = max(
-  hypot(post_p1, post_q1),
-  hypot(post_p2, post_q2),
+    hypot(post_p1, post_q1),
+    hypot(post_p2, post_q2),
 )
 
 print("\n=== Post-contingency State ===")
@@ -96,17 +95,17 @@ up_target = float(generators.loc[UP_GENERATOR, "target_p"])
 down_target = float(generators.loc[DOWN_GENERATOR, "target_p"])
 
 control_network.update_generators(
-  id=[UP_GENERATOR, DOWN_GENERATOR],
-  target_p=[
-    up_target + DELTA_MW,
-    down_target - DELTA_MW,
-  ],
+    id=[UP_GENERATOR, DOWN_GENERATOR],
+    target_p=[
+        up_target + DELTA_MW,
+        down_target - DELTA_MW,
+    ],
 )
 
 corrected_result = run_ac_load_flow(control_network)
 
 if not corrected_result["converged"]:
-  raise RuntimeError("Redispatch AC load flow did not converge.")
+    raise RuntimeError("Redispatch AC load flow did not converge.")
 
 line = control_network.get_lines().loc[MONITORED_LINE]
 
