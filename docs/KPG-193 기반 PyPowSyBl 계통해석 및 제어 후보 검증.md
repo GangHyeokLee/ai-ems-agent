@@ -51,7 +51,7 @@ KPG-193 테스트 계통을 PyPowSyBl에 연계하면 기존에 직접 설비를
   - Redispatch 검증량: ±10 MW balanced redispatch
   - Redispatch 후보는 Sensitivity 기반으로 생성
   - 최종 효과는 AC 조류계산 및 전체 계통 Security Analysis로 재검증
-- 환경(하드웨어/코드 커밋 해시):
+- 환경:
   - Python 3.11
   - PyPowSyBl 1.16.1
   - SciPy / NumPy
@@ -243,4 +243,4 @@ AC / Security Re-validation
 - [x] Dummy HVDC → Actual HVDC/VSC 모델 전환
 - [x] 기존 모델과 정상상태 및 대표 N-1 회귀검증
 - [ ] 발표자료에 Security → Sensitivity → Control Validation 흐름 반영
-- [ ] 향후 실제 Simulator/AI 모듈에서 Physics API를 통한 호출 구조 검토
+-> 향후 실제 Simulator/AI 모듈에서 Physics API를 통한 호출 구조 검토
