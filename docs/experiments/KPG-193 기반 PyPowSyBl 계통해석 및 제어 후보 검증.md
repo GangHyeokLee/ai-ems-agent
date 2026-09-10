@@ -243,4 +243,4 @@ AC / Security Re-validation
 - [x] Dummy HVDC → Actual HVDC/VSC 모델 전환
 - [x] 기존 모델과 정상상태 및 대표 N-1 회귀검증
 - [ ] 발표자료에 Security → Sensitivity → Control Validation 흐름 반영
--> 향후 실제 Simulator/AI 모듈에서 Physics API를 통한 호출 구조 검토
+- [ ] Physics API 기반 외부 모듈 연계 사전 검증 → 별도 실험기록 참조
