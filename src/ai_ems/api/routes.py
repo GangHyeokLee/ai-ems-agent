@@ -141,6 +141,11 @@ def create_physics_router(
                 status_code=400,
                 detail=str(exc),
             ) from exc
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=str(exc),
+            ) from exc
 
     @router.post(
         "/redispatch-validation",

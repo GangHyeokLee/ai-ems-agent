@@ -1,6 +1,8 @@
 from ai_ems.api.adapters import (
     to_contingency_response,
+    to_redispatch_validation_response,
     to_security_response,
+    to_sensitivity_response,
 )
 
 
@@ -214,3 +216,86 @@ def test_contingency_response_adapter_handles_no_candidate() -> None:
     assert response.candidate_count == 0
     assert response.candidates == []
     assert response.best_candidate is None
+
+
+def test_sensitivity_response_adapter() -> None:
+    domain_result = {
+        "outage_line_id": "LINE-183-190",
+        "monitored_line_id": "LINE-176-190",
+        "candidate_count": 2,
+        "candidates": [
+            {
+                "generator_id": "GEN-190",
+                "sensitivity": -0.589638,
+                "abs_sensitivity": 0.589638,
+            },
+            {
+                "generator_id": "GEN-10#0",
+                "sensitivity": 0.421,
+                "abs_sensitivity": 0.421,
+            },
+        ],
+    }
+
+    response = to_sensitivity_response(
+        domain_result,
+        target_selection="most_severe_violation",
+    )
+
+    assert response.outage_line_id == "LINE-183-190"
+    assert response.monitored_line_id == "LINE-176-190"
+    assert response.target_selection == "most_severe_violation"
+    assert response.candidate_count == 2
+    assert response.candidates[0].generator_id == "GEN-190"
+    assert response.candidates[0].sensitivity == -0.589638
+
+
+def test_redispatch_validation_response_adapter() -> None:
+    domain_result = {
+        "outage_line_id": "LINE-183-190",
+        "monitored_line_id": "LINE-176-190",
+        "redispatch": {
+            "up_generator_id": "GEN-10#0",
+            "down_generator_id": "GEN-190",
+            "delta_mw": 10.0,
+        },
+        "post_contingency": {
+            "converged": True,
+            "apparent_power_mva": 2476.13,
+        },
+        "after_redispatch": {
+            "converged": True,
+            "apparent_power_mva": 2469.21,
+        },
+        "limit_mva": 2172.0,
+        "apparent_power_change_mva": -6.92,
+        "improvement_mva": 6.92,
+        "improved": True,
+        "loading_before_percent": 114.00,
+        "loading_after_percent": 113.68,
+        "violation_remaining": True,
+        "whole_network_validation": {
+            "operator_strategy_status": "CONVERGED",
+            "new_violation_detected": False,
+            "violated_equipment_count_before": 1,
+            "violated_equipment_count_after": 1,
+            "new_violations": [],
+            "resolved_violations": [],
+            "remaining_violations": [
+                {
+                    "equipment_id": "LINE-176-190",
+                }
+            ],
+        },
+    }
+
+    response = to_redispatch_validation_response(domain_result)
+
+    assert response.outage_line_id == "LINE-183-190"
+    assert response.up_generator_id == "GEN-10#0"
+    assert response.down_generator_id == "GEN-190"
+    assert response.improved is True
+    assert response.violation_remaining is True
+    assert response.whole_network_converged is True
+    assert response.new_violation_detected is False
+    assert response.remaining_violation_ids == ["LINE-176-190"]
