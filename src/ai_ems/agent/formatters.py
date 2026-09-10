@@ -67,23 +67,43 @@ def format_contingency_response(result: dict[str, Any]) -> str:
     before_mva = validation["post_contingency"]["apparent_power_mva"]
     after_mva = after_redispatch["apparent_power_mva"]
     improvement_mva = validation["improvement_mva"]
+    improved = validation.get("improved")
     before_loading = validation["loading_before_percent"]
     after_loading = validation["loading_after_percent"]
 
     if before_mva is not None and after_mva is not None and improvement_mva is not None:
-        lines.append(
-            f"- AC 조류계산 결과 피상전력: {before_mva:.2f} MVA → "
-            f"{after_mva:.2f} MVA (약 {improvement_mva:.2f} MVA 감소)"
-        )
+        if improvement_mva >= 0:
+            lines.append(
+                f"- AC 조류계산 결과 피상전력: {before_mva:.2f} MVA → "
+                f"{after_mva:.2f} MVA (약 {improvement_mva:.2f} MVA 감소)"
+            )
+        else:
+            lines.append(
+                f"- AC 조류계산 결과 피상전력: {before_mva:.2f} MVA → "
+                f"{after_mva:.2f} MVA (약 {abs(improvement_mva):.2f} MVA 증가)"
+            )
 
     if before_loading is not None and after_loading is not None:
         loading_change = before_loading - after_loading
+        if loading_change >= 0:
+            change_text = f"약 {loading_change:.2f}%p 감소"
+        else:
+            change_text = f"약 {abs(loading_change):.2f}%p 증가"
         lines.append(
             f"- 부하율: {before_loading:.2f}% → {after_loading:.2f}% "
-            f"(약 {loading_change:.2f}%p 감소)"
+            f"({change_text})"
         )
 
-    if validation["violation_remaining"] is True:
+    if improved is False:
+        if validation["violation_remaining"] is True:
+            lines.append(
+                "- 결과: 시험한 조치에서 해당 선로 부하가 오히려 증가했고 위반도 남아 있습니다."
+            )
+        else:
+            lines.append(
+                "- 결과: 시험한 조치에서 해당 선로 부하가 감소하지 않았습니다."
+            )
+    elif validation["violation_remaining"] is True:
         lines.extend(
             [
                 "- 결과: 과부하는 완화되었지만 위반은 여전히 남아 있습니다.",
