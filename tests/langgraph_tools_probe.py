@@ -4,13 +4,12 @@ from langgraph.graph import StateGraph, MessagesState, START, END
 
 from ai_ems import load_network
 from ai_ems.agent.tools import create_agent_tools
+from ai_ems.config import CASE_FILE
 
 
-network = load_network(
-    "data/KPG193_ver2_0_pypowsybl.mat"
-)
+network = load_network(CASE_FILE)
 
-tools = create_agent_tools(network)
+tools = create_agent_tools(network, case_path=CASE_FILE)
 
 print("=== Registered Tools ===")
 for item in tools:
@@ -44,7 +43,7 @@ request = AIMessage(
             "name": "line_contingency",
             "args": {
                 "outage_line_id": "LINE-16-28",
-                "monitored_line_ids": ["LINE-16-22"],
+                "monitored_line_id": "LINE-16-22",
             },
             "id": "test-call-1",
             "type": "tool_call",
