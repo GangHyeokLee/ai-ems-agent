@@ -8,11 +8,10 @@ from ai_ems.agent.graph import (
     SYSTEM_PROMPT,
     create_agent_graph,
 )
+from ai_ems.config import CASE_FILE
 
 
-network = load_network(
-    "data/KPG193_ver2_0_pypowsybl.mat"
-)
+network = load_network(CASE_FILE)
 
 graph = create_agent_graph(network)
 
@@ -35,9 +34,7 @@ first_result = graph.invoke(
 print("=== First Turn ===")
 
 for message in first_result["messages"]:
-    print(
-        f"\n[{message.__class__.__name__}]"
-    )
+    print(f"\n[{message.__class__.__name__}]")
     print(message.content)
 
     if getattr(message, "tool_calls", None):
@@ -64,9 +61,7 @@ new_messages = second_result["messages"][
 ]
 
 for message in new_messages:
-    print(
-        f"\n[{message.__class__.__name__}]"
-    )
+    print(f"\n[{message.__class__.__name__}]")
     print(message.content)
 
     if getattr(message, "tool_calls", None):
