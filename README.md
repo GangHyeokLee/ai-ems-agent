@@ -334,14 +334,51 @@ AI_EMS_PHYSICS_PORT=8001
 AI_EMS_LOG_LEVEL=info
 ```
 
-`src/ai_ems/config.py`는 `python-dotenv`를 사용해 `.env`를 자동으로 읽는다. 이미 shell에 설정된 환경변수는 `.env`보다 우선한다.
+`src/ai_ems/config.py`는 import되는 시점에 repository root의 `.env`를 `python-dotenv`로 자동 로드한다.
 
-권장 shell 초기화:
+```python
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(PROJECT_ROOT / ".env", override=False)
+```
+
+따라서 `python app.py`, `web_app.py`, Physics API처럼 `ai_ems.config`를 import하는 Python 프로세스에서는 일반적인 로컬 실행 시 `source .env` 또는 `export AI_EMS_...`를 별도로 수행할 필요가 없다.
+
+설정 흐름은 다음과 같다.
+
+```text
+Python process 시작
+      ↓
+app / web_app / api.app import
+      ↓
+ai_ems.config import
+      ↓
+load_dotenv(PROJECT_ROOT / ".env", override=False)
+      ↓
+.env 값을 현재 Python process 환경에 로드
+      ↓
+os.getenv("AI_EMS_...")
+      ↓
+CASE_FILE / MODEL_NAME / HOST / PORT 등 설정값 생성
+```
+
+`override=False`이므로 shell이나 실행 환경에 이미 같은 환경변수가 설정되어 있다면 그 값이 `.env`보다 우선한다.
+
+또한 `CASE_FILE`, `BUS_LOCATION_FILE`과 같은 상대경로는 `_path_from_env()`에서 repository root 기준 절대경로로 변환한다.
+
+> **주의:** `.env` 자동 로드는 Python 프로세스 내부에서 일어난다. 따라서 shell 명령 자체에서 `$AI_EMS_WEB_HOST`, `$AI_EMS_WEB_PORT`처럼 변수를 직접 확장하려면 Python이 실행되기 전에 shell 환경변수가 필요하므로 `source .env` / `export`가 필요하다. 아래 Run 예제는 이 차이를 피하기 위해 host/port를 명시적으로 사용한다.
+
+일반적인 로컬 실행 준비:
 
 ```bash
 source .venv/bin/activate
-set -a; source .env; set +a
-export PYTHONPATH="$PWD/src${PYTHONPATH:+:$PYTHONPATH}"
+```
+
+필요한 경우에만 shell 환경변수를 직접 로드한다.
+
+```bash
+set -a
+source .env
+set +a
 ```
 
 ---
@@ -367,10 +404,12 @@ cp .env.example .env
 python app.py
 ```
 
+`app.py` 실행 중 `ai_ems.config`가 import되면서 `.env`가 자동으로 로드된다.
+
 ### Agent Web UI
 
 ```bash
-python -m uvicorn web_app:app --host "$AI_EMS_WEB_HOST" --port "$AI_EMS_WEB_PORT" --log-level "$AI_EMS_LOG_LEVEL"
+python -m uvicorn web_app:app --host 127.0.0.1 --port 8000 --log-level info
 ```
 
 브라우저:
@@ -379,10 +418,12 @@ python -m uvicorn web_app:app --host "$AI_EMS_WEB_HOST" --port "$AI_EMS_WEB_PORT
 http://127.0.0.1:8000/
 ```
 
+`web_app.py`가 `ai_ems.config`의 `CASE_FILE`, `BUS_LOCATION_FILE`을 import하므로 계통 파일 경로 등 애플리케이션 설정은 `.env`에서 자동 로드된다.
+
 ### Standalone Physics API
 
 ```bash
-python -m uvicorn ai_ems.api.app:app --host "$AI_EMS_PHYSICS_HOST" --port "$AI_EMS_PHYSICS_PORT" --log-level "$AI_EMS_LOG_LEVEL"
+python -m uvicorn ai_ems.api.app:app --host 127.0.0.1 --port 8001 --log-level info
 ```
 
 Swagger UI:
@@ -391,7 +432,9 @@ Swagger UI:
 http://127.0.0.1:8001/docs
 ```
 
-`AI_EMS_PHYSICS_HOST=127.0.0.1`은 local-only access이다. 다른 PC 또는 Simulator에서 접속해야 하는 환경에서는 필요한 경우 `0.0.0.0`으로 bind하고 네트워크 / 방화벽 정책에 맞게 접근을 제한한다.
+`ai_ems.api.app` 역시 `ai_ems.config.CASE_FILE`을 import하므로 계통 case 설정은 `.env`에서 자동 로드된다.
+
+`127.0.0.1`은 local-only access이다. 다른 PC 또는 Simulator에서 접속해야 하는 환경에서는 필요한 경우 `0.0.0.0`으로 bind하고 네트워크 / 방화벽 정책에 맞게 접근을 제한한다.
 
 ---
 
