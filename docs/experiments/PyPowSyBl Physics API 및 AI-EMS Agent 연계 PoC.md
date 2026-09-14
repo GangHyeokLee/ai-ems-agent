@@ -89,6 +89,10 @@ External Simulator
 
 이를 통해 LLM Agent와 외부 시스템이 동일한 계통해석 코드를 재사용할 수 있도록 구성하였다.
 
+![PyPowSyBl Physics API Swagger](../assets/physics-agent/01_physics_api_swagger.png)
+
+*그림 1. PyPowSyBl Physics API Swagger 화면. Security Analysis, Sensitivity Analysis, Contingency Response 및 Redispatch Validation 기능을 독립 REST API로 제공하도록 구성하였다.*
+
 ---
 
 ### 2\. LLM Agent Tool Calling
@@ -115,6 +119,10 @@ LLM Agent가 자연어 요청을 해석한 뒤 필요한 Domain Tool을 호출�
 
 또한 Security/Sensitivity/Redispatch 결과의 주요 출력은 deterministic formatter를 적용하여 물리량과 단위가 잘못 설명되는 것을 줄였다.
 
+![AI-EMS Agent contingency response](../assets/physics-agent/02_agent_contingency_response.png)
+
+*그림 2. AI-EMS Agent 자연어 계통해석 결과. LINE-16-28 사고 대응 요청을 해석하여 Security Analysis → Sensitivity Analysis → Redispatch 후보 검증 workflow를 실행하고 물리해석 결과를 반환하였다.*
+
 ---
 
 ### 3\. External Simulator Mock Integration
@@ -129,6 +137,10 @@ Risk score     : 0.91
 ```
 
 여기서 `risk_score=0.91`은 Physics API가 계산한 값이 아니라 **외부 AI/Simulator가 생성했다고 가정한 값**이며, Physics API는 이를 재계산하지 않는다.
+
+![Mock Simulator Physics API integration probe](../assets/physics-agent/03_integration_probe.png)
+
+*그림 3. Mock Simulator–Physics API Integration 결과. 외부 모듈이 LINE-183-190과 risk score 0.91을 전달하고, Physics API가 Security/Sensitivity 분석 및 외부 제어 후보의 물리 영향을 검증하는 흐름을 확인하였다.*
 
 ---
 
@@ -192,6 +204,10 @@ Physics API의 `redispatch-validation`을 이용하여 후보를 실제 AC 계�
 Redispatch로 선로 부하는 감소했지만 기존 과부하는 완전히 해소되지 않았다.
 
 따라서 외부 모듈이 제어 후보를 생성하더라도 실제 효과는 물리해석 엔진에서 다시 검증해야 함을 확인하였다.
+
+![Redispatch validation API response](../assets/physics-agent/04_redispatch_api_response.png)
+
+*그림 4. Redispatch Validation REST API 응답 예시. 제어 후보 적용 전·후 피상전력과 부하율, 개선 여부, 기존 위반 잔존 여부 및 신규 위반 발생 여부를 구조화된 JSON으로 반환함을 확인하였다.*
 
 ---
 
