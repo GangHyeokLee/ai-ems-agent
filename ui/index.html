@@ -257,6 +257,11 @@
       cursor: pointer;
     }
 
+    .analysis-box button:disabled {
+      cursor: not-allowed;
+      opacity: 0.6;
+    }
+
     #security-result,
     #sensitivity-result {
       margin-top: 12px;
@@ -410,6 +415,7 @@
           clearMapSelection();
           element.classList.add("selected-line");
           document.getElementById("outage-line").value = line.line_id;
+          invalidateSecurityResult();
           showLineTooltip(event, line, bus1, bus2);
         });
         svg.appendChild(hitElement);
@@ -538,6 +544,7 @@
         highlightLine(violation.equipment_id, "violation-line");
       }
 
+      renderSecurityResult(result);
       latestSecurityResult = result;
 
       const sensitivityButton =
@@ -567,9 +574,10 @@
     function renderSecurityResult(result) {
       const element = document.getElementById("security-result");
 
-      const violationCount = result.violated_assessment_available === true
-        ? result.violated_equipment_count ?? 0
-        : "판정 불가";
+      const violationCount =
+        result.violation_assessment_available === true
+          ? result.violated_equipment_count ?? 0
+          : "판정 불가";
 
       let html = `
           <div><strong>Outage</strong>: ${result.outage_line_id ?? "-"}</div>
@@ -598,6 +606,14 @@
       document.querySelectorAll(".sensitivity-marker").forEach((marker) => marker.remove());
     }
 
+    function invalidateSecurityResult() {
+      latestSecurityResult = null;
+      document.getElementById("sensitivity-button").disabled = true;
+      document.getElementById("sensitivity-result").textContent =
+        "변경한 사고에 대해 Security Analysis를 먼저 실행하세요.";
+      resetSensitivityMarkers();
+    }
+
     async function runSensitivityAnalysis() {
       const outageLineId = document.getElementById("outage-line").value.trim();
       if (!outageLineId) return;
@@ -616,16 +632,6 @@
           "상정사고 분석이 수렴하지 않아 민감도 분석을 수행할 수 없습니다.";
         return;
       }
-
-      document
-        .getElementById("outage-line")
-        .addEventListener("input", () => {
-          latestSecurityResult = null;
-          document.getElementById("sensitivity-button").disabled = true;
-          document.getElementById("sensitivity-result").textContent =
-            "변경한 사고에 대해 Security Analysis를 먼저 실행하세요.";
-          resetSensitivityMarkers();
-        });
 
       const resultElement = document.getElementById("sensitivity-result");
       resultElement.textContent = "민감도 분석 중...";
@@ -757,6 +763,7 @@
 
     document.getElementById("analyze-button").addEventListener("click", runSecurityAnalysis);
     document.getElementById("sensitivity-button").addEventListener("click", runSensitivityAnalysis);
+    document.getElementById("outage-line").addEventListener("input", invalidateSecurityResult);
     document.getElementById("chat-send").addEventListener("click", sendChatMessage);
     document.getElementById("chat-message").addEventListener("keydown", (event) => {
       if (event.key === "Enter" && !event.shiftKey) {
