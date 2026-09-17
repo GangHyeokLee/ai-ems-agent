@@ -49,6 +49,28 @@ def analyze_contingency_response(
         outage_line_id=outage_line_id,
     )
 
+    initial_security = {
+        "pre_status": security_result["pre_status"],
+        "post_status": security_result["post_status"],
+        "pre_violated_equipment_count": security_result["pre_violated_equipment_count"],
+        "post_violated_equipment_count": security_result["violated_equipment_count"],
+        "violation_comparison": security_result["violation_comparison"],
+    }
+
+    if security_result["post_status"] != "CONVERGED":
+        return {
+            "analysis_type": "Contingency Response Analysis",
+            "analysis_status": "SECURITY_NOT_CONVERGED",
+            "outage_line_id": outage_line_id,
+            "monitored_line_id": None,
+            "target_selection": "not_available",
+            "delta_mw": delta_mw,
+            "candidate_count": 0,
+            "candidates": [],
+            "best_tested_candidate": None,
+            "initial_security": initial_security,
+        }
+
     target_selection = "user_specified"
 
     if monitored_line_id is None:
@@ -111,6 +133,7 @@ def analyze_contingency_response(
 
     return {
         "analysis_type": "Contingency Response Analysis",
+        "analysis_status": "COMPLETED",
         "outage_line_id": outage_line_id,
         "monitored_line_id": monitored_line_id,
         "target_selection": target_selection,
@@ -120,15 +143,5 @@ def analyze_contingency_response(
         "best_tested_candidate": (
             validated_candidates[0] if validated_candidates else None
         ),
-        "initial_security": {
-            "pre_status": security_result["pre_status"],
-            "post_status": security_result["post_status"],
-            "pre_violated_equipment_count": security_result[
-                "pre_violated_equipment_count"
-            ],
-            "post_violated_equipment_count": security_result[
-                "violated_equipment_count"
-            ],
-            "violation_comparison": security_result["violation_comparison"],
-        },
+        "initial_security": initial_security,
     }

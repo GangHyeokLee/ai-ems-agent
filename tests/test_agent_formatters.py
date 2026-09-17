@@ -81,7 +81,9 @@ def test_format_contingency_response_handles_worsening_candidate() -> None:
     assert "과부하는 완화되었지만" not in text
 
 
-def test_format_contingency_response_distinguishes_contingency_and_redispatch_violations() -> None:
+def test_format_contingency_response_distinguishes_contingency_and_redispatch_violations() -> (
+    None
+):
     result = _base_result()
     result["outage_line_id"] = "LINE-81-84"
     result["monitored_line_id"] = "LINE-16-28"
@@ -114,8 +116,50 @@ def test_format_contingency_response_distinguishes_contingency_and_redispatch_vi
 
     text = format_contingency_response(result)
 
-    assert "사고 전 위반 설비: 0개 / 사고 후 위반 설비: 2개 / 사고로 인한 신규 위반: 2개" in text
+    assert (
+        "사고 전 위반 설비: 0개 / 사고 후 위반 설비: 2개 / 사고로 인한 신규 위반: 2개"
+        in text
+    )
     assert "사고로 새로 발생한 위반 설비: LINE-134-193, LINE-16-28" in text
     assert "Redispatch로 인해 추가로 발생한 신규 위반은 확인되지 않았습니다." in text
-    assert "사고 후 발생한 위반 설비 중 제어 후에도 남아 있습니다: LINE-134-193, LINE-16-28" in text
+    assert (
+        "사고 후 발생한 위반 설비 중 제어 후에도 남아 있습니다: LINE-134-193, LINE-16-28"
+        in text
+    )
     assert "기존 위반 설비가 남아 있습니다" not in text
+
+
+def test_format_contingency_response_handles_initial_security_nonconvergence() -> None:
+    result = {
+        "analysis_type": "Contingency Response Analysis",
+        "analysis_status": "SECURITY_NOT_CONVERGED",
+        "outage_line_id": "LINE-28-80",
+        "monitored_line_id": None,
+        "target_selection": "not_available",
+        "delta_mw": 10.0,
+        "candidate_count": 0,
+        "candidates": [],
+        "best_tested_candidate": None,
+        "initial_security": {
+            "pre_status": "CONVERGED",
+            "post_status": "MAX_ITERATION_REACHED",
+            "pre_violated_equipment_count": 0,
+            "post_violated_equipment_count": 0,
+            "violation_comparison": {
+                "new_count": 0,
+                "resolved_count": 0,
+                "remaining_count": 0,
+                "new": [],
+                "resolved": [],
+                "remaining": [],
+            },
+        },
+    }
+
+    text = format_contingency_response(result)
+
+    assert "상정사고 분석이 수렴하지 않았습니다" in text
+    assert "MAX_ITERATION_REACHED" in text
+    assert "위반 여부를 판정할 수 없습니다" in text
+    assert "Sensitivity Analysis 및 Redispatch 후보 검토를 수행하지 않았습니다" in text
+    assert "위반이 없다는 의미가 아니라" in text

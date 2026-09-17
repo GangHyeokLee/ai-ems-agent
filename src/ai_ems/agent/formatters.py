@@ -3,9 +3,28 @@ from typing import Any
 
 def format_contingency_response(result: dict[str, Any]) -> str:
     outage_line_id = result["outage_line_id"]
+    initial_security = result.get("initial_security")
+
+    if result.get("analysis_status") == "SECURITY_NOT_CONVERGED":
+        post_status = (
+            initial_security.get("post_status")
+            if initial_security is not None
+            else "UNKNOWN"
+        )
+
+        return "\n".join(
+            [
+                f"{outage_line_id} 사고의 상정사고 분석이 수렴하지 않았습니다.",
+                "",
+                f"- 해석 상태: {post_status}",
+                "- 사고 후 조류계산이 수렴하지 않아 위반 여부를 판정할 수 없습니다.",
+                "- 따라서 과부하 선로 선택, Sensitivity Analysis 및 Redispatch 후보 검토를 수행하지 않았습니다.",
+                "- 주의: 이는 위반이 없다는 의미가 아니라 해석 결과를 얻지 못했다는 의미입니다.",
+            ]
+        )
+
     monitored_line_id = result["monitored_line_id"]
     candidate_count = result["candidate_count"]
-    initial_security = result.get("initial_security")
     comparison = {}
     best = result["best_tested_candidate"]
 
@@ -151,7 +170,9 @@ def format_contingency_response(result: dict[str, Any]) -> str:
                 f"{remaining_ids}"
             )
         else:
-            lines.append("- 사고 후 발생한 위반 설비는 재검증 결과 모두 해소되었습니다.")
+            lines.append(
+                "- 사고 후 발생한 위반 설비는 재검증 결과 모두 해소되었습니다."
+            )
     else:
         lines.append("- 전체 계통의 신규 위반 여부는 별도 검증이 필요합니다.")
 
@@ -184,13 +205,8 @@ def _append_initial_security_summary(
 
     new_violations = comparison.get("new", [])
     if new_violations:
-        new_ids = ", ".join(
-            item["equipment_id"]
-            for item in new_violations
-        )
-        lines.append(
-            f"- 사고로 새로 발생한 위반 설비: {new_ids}"
-        )
+        new_ids = ", ".join(item["equipment_id"] for item in new_violations)
+        lines.append(f"- 사고로 새로 발생한 위반 설비: {new_ids}")
 
     remaining = comparison.get("remaining", [])
     if remaining:
