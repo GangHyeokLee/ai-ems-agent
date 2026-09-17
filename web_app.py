@@ -143,6 +143,18 @@ def sensitivity_analysis(
             outage_line_id=outage_line_id,
         )
 
+        if security_result["post_status"] != "CONVERGED":
+            return {
+                "analysis_status": "SECURITY_NOT_CONVERGED",
+                "outage_line_id": outage_line_id,
+                "monitored_line_id": None,
+                "candidate_count": 0,
+                "candidates": [],
+                "message": (
+                    "상정사고 분석이 수렴하지 않아 " "민감도 분석을 수행할 수 없습니다."
+                ),
+            }
+
         selected = select_most_severe_violated_line(
             network,
             security_result,
@@ -154,7 +166,8 @@ def sensitivity_analysis(
                 "monitored_line_id": None,
                 "candidate_count": 0,
                 "candidates": [],
-                "message": "No overloaded transmission line found.",
+                "analysis_status": "NO_OVERLOAD",
+                "message": "과부하 선로가 확인되지 않아 민감도 분석 대상을 선택할 수 없습니다.",
             }
 
         monitored_line_id = selected["equipment_id"]
@@ -246,10 +259,17 @@ def _security_result_for_ui(
             }
         )
 
+    post_status = result["post_status"]
+    violation_assessment_available = post_status == "CONVERGED"
+
     return {
         "outage_line_id": result["outage_line_id"],
         "base_converged": result["base_converged"],
-        "post_status": result["post_status"],
+        "post_status": post_status,
+        "analysis_status": (
+            "COMPLETED" if violation_assessment_available else "SECURITY_NOT_CONVERGED"
+        ),
+        "violation_assessment_available": violation_assessment_available,
         "violated_equipment_count": result["violated_equipment_count"],
         "violations": violations,
     }
@@ -276,10 +296,17 @@ def _agent_security_result_for_ui(
             }
         )
 
+    post_status = result.get("post_status")
+    violation_assessment_available = post_status == "CONVERGED"
+
     return {
         "outage_line_id": result.get("outage_line_id"),
         "base_converged": result.get("base_converged"),
-        "post_status": result.get("post_status"),
+        "post_status": post_status,
+        "analysis_status": (
+            "COMPLETED" if violation_assessment_available else "SECURITY_NOT_CONVERGED"
+        ),
+        "violation_assessment_available": violation_assessment_available,
         "violated_equipment_count": result.get(
             "violated_equipment_count",
             len(violations),
@@ -318,6 +345,7 @@ def _sensitivity_result_for_ui(
         "candidate_count": len(candidates),
         "candidates": candidates,
         "target_selection": result.get("target_selection"),
+        "analysis_status": "COMPLETED",
     }
 
 
