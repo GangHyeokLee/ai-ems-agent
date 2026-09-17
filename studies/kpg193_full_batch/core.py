@@ -33,12 +33,15 @@ def classify_result(
         _as_int(connectivity.get("created_connected_component_count")),
         _as_int(connectivity.get("created_synchronous_component_count")),
     )
-    disconnected = connectivity.get("disconnected_element_ids") or []
+    additional_disconnected = (
+        connectivity.get("additional_disconnected_element_ids") or []
+    )
 
-    # With OpenLoadFlow's result extension enabled, this list contains
-    # additional elements disconnected by contingency propagation, not merely
-    # the requested outage element.
-    if "ISLAND" in status or created_components > 0 or bool(disconnected):
+    # PyPowSyBl includes the requested outage element itself in
+    # disconnected_elements. Only elements disconnected in addition to that
+    # requested outage prove that the contingency split or propagated through
+    # the network.
+    if "ISLAND" in status or created_components > 0 or bool(additional_disconnected):
         return "ISLANDED"
     if status not in {"CONVERGED", "NO_IMPACT"}:
         return "NON_CONVERGED"
@@ -287,7 +290,7 @@ def parse_line_buses(line_id: str, row: pd.Series | dict[str, Any]) -> tuple[int
 def _ranking_key(row: dict[str, Any]) -> tuple[Any, ...]:
     return (
         CLASS_PRIORITY.get(str(row.get("classification")), 98),
-        -_number_or(row.get("disconnected_element_count"), 0.0),
+        -_number_or(row.get("additional_disconnected_element_count"), 0.0),
         -_number_or(row.get("violated_equipment_count"), 0.0),
         -_number_or(row.get("violation_count"), 0.0),
         -_number_or(row.get("max_loading_percent"), float("-inf")),

@@ -26,12 +26,26 @@ def test_classification_uses_connectivity_component_creation():
     assert classify_result(None, 0, error="boom") == "EXECUTION_ERROR"
 
 
-def test_disconnected_elements_from_result_extension_mean_islanding():
+def test_requested_outage_in_disconnected_elements_is_not_islanding():
     assert (
         classify_result(
             "CONVERGED",
             0,
             {"disconnected_element_ids": ["LINE-1-2"]},
+        )
+        == "CONVERGED_CLEAN"
+    )
+
+
+def test_additional_disconnected_elements_mean_islanding():
+    assert (
+        classify_result(
+            "CONVERGED",
+            0,
+            {
+                "disconnected_element_ids": ["LINE-1-2", "LOAD-2"],
+                "additional_disconnected_element_ids": ["LOAD-2"],
+            },
         )
         == "ISLANDED"
     )

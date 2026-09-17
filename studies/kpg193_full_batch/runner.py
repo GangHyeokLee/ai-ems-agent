@@ -185,7 +185,7 @@ class FullBatchStudy:
                 )
             ]
             grouped = summarize_violations(raw_violations)
-            connectivity = _serialize_connectivity(post)
+            connectivity = _serialize_connectivity(post, spec.element_id)
             branch_metrics = _branch_metrics(
                 branch_results,
                 spec.contingency_id,
@@ -397,19 +397,30 @@ def _serialize_object(obj: Any) -> dict[str, Any]:
     return output or {"raw": str(obj)}
 
 
-def _serialize_connectivity(post_result: Any) -> dict[str, Any]:
+def _serialize_connectivity(
+    post_result: Any,
+    requested_outage_element_id: str,
+) -> dict[str, Any]:
     disconnected = (
         getattr(post_result, "disconnected_elements", None)
         if post_result is not None
         else None
     )
+    disconnected_ids = sorted(map(str, disconnected or []))
+    additional_ids = [
+        element_id
+        for element_id in disconnected_ids
+        if element_id != requested_outage_element_id
+    ]
     return {
         "created_connected_component_count": None,
         "created_synchronous_component_count": None,
         "disconnected_load_active_power": None,
         "disconnected_generation_active_power": None,
-        "disconnected_element_ids": _json_value(disconnected) or [],
-        "disconnected_element_count": len(disconnected or []),
+        "disconnected_element_ids": disconnected_ids,
+        "disconnected_element_count": len(disconnected_ids),
+        "additional_disconnected_element_ids": additional_ids,
+        "additional_disconnected_element_count": len(additional_ids),
     }
 
 

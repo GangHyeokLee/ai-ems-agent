@@ -84,6 +84,7 @@ def build_html_report(
             "contingency_id",
             "classification",
             "raw_status",
+            "additional_disconnected_element_count",
             "violation_count",
             "violated_equipment_count",
             "max_loading_percent",

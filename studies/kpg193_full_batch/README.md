@@ -35,12 +35,14 @@ remaining results.
 - `EXECUTION_ERROR`
 
 The original PyPowSyBl status is retained in `raw_status`. Execution errors do
-not receive a physical-risk rank.
+not receive a physical-risk rank. PyPowSyBl includes the requested outage
+element itself in `disconnected_elements`; islanding classification therefore
+uses only `additional_disconnected_element_ids` after excluding that element.
 
 ## Deterministic review order
 
 1. normalized physical outcome class
-2. disconnected element count
+2. additional disconnected element count
 3. violated equipment count and violation-record count
 4. maximum loading percent
 5. maximum relative limit excess
