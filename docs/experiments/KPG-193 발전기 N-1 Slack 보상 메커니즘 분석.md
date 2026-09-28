@@ -6,7 +6,7 @@
 
 앞선 발전기 N-1 Full Batch 실험에서 동일한 100개 발전기 사고를 분석했음에도, Single slack과 Distributed slack 설정에 따라 제약 위반 사고 수가 **65건과 24건**, 최대 선로 부하율이 **109.178%와 105.603%**로 다르게 나타났다.
 
-이 차이는 단순한 계산 옵션의 차이가 아니라, 발전기 탈락으로 발생한 유효전력 부족분을 **어디에서, 어떤 방식으로 보상하는지에 따라 계통 조류와 손실이 달라지기 때문일 것**이라고 가정하였다.
+이 차이는 Slack 설정에 따라 발전기 탈락으로 발생한 유효전력 불일치의 보상 위치와 분담 방식이 달라지고, 이에 따라 계통 조류와 손실이 달라지기 때문일 것이라고 가정하였다.
 
 따라서 Full Batch에서 최대 부하율을 보인 대표 사고 `GEN-124#1`을 대상으로 Single/Distributed slack의 실제 balancing 결과를 비교하여 다음을 확인한다.
 
@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | `distributed_slack` | `False` | `True` |
 | `balance_type` | 해당 없음 | `PROPORTIONAL_TO_GENERATION_P_MAX` |
-| 분석 목적 | Slack mismatch 확인 | 발전기별 실제 출력 분담 확인 |
+| 주요 관찰값 | Slack mismatch | 발전기별 실제 출력 분담 |
 
 - **주요 비교 지표**
   - `GEN-124#1` 사고 전 발전량
@@ -176,9 +176,7 @@ Distributed에서는 Single보다
 
 다만 Distributed에서도 `LINE-134-193`은 여전히 100%를 초과하므로, 이를 과부하를 해소하는 실제 corrective redispatch로 해석할 수는 없다.
 
----
-
-## AI EMS 관점의 의미
+### 6\. AI EMS 관점의 의미
 
 이번 실험은 발전기 N-1 결과를 AI EMS에서 사용할 때 **Contingency ID와 위반 결과만 전달해서는 충분하지 않음**을 보여준다.
 
