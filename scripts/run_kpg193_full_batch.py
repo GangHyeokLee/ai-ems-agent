@@ -29,7 +29,27 @@ def main() -> int:
         / datetime.now().strftime("%Y%m%d_%H%M%S"),
     )
     parser.add_argument("--legacy-csv", type=Path)
-    parser.add_argument("--include-generators", action="store_true")
+    contingency_group = parser.add_mutually_exclusive_group()
+    contingency_group.add_argument(
+        "--include-generators",
+        action="store_true",
+        help="Run line N-1 and generator N-1 together.",
+    )
+    contingency_group.add_argument(
+        "--generator-only",
+        action="store_true",
+        help="Run only connected-generator N-1 contingencies.",
+    )
+
+    parser.add_argument(
+        "--generator-slack",
+        choices=("single", "distributed"),
+        default="single",
+        help=(
+            "Active-power balancing method for generator-only N-1. "
+            "Distributed mode uses generator maximum active power."
+        ),
+    )
     parser.add_argument(
         "--chunk-size",
         type=int,
@@ -40,22 +60,39 @@ def main() -> int:
     parser.add_argument("--sensitivity-candidates", type=int, default=10)
     parser.add_argument("--no-sensitivity", action="store_true")
     args = parser.parse_args()
+    if args.generator_slack == "distributed" and not args.generator_only:
+        parser.error(
+            "--generator-slack distributed requires --generator-only"
+        )
 
     config = StudyConfig(
         case_file=args.case.expanduser().resolve(),
         output_dir=args.output.expanduser().resolve(),
         include_generators=args.include_generators,
+        generator_only=args.generator_only,
+        generator_slack=args.generator_slack,
         chunk_size=args.chunk_size,
         top_n_sensitivity_contingencies=args.top_n_sensitivity,
         sensitivity_candidates_per_contingency=args.sensitivity_candidates,
         run_sensitivity=not args.no_sensitivity,
     )
     print(f"[START] case={config.case_file}")
-    print(
-        "[MODE] line N-1"
-        + (" + generator N-1" if config.include_generators else "")
-        + ("; single full batch" if config.chunk_size <= 0 else f"; chunk={config.chunk_size}")
+    if config.generator_only:
+        mode = (
+            "generator N-1 only"
+            f"; slack={config.generator_slack}"
+        )
+    elif config.include_generators:
+        mode = "line N-1 + generator N-1; slack=single"
+    else:
+        mode = "line N-1; slack=single"
+
+    mode += (
+        "; single full batch"
+        if config.chunk_size <= 0
+        else f"; chunk={config.chunk_size}"
     )
+    print(f"[MODE] {mode}")
     result = FullBatchStudy(config).run()
     paths = write_study_outputs(result, config.output_dir, args.legacy_csv)
 

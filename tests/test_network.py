@@ -51,3 +51,57 @@ def test_kpg_line_contingency():
   )
 
   assert has_target_violation is True
+
+
+def test_load_flow_uses_default_parameters(monkeypatch):
+    from ai_ems import network as network_module
+
+    received = {}
+
+    def fake_run_ac(network, *, parameters):
+        received["parameters"] = parameters
+        return []
+
+    monkeypatch.setattr(
+        network_module.pp.loadflow, "run_ac", fake_run_ac
+    )
+
+    network_module.run_ac_load_flow(object())
+
+    assert received["parameters"] is network_module.LOADFLOW_PARAMETERS
+    assert received["parameters"].distributed_slack is False
+
+
+def test_load_flow_accepts_custom_parameters(monkeypatch):
+    from ai_ems import network as network_module
+
+    received = {}
+
+    def fake_run_ac(network, *, parameters):
+        received["parameters"] = parameters
+        return []
+
+    monkeypatch.setattr(
+        network_module.pp.loadflow, "run_ac", fake_run_ac
+    )
+
+    custom = network_module.pp.loadflow.Parameters(
+        distributed_slack=True,
+        balance_type=(
+            network_module.pp.loadflow.BalanceType
+            .PROPORTIONAL_TO_GENERATION_P_MAX
+        ),
+    )
+
+    result = network_module.run_ac_load_flow(
+        object(),
+        parameters=custom,
+    )
+
+    assert received["parameters"] is custom
+    assert result["load_flow_parameters"]["distributed_slack"] is True
+    assert (
+        result["load_flow_parameters"]["balance_type"]
+        == "PROPORTIONAL_TO_GENERATION_P_MAX"
+    )
+    assert network_module.LOADFLOW_PARAMETERS.distributed_slack is False

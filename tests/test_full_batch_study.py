@@ -1,6 +1,8 @@
 from pathlib import Path
 
 import pandas as pd
+import pypowsybl as pp
+import pytest
 
 from studies.kpg193_full_batch.core import (
     classify_result,
@@ -9,6 +11,10 @@ from studies.kpg193_full_batch.core import (
     summarize_violations,
 )
 from studies.kpg193_full_batch.reporting import build_html_report
+from studies.kpg193_full_batch.runner import (
+    FullBatchStudy,
+    StudyConfig,
+)
 
 
 def test_classification_uses_connectivity_component_creation():
@@ -176,3 +182,72 @@ def test_html_report_is_self_contained():
     )
     assert "KPG-193 Full Batch Security Study" in rendered
     assert "CONVERGED_CLEAN" in rendered
+
+def test_study_config_rejects_mixed_generator_modes():
+    with pytest.raises(ValueError):
+        StudyConfig(
+            case_file=Path("case.mat"),
+            output_dir=Path("output"),
+            include_generators=True,
+            generator_only=True,
+        )
+
+
+def test_distributed_slack_requires_generator_only():
+    with pytest.raises(ValueError):
+        StudyConfig(
+            case_file=Path("case.mat"),
+            output_dir=Path("output"),
+            generator_slack="distributed",
+        )
+
+
+def test_generator_only_builds_only_generator_specs():
+    study = FullBatchStudy.__new__(FullBatchStudy)
+    study.config = StudyConfig(
+        case_file=Path("case.mat"),
+        output_dir=Path("output"),
+        generator_only=True,
+        generator_slack="distributed",
+    )
+    study.lines = pd.DataFrame(
+        {"bus1_id": ["1"], "bus2_id": ["2"]},
+        index=["LINE-1-2"],
+    )
+    study.generators = pd.DataFrame(
+        {
+            "connected": [True, False],
+            "bus_id": ["BUS-1", "BUS-2"],
+            "target_p": [100.0, 50.0],
+            "max_p": [150.0, 80.0],
+            "voltage_regulator_on": [True, False],
+        },
+        index=["GEN-1", "GEN-2"],
+    )
+
+    specs = study._build_specs()
+
+    assert len(specs) == 1
+    assert specs[0].element_type == "GENERATOR"
+    assert specs[0].element_id == "GEN-1"
+    assert specs[0].generator_bus_id == "BUS-1"
+    assert specs[0].generator_target_p_mw == 100.0
+    assert specs[0].generator_max_p_mw == 150.0
+
+
+def test_generator_distributed_slack_parameters():
+    study = FullBatchStudy.__new__(FullBatchStudy)
+    study.config = StudyConfig(
+        case_file=Path("case.mat"),
+        output_dir=Path("output"),
+        generator_only=True,
+        generator_slack="distributed",
+    )
+
+    parameters = study._security_loadflow_parameters()
+
+    assert parameters.distributed_slack is True
+    assert (
+        parameters.balance_type
+        == pp.loadflow.BalanceType.PROPORTIONAL_TO_GENERATION_P_MAX
+    )
