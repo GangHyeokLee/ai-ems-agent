@@ -6,7 +6,9 @@ from typing import Any
 import pypowsybl as pp
 
 from ai_ems.network import load_network
-
+from ai_ems.tools.security_tools import (
+    run_generator_contingency_security,
+)
 
 SUPPORTED_SLACK_MODES = {
     "single",
@@ -29,18 +31,14 @@ def build_generator_loadflow_parameters(
     if slack_mode == "single":
         if balance_type is not None:
             raise ValueError(
-                "balance_type is only valid "
-                "when slack_mode='distributed'."
+                "balance_type is only valid " "when slack_mode='distributed'."
             )
 
         return pp.loadflow.Parameters(
             distributed_slack=False,
         )
 
-    effective_balance_type = (
-        balance_type
-        or "PROPORTIONAL_TO_GENERATION_P_MAX"
-    )
+    effective_balance_type = balance_type or "PROPORTIONAL_TO_GENERATION_P_MAX"
 
     try:
         pypowsybl_balance_type = getattr(
@@ -49,8 +47,7 @@ def build_generator_loadflow_parameters(
         )
     except AttributeError as exc:
         raise ValueError(
-            f"Unsupported balance_type: "
-            f"{effective_balance_type}"
+            f"Unsupported balance_type: " f"{effective_balance_type}"
         ) from exc
 
     return pp.loadflow.Parameters(
@@ -69,47 +66,24 @@ def generator_snapshot(
     output: dict[str, dict[str, Any]] = {}
 
     for generator_id, row in generators.iterrows():
-        actual_generation_mw = (
-            -float(row["p"])
-            if row["p"] == row["p"]
-            else None
-        )
+        actual_generation_mw = -float(row["p"]) if row["p"] == row["p"] else None
 
-        min_p_mw = (
-            float(row["min_p"])
-            if row["min_p"] == row["min_p"]
-            else None
-        )
+        min_p_mw = float(row["min_p"]) if row["min_p"] == row["min_p"] else None
 
-        max_p_mw = (
-            float(row["max_p"])
-            if row["max_p"] == row["max_p"]
-            else None
-        )
+        max_p_mw = float(row["max_p"]) if row["max_p"] == row["max_p"] else None
 
         target_p_mw = (
-            float(row["target_p"])
-            if row["target_p"] == row["target_p"]
-            else None
+            float(row["target_p"]) if row["target_p"] == row["target_p"] else None
         )
 
         headroom_mw = None
 
-        if (
-            max_p_mw is not None
-            and actual_generation_mw is not None
-        ):
-            headroom_mw = (
-                max_p_mw
-                - actual_generation_mw
-            )
+        if max_p_mw is not None and actual_generation_mw is not None:
+            headroom_mw = max_p_mw - actual_generation_mw
 
         bus_id = None
 
-        if (
-            "bus_id" in row.index
-            and row["bus_id"] == row["bus_id"]
-        ):
+        if "bus_id" in row.index and row["bus_id"] == row["bus_id"]:
             bus_id = str(row["bus_id"])
 
         output[str(generator_id)] = {
@@ -117,8 +91,7 @@ def generator_snapshot(
             "connected": bool(row["connected"]),
             "bus_id": bus_id,
             "target_p_mw": target_p_mw,
-            "actual_generation_mw":
-                actual_generation_mw,
+            "actual_generation_mw": actual_generation_mw,
             "min_p_mw": min_p_mw,
             "max_p_mw": max_p_mw,
             "headroom_mw": headroom_mw,
@@ -151,44 +124,25 @@ def build_generator_changes(
         if not after["connected"]:
             continue
 
-        before_generation = (
-            before["actual_generation_mw"]
-        )
-        after_generation = (
-            after["actual_generation_mw"]
-        )
+        before_generation = before["actual_generation_mw"]
+        after_generation = after["actual_generation_mw"]
 
         delta_generation_mw = None
 
-        if (
-            before_generation is not None
-            and after_generation is not None
-        ):
-            delta_generation_mw = (
-                after_generation
-                - before_generation
-            )
+        if before_generation is not None and after_generation is not None:
+            delta_generation_mw = after_generation - before_generation
 
         changes.append(
             {
-                "generator_id":
-                    generator_id,
-                "bus_id":
-                    before["bus_id"],
-                "generation_before_mw":
-                    before_generation,
-                "generation_after_mw":
-                    after_generation,
-                "delta_generation_mw":
-                    delta_generation_mw,
-                "min_p_mw":
-                    before["min_p_mw"],
-                "max_p_mw":
-                    before["max_p_mw"],
-                "headroom_before_mw":
-                    before["headroom_mw"],
-                "headroom_after_mw":
-                    after["headroom_mw"],
+                "generator_id": generator_id,
+                "bus_id": before["bus_id"],
+                "generation_before_mw": before_generation,
+                "generation_after_mw": after_generation,
+                "delta_generation_mw": delta_generation_mw,
+                "min_p_mw": before["min_p_mw"],
+                "max_p_mw": before["max_p_mw"],
+                "headroom_before_mw": before["headroom_mw"],
+                "headroom_after_mw": after["headroom_mw"],
             }
         )
 
@@ -196,8 +150,7 @@ def build_generator_changes(
         changes,
         key=lambda item: abs(
             item["delta_generation_mw"]
-            if item["delta_generation_mw"]
-            is not None
+            if item["delta_generation_mw"] is not None
             else 0.0
         ),
         reverse=True,
@@ -224,8 +177,7 @@ def loadflow_balance_snapshot(
     )
 
     converged = bool(results) and all(
-        component.status.name == "CONVERGED"
-        for component in results
+        component.status.name == "CONVERGED" for component in results
     )
 
     components: list[dict[str, Any]] = []
@@ -234,55 +186,38 @@ def loadflow_balance_snapshot(
     total_active_power_mismatch_mw = 0.0
 
     for component in results:
-        distributed_active_power_mw = float(
-            component.distributed_active_power
-        )
+        distributed_active_power_mw = float(component.distributed_active_power)
 
-        total_distributed_active_power_mw += (
-            distributed_active_power_mw
-        )
+        total_distributed_active_power_mw += distributed_active_power_mw
 
         slack_buses: list[dict[str, Any]] = []
 
         for slack in component.slack_bus_results:
-            active_power_mismatch_mw = float(
-                slack.active_power_mismatch
-            )
+            active_power_mismatch_mw = float(slack.active_power_mismatch)
 
-            total_active_power_mismatch_mw += (
-                active_power_mismatch_mw
-            )
+            total_active_power_mismatch_mw += active_power_mismatch_mw
 
             slack_buses.append(
                 {
                     "bus_id": str(slack.id),
-                    "active_power_mismatch_mw":
-                        active_power_mismatch_mw,
+                    "active_power_mismatch_mw": active_power_mismatch_mw,
                 }
             )
 
         components.append(
             {
-                "status":
-                    component.status.name,
-                "reference_bus_id":
-                    str(component.reference_bus_id),
-                "distributed_active_power_mw":
-                    distributed_active_power_mw,
-                "slack_buses":
-                    slack_buses,
+                "status": component.status.name,
+                "reference_bus_id": str(component.reference_bus_id),
+                "distributed_active_power_mw": distributed_active_power_mw,
+                "slack_buses": slack_buses,
             }
         )
 
     return {
-        "converged":
-            converged,
-        "components":
-            components,
-        "distributed_active_power_mw":
-            total_distributed_active_power_mw,
-        "active_power_mismatch_mw":
-            total_active_power_mismatch_mw,
+        "converged": converged,
+        "components": components,
+        "distributed_active_power_mw": total_distributed_active_power_mw,
+        "active_power_mismatch_mw": total_active_power_mismatch_mw,
     }
 
 
@@ -300,36 +235,20 @@ def power_balance_snapshot(
     loads = network.get_loads()
     lines = network.get_lines()
 
-    connected_generators = generators[
-        generators["connected"]
-    ]
+    connected_generators = generators[generators["connected"]]
 
-    connected_loads = loads[
-        loads["connected"]
-    ]
+    connected_loads = loads[loads["connected"]]
 
-    total_generation_mw = float(
-        (-connected_generators["p"]).sum()
-    )
+    total_generation_mw = float((-connected_generators["p"]).sum())
 
-    total_load_mw = float(
-        connected_loads["p"].sum()
-    )
+    total_load_mw = float(connected_loads["p"].sum())
 
-    line_active_power_loss_mw = float(
-        (
-            lines["p1"]
-            + lines["p2"]
-        ).sum()
-    )
+    line_active_power_loss_mw = float((lines["p1"] + lines["p2"]).sum())
 
     return {
-        "observed_generation_mw":
-            total_generation_mw,
-        "load_mw":
-            total_load_mw,
-        "line_active_power_loss_mw":
-            line_active_power_loss_mw,
+        "observed_generation_mw": total_generation_mw,
+        "load_mw": total_load_mw,
+        "line_active_power_loss_mw": line_active_power_loss_mw,
     }
 
 
@@ -350,11 +269,9 @@ def analyze_generator_contingency(
     It must not be interpreted as operator corrective redispatch.
     """
 
-    parameters = (
-        build_generator_loadflow_parameters(
-            slack_mode=slack_mode,
-            balance_type=balance_type,
-        )
+    parameters = build_generator_loadflow_parameters(
+        slack_mode=slack_mode,
+        balance_type=balance_type,
     )
 
     #
@@ -363,14 +280,10 @@ def analyze_generator_contingency(
 
     base_network = load_network(case_path)
 
-    generators = (
-        base_network.get_generators()
-    )
+    generators = base_network.get_generators()
 
     if generator_id not in generators.index:
-        raise ValueError(
-            f"Unknown generator: {generator_id}"
-        )
+        raise ValueError(f"Unknown generator: {generator_id}")
 
     if not bool(
         generators.loc[
@@ -378,46 +291,28 @@ def analyze_generator_contingency(
             "connected",
         ]
     ):
-        raise ValueError(
-            "Generator is already disconnected: "
-            f"{generator_id}"
-        )
+        raise ValueError("Generator is already disconnected: " f"{generator_id}")
 
-    base_loadflow = (
-        loadflow_balance_snapshot(
-            base_network,
-            parameters,
-        )
+    base_loadflow = loadflow_balance_snapshot(
+        base_network,
+        parameters,
     )
 
     if not base_loadflow["converged"]:
-        raise RuntimeError(
-            "Base-case AC Load Flow "
-            "did not converge."
-        )
+        raise RuntimeError("Base-case AC Load Flow " "did not converge.")
 
-    base_generators = (
-        generator_snapshot(
-            base_network,
-        )
+    base_generators = generator_snapshot(
+        base_network,
     )
 
-    base_power_balance = (
-        power_balance_snapshot(
-            base_network,
-        )
+    base_power_balance = power_balance_snapshot(
+        base_network,
     )
 
     base_balance_based_loss_mw = (
-        base_power_balance[
-            "observed_generation_mw"
-        ]
-        + base_loadflow[
-            "active_power_mismatch_mw"
-        ]
-        - base_power_balance[
-            "load_mw"
-        ]
+        base_power_balance["observed_generation_mw"]
+        + base_loadflow["active_power_mismatch_mw"]
+        - base_power_balance["load_mw"]
     )
 
     #
@@ -431,156 +326,105 @@ def analyze_generator_contingency(
         connected=False,
     )
 
-    post_loadflow = (
-        loadflow_balance_snapshot(
-            post_network,
-            parameters,
-        )
+    post_loadflow = loadflow_balance_snapshot(
+        post_network,
+        parameters,
     )
 
     if not post_loadflow["converged"]:
         return {
-            "analysis_type":
-                "Generator Contingency Detail Analysis",
-            "generator_id":
-                generator_id,
-            "slack_mode":
-                slack_mode,
-            "balance_type":
-                (
-                    parameters.balance_type.name
-                    if parameters.distributed_slack
-                    else None
-                ),
-            "balancing_interpretation":
-                (
-                    "Load-flow balancing assumption; "
-                    "not operator corrective redispatch."
-                ),
-            "base_converged":
-                True,
-            "post_contingency_converged":
-                False,
-            "outage_generator":
-                base_generators[
-                    generator_id
-                ],
+            "analysis_type": "Generator Contingency Detail Analysis",
+            "generator_id": generator_id,
+            "slack_mode": slack_mode,
+            "balance_type": (
+                parameters.balance_type.name if parameters.distributed_slack else None
+            ),
+            "balancing_interpretation": (
+                "Load-flow balancing assumption; " "not operator corrective redispatch."
+            ),
+            "base_converged": True,
+            "post_contingency_converged": False,
+            "outage_generator": base_generators[generator_id],
             "base": {
-                "loadflow":
-                    base_loadflow,
+                "loadflow": base_loadflow,
                 "power_balance": {
                     **base_power_balance,
-                    "balance_based_loss_mw":
-                        base_balance_based_loss_mw,
+                    "balance_based_loss_mw": base_balance_based_loss_mw,
                 },
             },
             "post_contingency": {
-                "loadflow":
-                    post_loadflow,
+                "loadflow": post_loadflow,
             },
-            "generator_changes":
-                [],
+            "generator_changes": [],
         }
 
-    post_generators = (
-        generator_snapshot(
-            post_network,
-        )
+    post_generators = generator_snapshot(
+        post_network,
     )
 
-    post_power_balance = (
-        power_balance_snapshot(
-            post_network,
-        )
+    post_power_balance = power_balance_snapshot(
+        post_network,
     )
 
     post_balance_based_loss_mw = (
-        post_power_balance[
-            "observed_generation_mw"
-        ]
-        + post_loadflow[
-            "active_power_mismatch_mw"
-        ]
-        - post_power_balance[
-            "load_mw"
-        ]
+        post_power_balance["observed_generation_mw"]
+        + post_loadflow["active_power_mismatch_mw"]
+        - post_power_balance["load_mw"]
     )
 
-    generator_changes = (
-        build_generator_changes(
-            base_generators=
-                base_generators,
-            post_generators=
-                post_generators,
-            outage_generator_id=
-                generator_id,
-        )
+    generator_changes = build_generator_changes(
+        base_generators=base_generators,
+        post_generators=post_generators,
+        outage_generator_id=generator_id,
     )
 
-    loss_change_mw = (
-        post_balance_based_loss_mw
-        - base_balance_based_loss_mw
+    security_network = load_network(case_path)
+
+    security_result = run_generator_contingency_security(
+        security_network,
+        outage_generator_id=generator_id,
+        parameters=parameters,
     )
+
+    loss_change_mw = post_balance_based_loss_mw - base_balance_based_loss_mw
 
     line_loss_change_mw = (
-        post_power_balance[
-            "line_active_power_loss_mw"
-        ]
-        - base_power_balance[
-            "line_active_power_loss_mw"
-        ]
+        post_power_balance["line_active_power_loss_mw"]
+        - base_power_balance["line_active_power_loss_mw"]
     )
 
     return {
-        "analysis_type":
-            "Generator Contingency Detail Analysis",
-        "generator_id":
-            generator_id,
-        "slack_mode":
-            slack_mode,
-        "balance_type":
-            (
-                parameters.balance_type.name
-                if parameters.distributed_slack
-                else None
-            ),
-        "balancing_interpretation":
-            (
-                "Load-flow balancing assumption; "
-                "not operator corrective redispatch."
-            ),
-        "base_converged":
-            True,
-        "post_contingency_converged":
-            True,
-        "outage_generator":
-            base_generators[
-                generator_id
-            ],
+        "analysis_type": "Generator Contingency Detail Analysis",
+        "generator_id": generator_id,
+        "contingency_id": security_result["contingency_id"],
+        "slack_mode": slack_mode,
+        "balance_type": (
+            parameters.balance_type.name if parameters.distributed_slack else None
+        ),
+        "balancing_interpretation": (
+            "Load-flow balancing assumption; " "not operator corrective redispatch."
+        ),
+        "base_converged": True,
+        "post_contingency_converged": True,
+        "outage_generator": base_generators[generator_id],
         "base": {
-            "loadflow":
-                base_loadflow,
+            "loadflow": base_loadflow,
             "power_balance": {
                 **base_power_balance,
-                "balance_based_loss_mw":
-                    base_balance_based_loss_mw,
+                "balance_based_loss_mw": base_balance_based_loss_mw,
             },
         },
         "post_contingency": {
-            "loadflow":
-                post_loadflow,
+            "loadflow": post_loadflow,
             "power_balance": {
                 **post_power_balance,
-                "balance_based_loss_mw":
-                    post_balance_based_loss_mw,
+                "balance_based_loss_mw": post_balance_based_loss_mw,
             },
         },
         "loss_change": {
-            "balance_based_loss_change_mw":
-                loss_change_mw,
-            "line_active_power_loss_change_mw":
-                line_loss_change_mw,
+            "balance_based_loss_change_mw": loss_change_mw,
+            "line_active_power_loss_change_mw": line_loss_change_mw,
         },
-        "generator_changes":
-            generator_changes,
+        "generator_changes": generator_changes,
+        "security_analysis": security_result,
     }

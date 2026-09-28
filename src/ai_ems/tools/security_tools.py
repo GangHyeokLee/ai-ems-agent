@@ -420,3 +420,140 @@ def _is_missing(value: Any) -> bool:
         return bool(np.isnan(value))
     except (TypeError, ValueError):
         return value is None
+
+
+def run_generator_contingency_security(
+    network,
+    outage_generator_id: str,
+    parameters: pp.loadflow.Parameters,
+    monitored_line_ids: list[str] | None = None,
+    contingency_id: str | None = None,
+) -> dict[str, Any]:
+    """Run a single generator outage using PyPowSyBl Security Analysis."""
+
+    generators = network.get_generators()
+
+    if outage_generator_id not in generators.index:
+        raise ValueError(f"Unknown outage generator: {outage_generator_id}")
+
+    if not bool(
+        generators.loc[
+            outage_generator_id,
+            "connected",
+        ]
+    ):
+        raise ValueError(
+            f"Generator is already disconnected: " f"{outage_generator_id}"
+        )
+
+    lines = network.get_lines()
+
+    monitored = monitored_line_ids or []
+
+    missing = [line_id for line_id in monitored if line_id not in lines.index]
+
+    if missing:
+        raise ValueError("Unknown monitored line(s): " + ", ".join(missing))
+
+    contingency_id = contingency_id or f"GEN_OUT_{outage_generator_id}"
+
+    base_result = pp.loadflow.run_ac(
+        network,
+        parameters=parameters,
+    )
+
+    base_converged = bool(base_result) and all(
+        component.status.name == "CONVERGED" for component in base_result
+    )
+
+    if not base_converged:
+        return {
+            "contingency_id": contingency_id,
+            "outage_generator_id": outage_generator_id,
+            "base_converged": False,
+            "pre_status": None,
+            "post_status": None,
+            "pre_violation_count": 0,
+            "violation_count": 0,
+            "pre_violated_equipment_count": 0,
+            "violated_equipment_count": 0,
+            "pre_limit_violations": [],
+            "limit_violations": [],
+            "pre_violated_equipment": [],
+            "violated_equipment": [],
+            "violation_comparison": {
+                "new_count": 0,
+                "resolved_count": 0,
+                "remaining_count": 0,
+                "new": [],
+                "resolved": [],
+                "remaining": [],
+            },
+            "monitored_branches": [],
+        }
+
+    base_monitored = {
+        line_id: _line_flow_snapshot(
+            network,
+            line_id,
+        )
+        for line_id in monitored
+    }
+
+    analysis = pp.security.create_analysis()
+
+    analysis.add_single_element_contingency(
+        outage_generator_id,
+        contingency_id,
+    )
+
+    if monitored:
+        analysis.add_monitored_elements(
+            branch_ids=monitored,
+        )
+
+    result = analysis.run_ac(
+        network,
+        parameters=parameters,
+    )
+
+    pre = result.pre_contingency_result
+
+    post = result.find_post_contingency_result(contingency_id)
+
+    pre_violations = [_serialize_violation(item) for item in pre.limit_violations]
+
+    pre_violated_equipment = _summarize_violations(pre_violations)
+
+    violations = [_serialize_violation(item) for item in post.limit_violations]
+
+    violated_equipment = _summarize_violations(violations)
+
+    violation_comparison = _compare_violation_summaries(
+        pre_violated_equipment,
+        violated_equipment,
+    )
+
+    monitored_results = _serialize_branch_results(
+        result.branch_results,
+        contingency_id,
+        base_monitored,
+    )
+
+    return {
+        "contingency_id": contingency_id,
+        "outage_generator_id": outage_generator_id,
+        "base_converged": True,
+        "pre_status": pre.status.name,
+        "post_status": post.status.name,
+        "pre_violation_count": len(pre_violations),
+        "violation_count": len(violations),
+        "pre_violated_equipment_count": len(pre_violated_equipment),
+        "violated_equipment_count": len(violated_equipment),
+        "pre_limit_violations": pre_violations,
+        "limit_violations": violations,
+        "pre_violated_equipment": pre_violated_equipment,
+        "violated_equipment": violated_equipment,
+        "violation_comparison": violation_comparison,
+        "monitored_branches": monitored_results,
+    }
