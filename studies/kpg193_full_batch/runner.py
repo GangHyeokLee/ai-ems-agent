@@ -29,10 +29,24 @@ class StudyConfig:
     case_file: Path
     output_dir: Path
     include_generators: bool = False
+    generator_only: bool = False
+    generator_slack: str = "single"
     chunk_size: int = 0
     top_n_sensitivity_contingencies: int = 10
     sensitivity_candidates_per_contingency: int = 10
     run_sensitivity: bool = True
+
+    def __post_init__(self) -> None:
+        if self.include_generators and self.generator_only:
+            raise ValueError(
+                "include_generators and generator_only " "cannot both be enabled"
+            )
+
+        if self.generator_slack not in {"single", "distributed"}:
+            raise ValueError("generator_slack must be single or distributed")
+
+        if self.generator_slack == "distributed" and not self.generator_only:
+            raise ValueError("distributed generator slack requires generator_only")
 
 
 @dataclass(frozen=True)
@@ -42,6 +56,10 @@ class ContingencySpec:
     element_type: str
     from_bus: int | None = None
     to_bus: int | None = None
+    generator_bus_id: str | None = None
+    generator_target_p_mw: float | None = None
+    generator_max_p_mw: float | None = None
+    generator_voltage_regulator_on: bool | None = None
 
 
 class FullBatchStudy:
@@ -82,28 +100,47 @@ class FullBatchStudy:
 
     def _build_specs(self) -> list[ContingencySpec]:
         specs: list[ContingencySpec] = []
-        for line_id, row in self.lines.sort_index().iterrows():
-            from_bus, to_bus = parse_line_buses(str(line_id), row)
-            specs.append(
-                ContingencySpec(
-                    contingency_id=f"LINE_OUT::{line_id}",
-                    element_id=str(line_id),
-                    element_type="LINE",
-                    from_bus=from_bus,
-                    to_bus=to_bus,
-                )
-            )
 
-        if self.config.include_generators:
+        if not self.config.generator_only:
+            for line_id, row in self.lines.sort_index().iterrows():
+                from_bus, to_bus = parse_line_buses(str(line_id), row)
+                specs.append(
+                    ContingencySpec(
+                        contingency_id=f"LINE_OUT::{line_id}",
+                        element_id=str(line_id),
+                        element_type="LINE",
+                        from_bus=from_bus,
+                        to_bus=to_bus,
+                    )
+                )
+
+        if self.config.include_generators or self.config.generator_only:
             connected = self.generators[self.generators["connected"]]
-            for generator_id in sorted(map(str, connected.index)):
+
+            for generator_id, row in connected.sort_index().iterrows():
+                bus_id = row.get("bus_id")
+                target_p = row.get("target_p")
+                max_p = row.get("max_p")
+                voltage_regulator_on = row.get("voltage_regulator_on")
+
                 specs.append(
                     ContingencySpec(
                         contingency_id=f"GEN_OUT::{generator_id}",
-                        element_id=generator_id,
+                        element_id=str(generator_id),
                         element_type="GENERATOR",
+                        generator_bus_id=(str(bus_id) if pd.notna(bus_id) else None),
+                        generator_target_p_mw=(
+                            float(target_p) if pd.notna(target_p) else None
+                        ),
+                        generator_max_p_mw=(float(max_p) if pd.notna(max_p) else None),
+                        generator_voltage_regulator_on=(
+                            bool(voltage_regulator_on)
+                            if pd.notna(voltage_regulator_on)
+                            else None
+                        ),
                     )
                 )
+
         return specs
 
     def _run_with_isolation(
@@ -114,9 +151,7 @@ class FullBatchStudy:
         except Exception as exc:
             if len(specs) > 1:
                 middle = len(specs) // 2
-                left_summary, left_violations = self._run_with_isolation(
-                    specs[:middle]
-                )
+                left_summary, left_violations = self._run_with_isolation(specs[:middle])
                 right_summary, right_violations = self._run_with_isolation(
                     specs[middle:]
                 )
@@ -156,12 +191,10 @@ class FullBatchStudy:
         except TypeError:
             # Keep line metrics on older providers even if voltage monitoring
             # is unavailable.
-            analysis.add_monitored_elements(
-                branch_ids=monitored_kwargs["branch_ids"]
-            )
+            analysis.add_monitored_elements(branch_ids=monitored_kwargs["branch_ids"])
 
         parameters = pp.security.Parameters(
-            load_flow_parameters=LOADFLOW_PARAMETERS,
+            load_flow_parameters=self._security_loadflow_parameters(),
             provider_parameters={
                 "contingencyPropagation": "true",
                 "createResultExtension": "true",
@@ -180,9 +213,7 @@ class FullBatchStudy:
             post_violations = getattr(post, "limit_violations", None)
             raw_violations = [
                 _serialize_object(item)
-                for item in (
-                    post_violations if post_violations is not None else []
-                )
+                for item in (post_violations if post_violations is not None else [])
             ]
             grouped = summarize_violations(raw_violations)
             connectivity = _serialize_connectivity(post, spec.element_id)
@@ -240,6 +271,11 @@ class FullBatchStudy:
 
             summary = {
                 **asdict(spec),
+                "slack_mode": (
+                    self.config.generator_slack
+                    if spec.element_type == "GENERATOR"
+                    else "single"
+                ),
                 "raw_status": raw_status,
                 "classification": classification,
                 "violation_count": len(raw_violations),
@@ -297,9 +333,7 @@ class FullBatchStudy:
                 result = rank_generator_sensitivities(
                     self.network,
                     outage_line_id=str(contingency["element_id"]),
-                    monitored_line_id=str(
-                        contingency["sensitivity_target_line_id"]
-                    ),
+                    monitored_line_id=str(contingency["sensitivity_target_line_id"]),
                     top_n=self.config.sensitivity_candidates_per_contingency,
                 )
                 for candidate_rank, candidate in enumerate(
@@ -357,9 +391,7 @@ class FullBatchStudy:
             "contingency_counts": {
                 "total": len(specs),
                 "line": sum(spec.element_type == "LINE" for spec in specs),
-                "generator": sum(
-                    spec.element_type == "GENERATOR" for spec in specs
-                ),
+                "generator": sum(spec.element_type == "GENERATOR" for spec in specs),
             },
             "base_case": base,
             "config": {
@@ -370,11 +402,24 @@ class FullBatchStudy:
             "ranking_method": "physics-first deterministic lexicographic",
         }
 
+    def _security_loadflow_parameters(
+        self,
+    ) -> pp.loadflow.Parameters:
+        if self.config.generator_only and self.config.generator_slack == "distributed":
+            return pp.loadflow.Parameters(
+                distributed_slack=True,
+                balance_type=(pp.loadflow.BalanceType.PROPORTIONAL_TO_GENERATION_P_MAX),
+            )
+
+        return LOADFLOW_PARAMETERS
+
 
 def _chunks(items: list[Any], chunk_size: int) -> list[list[Any]]:
     if chunk_size <= 0 or chunk_size >= len(items):
         return [items]
-    return [items[index : index + chunk_size] for index in range(0, len(items), chunk_size)]
+    return [
+        items[index : index + chunk_size] for index in range(0, len(items), chunk_size)
+    ]
 
 
 def _serialize_object(obj: Any) -> dict[str, Any]:
@@ -442,7 +487,12 @@ def _branch_metrics(
         line_id = str(row.get("branch_id", ""))
         values = []
         for p_col, q_col in (("p1", "q1"), ("p2", "q2")):
-            if p_col in row and q_col in row and pd.notna(row[p_col]) and pd.notna(row[q_col]):
+            if (
+                p_col in row
+                and q_col in row
+                and pd.notna(row[p_col])
+                and pd.notna(row[q_col])
+            ):
                 values.append(float(np.hypot(row[p_col], row[q_col])))
         if not values or line_id not in limits or limits[line_id] <= 0:
             continue
@@ -490,9 +540,7 @@ def _voltage_metrics(
     return {"min_voltage_pu": voltage, "min_voltage_bus_id": bus_id}
 
 
-def _contingency_rows(
-    frame: pd.DataFrame | None, contingency_id: str
-) -> pd.DataFrame:
+def _contingency_rows(frame: pd.DataFrame | None, contingency_id: str) -> pd.DataFrame:
     if frame is None or getattr(frame, "empty", True):
         return pd.DataFrame()
     rows = frame.reset_index()
