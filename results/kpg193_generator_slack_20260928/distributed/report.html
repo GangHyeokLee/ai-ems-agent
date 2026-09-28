@@ -1,0 +1,678 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KPG-193 Full Batch Security Study</title>
+<style>
+body { font-family: system-ui, sans-serif; margin: 2rem; color: #182230; }
+h1, h2 { color: #102a43; }
+.meta { color: #52606d; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(150px,1fr)); gap: 12px; }
+.card { border: 1px solid #bcccdc; border-radius: 8px; padding: 12px; background: #f8fafc; }
+.card strong, .card span { display: block; } .card span { font-size: 1.6rem; margin-top: 4px; }
+table { border-collapse: collapse; width: 100%; font-size: .85rem; display: block; overflow-x: auto; }
+th, td { border: 1px solid #d9e2ec; padding: 6px 8px; text-align: left; white-space: nowrap; }
+th { background: #eaf2f8; } section { margin-top: 2rem; } code { background:#eef2f6; padding:2px 4px; }
+</style>
+</head>
+<body>
+<h1>KPG-193 Full Batch Security Study</h1>
+<p class="meta">Generated 2026-09-28T01:51:16.500434+00:00 · PyPowSyBl 1.16.1</p>
+<p>Ranking is a deterministic review order based on physical-analysis outcomes; it is not an AI score or a probabilistic risk estimate.</p>
+<div class="cards"><div class="card"><strong>Total</strong><span>100</span></div><div class="card"><strong>Converged clean</strong><span>76</span></div><div class="card"><strong>Converged violation</strong><span>24</span></div><div class="card"><strong>Islanded</strong><span>0</span></div><div class="card"><strong>Non-converged</strong><span>0</span></div><div class="card"><strong>Execution error</strong><span>0</span></div></div>
+<section><h2>Top review contingencies</h2><table class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th>review_rank</th>
+      <th>contingency_id</th>
+      <th>classification</th>
+      <th>raw_status</th>
+      <th>additional_disconnected_element_count</th>
+      <th>violation_count</th>
+      <th>violated_equipment_count</th>
+      <th>max_loading_percent</th>
+      <th>min_voltage_pu</th>
+      <th>primary_violation_equipment_id</th>
+      <th>error</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>GEN_OUT::GEN-124#1</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>105.603481</td>
+      <td>0.959318</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>GEN_OUT::GEN-124#2</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>105.603481</td>
+      <td>0.959318</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>GEN_OUT::GEN-124#3</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>105.603481</td>
+      <td>0.959318</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>GEN_OUT::GEN-124#4</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>105.603481</td>
+      <td>0.959318</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>GEN_OUT::GEN-124</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>105.239278</td>
+      <td>0.959365</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>GEN_OUT::GEN-124#0</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>105.239278</td>
+      <td>0.959365</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>GEN_OUT::GEN-137</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>103.562608</td>
+      <td>0.959981</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td>GEN_OUT::GEN-137#0</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>103.380865</td>
+      <td>0.959990</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td>GEN_OUT::GEN-106</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>102.657334</td>
+      <td>0.959016</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td>GEN_OUT::GEN-100#8</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>101.290428</td>
+      <td>0.958808</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>11</td>
+      <td>GEN_OUT::GEN-100#9</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>101.290428</td>
+      <td>0.958808</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>12</td>
+      <td>GEN_OUT::GEN-59#8</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>100.932986</td>
+      <td>0.958595</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>13</td>
+      <td>GEN_OUT::GEN-59#9</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>100.932986</td>
+      <td>0.958595</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>14</td>
+      <td>GEN_OUT::GEN-53#11</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>100.893763</td>
+      <td>0.958607</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>15</td>
+      <td>GEN_OUT::GEN-53#12</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>2</td>
+      <td>1</td>
+      <td>100.890965</td>
+      <td>0.958609</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td>GEN_OUT::GEN-42</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>1</td>
+      <td>1</td>
+      <td>100.502062</td>
+      <td>0.956042</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>17</td>
+      <td>GEN_OUT::GEN-40#3</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>1</td>
+      <td>1</td>
+      <td>100.329906</td>
+      <td>0.958520</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>18</td>
+      <td>GEN_OUT::GEN-40#4</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>1</td>
+      <td>1</td>
+      <td>100.329906</td>
+      <td>0.958520</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>19</td>
+      <td>GEN_OUT::GEN-40#5</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>1</td>
+      <td>1</td>
+      <td>100.329906</td>
+      <td>0.958520</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+    <tr>
+      <td>20</td>
+      <td>GEN_OUT::GEN-40#6</td>
+      <td>CONVERGED_VIOLATION</td>
+      <td>CONVERGED</td>
+      <td>0</td>
+      <td>1</td>
+      <td>1</td>
+      <td>100.329906</td>
+      <td>0.958520</td>
+      <td>LINE-134-193</td>
+      <td>None</td>
+    </tr>
+  </tbody>
+</table></section>
+<section><h2>Violation records</h2><p>24 equipment-level records.</p><table class="dataframe">
+  <thead>
+    <tr style="text-align: right;">
+      <th>contingency_id</th>
+      <th>element_id</th>
+      <th>element_type</th>
+      <th>equipment_id</th>
+      <th>limit_type</th>
+      <th>limit_name</th>
+      <th>sides</th>
+      <th>record_count</th>
+      <th>limit</th>
+      <th>value</th>
+      <th>violation_amount</th>
+      <th>relative_violation</th>
+      <th>loading_percent</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>GEN_OUT::GEN-100#8</td>
+      <td>GEN-100#8</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[ONE, TWO]</td>
+      <td>2</td>
+      <td>2172.0</td>
+      <td>2200.028104</td>
+      <td>28.028104</td>
+      <td>0.012904</td>
+      <td>101.290428</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-100#9</td>
+      <td>GEN-100#9</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[ONE, TWO]</td>
+      <td>2</td>
+      <td>2172.0</td>
+      <td>2200.028104</td>
+      <td>28.028104</td>
+      <td>0.012904</td>
+      <td>101.290428</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-106</td>
+      <td>GEN-106</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[ONE, TWO]</td>
+      <td>2</td>
+      <td>2172.0</td>
+      <td>2229.717288</td>
+      <td>57.717288</td>
+      <td>0.026573</td>
+      <td>102.657334</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-124</td>
+      <td>GEN-124</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[ONE, TWO]</td>
+      <td>2</td>
+      <td>2172.0</td>
+      <td>2285.797123</td>
+      <td>113.797123</td>
+      <td>0.052393</td>
+      <td>105.239278</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-124#0</td>
+      <td>GEN-124#0</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[ONE, TWO]</td>
+      <td>2</td>
+      <td>2172.0</td>
+      <td>2285.797123</td>
+      <td>113.797123</td>
+      <td>0.052393</td>
+      <td>105.239278</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-124#1</td>
+      <td>GEN-124#1</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[ONE, TWO]</td>
+      <td>2</td>
+      <td>2172.0</td>
+      <td>2293.707613</td>
+      <td>121.707613</td>
+      <td>0.056035</td>
+      <td>105.603481</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-124#2</td>
+      <td>GEN-124#2</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[ONE, TWO]</td>
+      <td>2</td>
+      <td>2172.0</td>
+      <td>2293.707613</td>
+      <td>121.707613</td>
+      <td>0.056035</td>
+      <td>105.603481</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-124#3</td>
+      <td>GEN-124#3</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[ONE, TWO]</td>
+      <td>2</td>
+      <td>2172.0</td>
+      <td>2293.707613</td>
+      <td>121.707613</td>
+      <td>0.056035</td>
+      <td>105.603481</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-124#4</td>
+      <td>GEN-124#4</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[ONE, TWO]</td>
+      <td>2</td>
+      <td>2172.0</td>
+      <td>2293.707613</td>
+      <td>121.707613</td>
+      <td>0.056035</td>
+      <td>105.603481</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-137</td>
+      <td>GEN-137</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[ONE, TWO]</td>
+      <td>2</td>
+      <td>2172.0</td>
+      <td>2249.379850</td>
+      <td>77.379850</td>
+      <td>0.035626</td>
+      <td>103.562608</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-137#0</td>
+      <td>GEN-137#0</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[ONE, TWO]</td>
+      <td>2</td>
+      <td>2172.0</td>
+      <td>2245.432385</td>
+      <td>73.432385</td>
+      <td>0.033809</td>
+      <td>103.380865</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-40#1</td>
+      <td>GEN-40#1</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[TWO]</td>
+      <td>1</td>
+      <td>2172.0</td>
+      <td>2175.800976</td>
+      <td>3.800976</td>
+      <td>0.001750</td>
+      <td>100.174999</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-40#2</td>
+      <td>GEN-40#2</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[TWO]</td>
+      <td>1</td>
+      <td>2172.0</td>
+      <td>2175.800976</td>
+      <td>3.800976</td>
+      <td>0.001750</td>
+      <td>100.174999</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-40#3</td>
+      <td>GEN-40#3</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[TWO]</td>
+      <td>1</td>
+      <td>2172.0</td>
+      <td>2179.165557</td>
+      <td>7.165557</td>
+      <td>0.003299</td>
+      <td>100.329906</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-40#4</td>
+      <td>GEN-40#4</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[TWO]</td>
+      <td>1</td>
+      <td>2172.0</td>
+      <td>2179.165557</td>
+      <td>7.165557</td>
+      <td>0.003299</td>
+      <td>100.329906</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-40#5</td>
+      <td>GEN-40#5</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[TWO]</td>
+      <td>1</td>
+      <td>2172.0</td>
+      <td>2179.165557</td>
+      <td>7.165557</td>
+      <td>0.003299</td>
+      <td>100.329906</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-40#6</td>
+      <td>GEN-40#6</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[TWO]</td>
+      <td>1</td>
+      <td>2172.0</td>
+      <td>2179.165557</td>
+      <td>7.165557</td>
+      <td>0.003299</td>
+      <td>100.329906</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-42</td>
+      <td>GEN-42</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[TWO]</td>
+      <td>1</td>
+      <td>2172.0</td>
+      <td>2182.904777</td>
+      <td>10.904777</td>
+      <td>0.005021</td>
+      <td>100.502062</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-53#11</td>
+      <td>GEN-53#11</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[ONE, TWO]</td>
+      <td>2</td>
+      <td>2172.0</td>
+      <td>2191.412525</td>
+      <td>19.412525</td>
+      <td>0.008938</td>
+      <td>100.893763</td>
+    </tr>
+    <tr>
+      <td>GEN_OUT::GEN-53#12</td>
+      <td>GEN-53#12</td>
+      <td>GENERATOR</td>
+      <td>LINE-134-193</td>
+      <td>APPARENT_POWER</td>
+      <td>RateC</td>
+      <td>[ONE, TWO]</td>
+      <td>2</td>
+      <td>2172.0</td>
+      <td>2191.351751</td>
+      <td>19.351751</td>
+      <td>0.008910</td>
+      <td>100.890965</td>
+    </tr>
+  </tbody>
+</table></section>
+<section><h2>Top-N sensitivity linkage</h2><p>Sensitivity is attempted only for converged line outages with a violated monitored line.</p><p>No records.</p></section>
+<section><h2>Legacy direct AC-PF comparison</h2><p>Legacy comparison was not requested.</p></section>
+<section><h2>Reproducibility</h2><pre>{
+  &quot;study&quot;: &quot;KPG-193 Full Batch Security Study&quot;,
+  &quot;created_at_utc&quot;: &quot;2026-09-28T01:51:16.500434+00:00&quot;,
+  &quot;python_version&quot;: &quot;3.11.16&quot;,
+  &quot;pypowsybl_version&quot;: &quot;1.16.1&quot;,
+  &quot;case_file&quot;: &quot;/home/rkdgu/Projects/ai-ems-agent/data/KPG193_ver2_0_powsybl_full.mat&quot;,
+  &quot;case_sha256&quot;: &quot;13593043ad8ea766a3860513dca1aa9cc592289774dcc24e38f7d13654865b81&quot;,
+  &quot;git_commit&quot;: &quot;c6c95879ee252ff578b9955d42bb0b35d5b4920e&quot;,
+  &quot;git_worktree_status&quot;: &quot;M src/ai_ems/network.py\n M studies/kpg193_full_batch/runner.py\n M tests/test_network.py&quot;,
+  &quot;network_counts&quot;: {
+    &quot;lines&quot;: 385,
+    &quot;generators&quot;: 201,
+    &quot;connected_generators&quot;: 100,
+    &quot;buses&quot;: 193
+  },
+  &quot;contingency_counts&quot;: {
+    &quot;total&quot;: 100,
+    &quot;line&quot;: 0,
+    &quot;generator&quot;: 100
+  },
+  &quot;base_case&quot;: {
+    &quot;converged&quot;: true,
+    &quot;components&quot;: [
+      {
+        &quot;status&quot;: &quot;CONVERGED&quot;,
+        &quot;iteration_count&quot;: 3,
+        &quot;distributed_active_power_mw&quot;: 0.0
+      }
+    ],
+    &quot;load_flow_parameters&quot;: {
+      &quot;distributed_slack&quot;: true,
+      &quot;balance_type&quot;: &quot;PROPORTIONAL_TO_GENERATION_P_MAX&quot;
+    },
+    &quot;bus_voltage_pu&quot;: {
+      &quot;min&quot;: 0.9602167463141428,
+      &quot;max&quot;: 1.0346833465265595
+    }
+  },
+  &quot;config&quot;: {
+    &quot;case_file&quot;: &quot;/home/rkdgu/Projects/ai-ems-agent/data/KPG193_ver2_0_powsybl_full.mat&quot;,
+    &quot;output_dir&quot;: &quot;/home/rkdgu/Projects/ai-ems-agent/outputs/kpg193_full_batch/20260928_105115&quot;,
+    &quot;include_generators&quot;: false,
+    &quot;generator_only&quot;: true,
+    &quot;generator_slack&quot;: &quot;distributed&quot;,
+    &quot;chunk_size&quot;: 100,
+    &quot;top_n_sensitivity_contingencies&quot;: 10,
+    &quot;sensitivity_candidates_per_contingency&quot;: 10,
+    &quot;run_sensitivity&quot;: false
+  },
+  &quot;ranking_method&quot;: &quot;physics-first deterministic lexicographic&quot;
+}</pre></section>
+</body>
+</html>

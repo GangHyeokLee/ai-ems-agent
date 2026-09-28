@@ -1,0 +1,51 @@
+{
+  "study": "KPG-193 Full Batch Security Study",
+  "created_at_utc": "2026-09-28T01:51:04.196632+00:00",
+  "python_version": "3.11.16",
+  "pypowsybl_version": "1.16.1",
+  "case_file": "/home/rkdgu/Projects/ai-ems-agent/data/KPG193_ver2_0_powsybl_full.mat",
+  "case_sha256": "13593043ad8ea766a3860513dca1aa9cc592289774dcc24e38f7d13654865b81",
+  "git_commit": "c6c95879ee252ff578b9955d42bb0b35d5b4920e",
+  "git_worktree_status": "M src/ai_ems/network.py\n M studies/kpg193_full_batch/runner.py\n M tests/test_network.py",
+  "network_counts": {
+    "lines": 385,
+    "generators": 201,
+    "connected_generators": 100,
+    "buses": 193
+  },
+  "contingency_counts": {
+    "total": 100,
+    "line": 0,
+    "generator": 100
+  },
+  "base_case": {
+    "converged": true,
+    "components": [
+      {
+        "status": "CONVERGED",
+        "iteration_count": 3,
+        "distributed_active_power_mw": 0.0
+      }
+    ],
+    "load_flow_parameters": {
+      "distributed_slack": false,
+      "balance_type": null
+    },
+    "bus_voltage_pu": {
+      "min": 0.9602167463141428,
+      "max": 1.0346833465265595
+    }
+  },
+  "config": {
+    "case_file": "/home/rkdgu/Projects/ai-ems-agent/data/KPG193_ver2_0_powsybl_full.mat",
+    "output_dir": "/home/rkdgu/Projects/ai-ems-agent/outputs/kpg193_full_batch/20260928_105102",
+    "include_generators": false,
+    "generator_only": true,
+    "generator_slack": "single",
+    "chunk_size": 100,
+    "top_n_sensitivity_contingencies": 10,
+    "sensitivity_candidates_per_contingency": 10,
+    "run_sensitivity": false
+  },
+  "ranking_method": "physics-first deterministic lexicographic"
+}
