@@ -12,6 +12,9 @@ from .network_tools import (
 )
 from .security_tools import run_line_contingency
 from .sensitivity_tools import rank_generator_sensitivities
+from .generator_contingency_tools import (
+    analyze_generator_contingency,
+)
 
 __all__ = [
     "get_network_summary",
@@ -22,4 +25,5 @@ __all__ = [
     "rank_generator_sensitivities",
     "generate_redispatch_candidates",
     "validate_balanced_redispatch",
+    "analyze_generator_contingency",
 ]

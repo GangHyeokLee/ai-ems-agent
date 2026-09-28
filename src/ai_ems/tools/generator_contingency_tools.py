@@ -257,6 +257,7 @@ def analyze_generator_contingency(
     generator_id: str,
     slack_mode: str = "single",
     balance_type: str | None = None,
+    top_n_overloads: int = 10,
 ) -> dict[str, Any]:
     """
     Analyze a single generator outage using AC Load Flow.
@@ -386,6 +387,11 @@ def analyze_generator_contingency(
         parameters=parameters,
     )
 
+    major_overloads = build_major_overloads(
+        security_result,
+        top_n=top_n_overloads,
+    )
+
     loss_change_mw = post_balance_based_loss_mw - base_balance_based_loss_mw
 
     line_loss_change_mw = (
@@ -426,5 +432,50 @@ def analyze_generator_contingency(
             "line_active_power_loss_change_mw": line_loss_change_mw,
         },
         "generator_changes": generator_changes,
+        "major_overloads": major_overloads,
         "security_analysis": security_result,
     }
+
+
+def build_major_overloads(
+    security_result: dict[str, Any],
+    top_n: int = 10,
+) -> list[dict[str, Any]]:
+    """Select the most severe post-contingency branch overloads."""
+
+    if top_n <= 0:
+        raise ValueError("top_n must be greater than 0.")
+
+    overloads = []
+
+    for item in security_result.get(
+        "violated_equipment",
+        [],
+    ):
+        loading_percent = item.get("loading_percent")
+
+        if loading_percent is None:
+            continue
+
+        if float(loading_percent) <= 100.0:
+            continue
+
+        overloads.append(
+            {
+                "equipment_id": item["equipment_id"],
+                "limit_type": item["limit_type"],
+                "limit_name": item["limit_name"],
+                "unit": item["unit"],
+                "limit": item.get("limit"),
+                "value": item.get("value"),
+                "loading_percent": float(loading_percent),
+                "violation_amount": item.get("violation_amount"),
+            }
+        )
+
+    overloads.sort(
+        key=lambda item: item["loading_percent"],
+        reverse=True,
+    )
+
+    return overloads[:top_n]
