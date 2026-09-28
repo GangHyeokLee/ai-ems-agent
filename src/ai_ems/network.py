@@ -36,11 +36,19 @@ def load_network(case_path: str | Path):
     )
 
 
-def run_ac_load_flow(network) -> dict[str, Any]:
+def run_ac_load_flow(
+        network,
+        *,
+        parameters: pp.loadflow.Parameters | None = None,
+    ) -> dict[str, Any]:
     """Run AC load flow and return a JSON-serializable result summary."""
+    effective_parameters = (
+        LOADFLOW_PARAMETERS if parameters is None else parameters
+    )
+
     result = pp.loadflow.run_ac(
         network,
-        parameters=LOADFLOW_PARAMETERS,
+        parameters=effective_parameters,
     )
 
     components = [
@@ -61,6 +69,16 @@ def run_ac_load_flow(network) -> dict[str, Any]:
     response: dict[str, Any] = {
         "converged": converged,
         "components": components,
+        "load_flow_parameters": {
+            "distributed_slack": bool(
+                effective_parameters.distributed_slack
+            ),
+            "balance_type": (
+                effective_parameters.balance_type.name
+                if effective_parameters.distributed_slack
+                else None
+            )
+        }
     }
 
     if converged:

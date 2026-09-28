@@ -75,7 +75,10 @@ class FullBatchStudy:
         )
 
     def run(self) -> dict[str, Any]:
-        base = run_ac_load_flow(self.network)
+        base = run_ac_load_flow(
+            self.network,
+            parameters=self._security_loadflow_parameters(),
+        )
         if not base["converged"]:
             raise RuntimeError("Base-case AC load flow did not converge.")
 
@@ -165,6 +168,11 @@ class FullBatchStudy:
             return [
                 {
                     **asdict(spec),
+                    "slack_mode": (
+                        self.config.generator_slack
+                        if spec.element_type==  "GENERATOR"
+                        else "single"
+                    ),
                     "raw_status": None,
                     "classification": "EXECUTION_ERROR",
                     "violation_count": 0,
