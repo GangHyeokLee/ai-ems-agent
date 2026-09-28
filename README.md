@@ -90,7 +90,7 @@ PyPowSyBl Domain Tools
 최종 로컬 regression test:
 
 ```text
-20 passed
+36 passed
 ```
 
 ---
@@ -304,7 +304,8 @@ Final Response
 ### Experiment Records
 
 - [KPG-193 기반 PyPowSyBl 계통해석 및 제어 후보 검증](docs/experiments/KPG-193%20기반%20PyPowSyBl%20계통해석%20및%20제어%20후보%20검증.md)
-- [PyPowSyBl Physics API 및 AI-EMS Agent 연계 PoC](docs/experiments/PyPowSyBl%20Physics%20API%20및%20AI-EMS%20Agent%20연계%20PoC.md)
+- [PyPowSyBl Physics API 및 AI-EMS Agent 연계 PoC](docs/experiments/PyPowSyBl%20Physics%20API%20%EB%B0%8F%20AI-EMS%20Agent%20%EC%97%B0%EA%B3%84%20PoC.md)
+- [KPG-193 발전기 N-1 Single/Distributed Slack 비교](docs/experiments/KPG-193%20%EB%B0%9C%EC%A0%84%EA%B8%B0%20N-1%20SingleDistributed%20Slack%20%EB%B9%84%EA%B5%90.md)
 
 ---
 
@@ -477,7 +478,7 @@ python -m pytest -q
 현재 확인 결과:
 
 ```text
-20 passed
+36 passed
 ```
 
 실제 KPG case를 사용하는 smoke test:
@@ -561,7 +562,7 @@ data/bus_location.csv
 - 핵심 Physics 기능 4종 API 제공
 - KPG actual HVDC / VSC adapter 적용 및 regression 검증
 - Swagger / 실제 HTTP 호출 검증
-- `20 passed` regression 확인
+- `36 passed` regression 확인
 - README 및 `docs/specs/`, `docs/experiments/` 문서 정리
 
 이후 코드 변경은 외부 Simulator 실제 통합 요구, regression 오류, 발표 사실 검증에서 필요한 경우에 한해 재개한다.
