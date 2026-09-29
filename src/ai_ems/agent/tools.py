@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from langchain_core.tools import tool
 
@@ -19,6 +19,9 @@ from ai_ems.tools.security_tools import (
 )
 from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
 from ai_ems.tools.workflow_tools import analyze_contingency_response
+from ai_ems.tools.generator_contingency_tools import (
+    analyze_generator_contingency,
+)
 
 
 def create_agent_tools(
@@ -108,6 +111,84 @@ def create_agent_tools(
             ),
             "pre_violated_equipment_count": result["pre_violated_equipment_count"],
             "violation_comparison": result["violation_comparison"],
+        }
+
+    @tool
+    def generator_contingency_analysis(
+        generator_id: str,
+        slack_mode: Literal["single", "distributed"] = "single",
+        balance_type: str | None = None,
+        top_n_overloads: int = 5,
+    ) -> dict[str, Any]:
+        """Analyze one generator outage with AC Load Flow and Security Analysis.
+
+        Use this tool when the user asks what happens if a specific generator
+        trips or is disconnected.
+
+        slack_mode can be "single" or "distributed".
+        Distributed slack is a load-flow balancing assumption, not operator
+        corrective redispatch.
+
+        balance_type should normally be omitted. It is only applicable when
+        slack_mode is "distributed".
+        """
+        result = analyze_generator_contingency(
+            case_path=case_path,
+            generator_id=generator_id,
+            slack_mode=slack_mode,
+            balance_type=balance_type,
+            top_n_overloads=top_n_overloads,
+        )
+
+        generator_changes = sorted(
+            result.get("generator_changes", []),
+            key=lambda item: abs(item.get("delta_generation_mw") or 0.0),
+            reverse=True,
+        )
+
+        security = result["security_analysis"]
+
+        return {
+            "analysis_type": "Generator Contingency Analysis",
+            "generator_id": result["generator_id"],
+            "contingency_id": result["contingency_id"],
+            "slack_mode": result["slack_mode"],
+            "balance_type": result.get("balance_type"),
+            "balancing_interpretation": result["balancing_interpretation"],
+            "outage_generator": result["outage_generator"],
+            "base_converged": result["base_converged"],
+            "post_contingency_converged": result["post_contingency_converged"],
+            "base_loadflow": result["base"]["loadflow"],
+            "post_loadflow": result["post_contingency"]["loadflow"],
+            "base_power_balance": result["base"]["power_balance"],
+            "post_power_balance": result["post_contingency"].get("power_balance"),
+            "loss_change": result["loss_change"],
+            "generator_change_count": len(generator_changes),
+            "top_generator_changes": generator_changes[:5],
+            "major_overloads": result.get(
+                "major_overloads",
+                [],
+            ),
+            "security": {
+                "pre_status": security.get("pre_status"),
+                "post_status": security.get("post_status"),
+                "pre_violated_equipment_count": security.get(
+                    "pre_violated_equipment_count",
+                    0,
+                ),
+                "post_violated_equipment_count": security.get(
+                    "violated_equipment_count",
+                    0,
+                ),
+                "pre_violations": security.get(
+                    "pre_violated_equipment",
+                    [],
+                ),
+                "post_violations": security.get(
+                    "violated_equipment",
+                    [],
+                ),
+            },
         }
 
     @tool
@@ -208,6 +289,7 @@ def create_agent_tools(
         line_detail,
         generator_list,
         line_contingency,
+        generator_contingency_analysis,
         generator_sensitivity,
         balanced_redispatch_validation,
         contingency_response_analysis,

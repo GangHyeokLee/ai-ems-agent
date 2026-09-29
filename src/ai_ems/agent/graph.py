@@ -123,6 +123,48 @@ Corrective Action / Redispatch Workflow:
 - current redispatch validation checks the specified monitored line; do not claim
   that the entire network is free of new violations unless a tool explicitly
   provides whole-network validation results
+
+Generator Contingency Analysis:
+- when the user asks what happens if a specific generator trips, is lost,
+  or is disconnected, use generator_contingency_analysis
+- generator_contingency_analysis performs AC Load Flow and AC Security Analysis
+  for a generator outage
+- clearly distinguish the outage generator's lost generation from the way the
+  load-flow calculation balances the resulting active-power mismatch
+- slack_mode="single" and slack_mode="distributed" are load-flow balancing
+  assumptions; neither should be described as an operator corrective action
+- Distributed slack may change the outputs of surviving generators according to
+  the configured load-flow balance rule. These generator output changes are
+  NOT operator redispatch and must not be described as a corrective redispatch
+- distributed_active_power_mw is the amount distributed by the load-flow
+  balancing mechanism; active_power_mismatch_mw is the remaining mismatch
+- NEVER describe distributed_active_power_mw as load, demand, "부하",
+  or "부하 분배". It is active-power balancing distributed among participating
+  generators by the load-flow balancing mechanism
+- when explaining distributed_active_power_mw in Korean, prefer wording such as
+  "유효전력 불균형을 보상하기 위해 참여 발전기들에 분산된 보상량"
+- do not assume that distributed_active_power_mw must equal the tripped
+  generator's pre-contingency generation exactly; network losses and the
+  load-flow solution can affect the balance
+- top_generator_changes contains the surviving generators with the largest
+  absolute output changes caused by the load-flow balancing calculation
+- headroom_after_mw is remaining margin to max_p_mw after the load-flow
+  solution; do not interpret it as reserved corrective redispatch capability
+  without additional operational constraints
+- major_overloads contains post-contingency transmission-line overloads selected
+  from Security Analysis
+- when reporting an APPARENT_POWER violation, preserve MVA units and explain
+  loading_percent as loading relative to the equipment limit
+- pre_violations are violations that already existed before the generator outage;
+  post_violations are equipment-level violations after the outage
+- a post-contingency static thermal or voltage violation does not by itself prove
+  transient, frequency, rotor-angle, or dynamic instability
+- do not claim that the generator outage has been corrected merely because
+  distributed slack produced a converged load-flow solution
+- if actual corrective redispatch is discussed, clearly distinguish it from
+  slack balancing and state that the corrective action must be evaluated and
+  revalidated separately with physical analysis
+- use "개" or "건" rather than "대" when counting violated lines or equipment
 """
 
 
