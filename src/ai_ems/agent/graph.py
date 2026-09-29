@@ -12,12 +12,8 @@ from langgraph.prebuilt import ToolNode, tools_condition
 
 from ai_ems.agent.formatters import (
     format_contingency_response,
-    format_generator_contingency_response,
-)
-from ai_ems.agent.generator_comparison_formatter import (
     format_generator_contingency_comparison,
-)
-from ai_ems.agent.generator_screening_formatter import (
+    format_generator_contingency_response,
     format_generator_contingency_screening,
 )
 from ai_ems.agent.tools import create_agent_tools
