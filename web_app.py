@@ -95,8 +95,8 @@ def network_map():
         voltage_level1_id = row["voltage_level1_id"]
         voltage_level2_id = row["voltage_level2_id"]
 
-        bus1_id = int(voltage_level1_id.replace("VL-", ""))
-        bus2_id = int(voltage_level2_id.replace("VL-", ""))
+        bus1_id = _bus_number(voltage_level1_id)
+        bus2_id = _bus_number(voltage_level2_id)
 
         if bus1_id not in bus_location_map or bus2_id not in bus_location_map:
             continue
@@ -109,9 +109,31 @@ def network_map():
             }
         )
 
+    generators_df = network.get_generators(all_attributes=True)
+    generators = []
+
+    for generator_id, row in generators_df.iterrows():
+        bus_id = _bus_number(row["voltage_level_id"])
+        location = bus_location_map.get(bus_id)
+        if location is None:
+            continue
+
+        generators.append(
+            {
+                "generator_id": generator_id,
+                "bus_id": bus_id,
+                "connected": bool(row.get("connected", True)),
+                "target_p_mw": _optional_float(row.get("target_p")),
+                "min_p_mw": _optional_float(row.get("min_p")),
+                "max_p_mw": _optional_float(row.get("max_p")),
+                **location,
+            }
+        )
+
     return {
         "buses": buses,
         "lines": lines,
+        "generators": generators,
     }
 
 
@@ -325,7 +347,7 @@ def _sensitivity_result_for_ui(
         generator_id = candidate["generator_id"]
         row = generators.loc[generator_id]
         voltage_level_id = row["voltage_level_id"]
-        bus_id = int(voltage_level_id.replace("VL-", ""))
+        bus_id = _bus_number(voltage_level_id)
         location = bus_location_map.get(bus_id)
 
         candidates.append(
@@ -346,6 +368,51 @@ def _sensitivity_result_for_ui(
         "candidates": candidates,
         "target_selection": result.get("target_selection"),
         "analysis_status": "COMPLETED",
+    }
+
+
+def _generator_contingency_result_for_ui(
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    outage = result.get("outage_generator", {})
+    outage_bus_id = _bus_number(outage.get("bus_id"))
+    outage_location = bus_location_map.get(outage_bus_id)
+
+    outage_generator = {
+        **outage,
+        "bus_id": outage_bus_id,
+        "latitude": outage_location["latitude"] if outage_location else None,
+        "longitude": outage_location["longitude"] if outage_location else None,
+        "name_korean": outage_location["name_korean"] if outage_location else None,
+        "name_english": outage_location["name_english"] if outage_location else None,
+    }
+
+    generator_changes = []
+    for item in result.get("top_generator_changes", []):
+        bus_id = _bus_number(item.get("bus_id"))
+        location = bus_location_map.get(bus_id)
+        generator_changes.append(
+            {
+                **item,
+                "bus_id": bus_id,
+                "latitude": location["latitude"] if location else None,
+                "longitude": location["longitude"] if location else None,
+                "name_korean": location["name_korean"] if location else None,
+                "name_english": location["name_english"] if location else None,
+            }
+        )
+
+    return {
+        "generator_id": result.get("generator_id"),
+        "slack_mode": result.get("slack_mode"),
+        "balance_type": result.get("balance_type"),
+        "base_converged": result.get("base_converged"),
+        "post_contingency_converged": result.get("post_contingency_converged"),
+        "outage_generator": outage_generator,
+        "post_loadflow": result.get("post_loadflow", {}),
+        "top_generator_changes": generator_changes,
+        "major_overloads": result.get("major_overloads", []),
+        "security": result.get("security", {}),
     }
 
 
@@ -388,6 +455,14 @@ def _extract_ui_updates(
                 }
             )
 
+        elif tool_name == "generator_contingency_analysis":
+            updates.append(
+                {
+                    "type": "generator_contingency",
+                    "result": _generator_contingency_result_for_ui(payload),
+                }
+            )
+
     return updates
 
 
@@ -422,3 +497,16 @@ def _final_ai_answer(
         return str(message.content)
 
     return ""
+
+
+def _bus_number(value: Any) -> int:
+    text = str(value)
+    if text.startswith("VL-"):
+        text = text[3:]
+    return int(text.split("_", 1)[0])
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None or pd.isna(value):
+        return None
+    return float(value)
