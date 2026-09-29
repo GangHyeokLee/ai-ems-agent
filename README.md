@@ -2,51 +2,54 @@
 
 Local LLM + LangGraph + PyPowSyBl 기반 **AI-EMS Agent PoC** 프로젝트.
 
-이 프로젝트의 목적은 LLM이 전력계통 계산을 직접 수행하도록 하는 것이 아니라, 사용자의 자연어 요청을 해석하고 PyPowSyBl 기반 물리해석 Tool을 선택·호출한 뒤 구조화된 결과를 운영자 관점에서 설명하는 흐름을 검증하는 것이다.
-
-핵심 원칙은 다음과 같다.
+이 프로젝트의 목적은 LLM이 전력계통 물리해석을 대체하는 것이 아니라, 사용자의 자연어 요청을 해석하고 적절한 PyPowSyBl 기반 Tool을 선택·호출한 뒤 실제 계산 결과를 운영자 관점에서 설명하는 흐름을 검증하는 것이다.
 
 > **AI는 물리해석 엔진을 대체하지 않는다.**
 > LLM은 자연어 의도 해석과 Tool orchestration을 담당하고, 계통 상태와 제어 효과는 Security Analysis, Sensitivity Analysis, AC Load Flow 등 물리해석 결과로 검증한다.
 
 ---
 
-## Current Status
+## Current Capabilities
 
-현재 다음 흐름까지 구현하였다.
+### Power-system analysis
 
-```text
-User Natural Language Request
-        ↓
-Local LLM / LangGraph
-(Intent + Tool Selection)
-        ↓
-PyPowSyBl Domain Workflow
-        ↓
-Security Analysis
-(pre / post contingency comparison)
-        ↓
-Sensitivity Analysis
-        ↓
-Balanced Redispatch Candidate Generation
-        ↓
-Generator Feasibility Guardrail
-        ↓
-AC Power Flow Validation
-        ↓
-Whole-network Security Re-validation
-(Operator Strategy)
-        ↓
-Candidate Ranking
-        ↓
-Structured Result
-        ↓
-Deterministic Formatter
-        ↓
-Operator-facing Response / Web UI
-```
+- KPG-193 기반 PyPowSyBl network load
+- AC Load Flow
+- Line N-1 Security Analysis
+- Generator N-1 Security Analysis
+- Generator N-1 full-batch screening
+- Single / Distributed slack 발전기 사고 비교
+- pre / post contingency 위반 비교
+- Generator Sensitivity Analysis
+- Sensitivity 기반 balanced redispatch 후보 생성
+- 발전기 출력 범위 guardrail
+- Redispatch 후 AC Power Flow 검증
+- PyPowSyBl Operator Strategy 기반 whole-network Security 재검증
 
-또한 Domain Tool을 다른 Simulator에서 LLM 없이 직접 호출할 수 있도록 별도의 **Physics API**를 제공한다.
+### AI / Agent
+
+- 자연어 요청 → Tool 선택
+- LangGraph ToolNode 기반 Local LLM Tool Calling
+- line-outage corrective-action workflow
+- generator-outage 개별 분석 / slack 비교 / batch screening
+- 고위험 계통 결과의 deterministic formatter
+- Tool error의 자연어 설명
+- 멀티턴 분석 요청
+
+### Web UI
+
+- FastAPI 기반 Web UI
+- KPG 계통 지도
+- 선로 / 버스 / 발전기 선택
+- Security / Sensitivity 직접 실행
+- Generator Contingency 직접 실행
+- 분석 패널 접기 / 펼치기
+- 사고·위반·민감도·발전기 변화 시각화
+- AI 채팅 Markdown 렌더링
+
+### Physics API
+
+Agent와 별도로 외부 Simulator / EMS Tester가 LLM 없이 물리해석 기능을 호출할 수 있는 REST API를 제공한다.
 
 ```text
 External Simulator
@@ -58,92 +61,87 @@ Public API Adapter / Response Schema
 PyPowSyBl Domain Tools
 ```
 
-구현·검증된 주요 기능:
-
-- KPG-193 기반 PyPowSyBl network load
-- KPG 병렬 dcline을 실제 IIDM HVDC / VSC로 구성하는 adapter
-- 193 Bus / 201 Generator / 385 AC Line / 2 HVDC 모델 검증
-- 계통 요약 / 선로 / 발전기 조회
-- AC Load Flow
-- Line N-1 Security Analysis
-- pre-contingency / post-contingency 위반 비교
-- 신규 / 잔존 / 해소 위반 구분
-- 가장 심한 위반 선로 자동 선택
-- Generator Sensitivity Analysis
-- Sensitivity 기반 balanced redispatch 후보 생성
-- 발전기 최소·최대 출력 기반 후보 사전 검증
-- Redispatch 후 AC Power Flow 검증
-- PyPowSyBl Operator Strategy 기반 whole-network Security 재검증
-- 신규 위반 / 잔존 위반 / 해소 위반 비교
-- 전체 계통 검증 결과를 포함한 후보 ranking
-- LangGraph ToolNode 기반 Local LLM Tool Calling
-- 고수준 `contingency_response_analysis` workflow
-- 고위험 계통 결과의 deterministic formatter
-- FastAPI Web UI
-- KPG 계통 지도 / 사고·위반 선로 / 민감도 후보 시각화
-- 독립 실행 가능한 Physics REST API
-- Pydantic 기반 Public Request / Response schema
-- Domain result → Public API response adapter
-- Physics API 4종 endpoint 실제 HTTP 호출 검증
-- Mock Simulator 위험 후보 / 제어 후보를 이용한 `integration_probe.py` 연계 검증
-
-최종 로컬 regression test:
-
-```text
-36 passed
-```
-
 ---
 
 ## Architecture
 
-### 1. Domain Layer
-
-LLM과 독립적인 Python / PyPowSyBl 계층이다.
-
 ```text
 src/ai_ems/
 ├─ network.py
+├─ config.py
 ├─ utils/
 │  └─ kpg_powsybl_adapter.py
-└─ tools/
-   ├─ network_tools.py
-   ├─ security_tools.py
-   ├─ sensitivity_tools.py
-   ├─ control_tools.py
-   └─ workflow_tools.py
+├─ tools/
+│  ├─ network_tools.py
+│  ├─ security_tools.py
+│  ├─ generator_contingency_tools.py
+│  ├─ generator_screening_tools.py
+│  ├─ sensitivity_tools.py
+│  ├─ control_tools.py
+│  └─ workflow_tools.py
+├─ agent/
+│  ├─ graph.py
+│  ├─ tools.py
+│  ├─ formatters.py
+│  ├─ generator_comparison_formatter.py
+│  └─ generator_screening_formatter.py
+└─ api/
+   ├─ app.py
+   ├─ routes.py
+   ├─ schemas.py
+   └─ adapters.py
 ```
 
-역할:
+### Domain Layer
 
-- `network.py`: 계통 load / 공통 AC Load Flow parameter
-- `utils/kpg_powsybl_adapter.py`: KPG MAT의 병렬 dcline을 실제 IIDM HVDC / VSC로 재구성
+LLM과 독립적인 Python / PyPowSyBl 계층이다.
+
+- `network.py`: 계통 load 및 공통 AC Load Flow
 - `network_tools.py`: 계통 요약 / 선로 / 발전기 조회
-- `security_tools.py`: Line contingency Security Analysis / pre-post 위반 비교 / 주요 위반 선택
-- `sensitivity_tools.py`: 발전기 출력 변화에 대한 선로 유효전력 조류 민감도 계산
-- `control_tools.py`: Redispatch 후보 생성 / 발전기 출력 제약 guardrail / AC 검증 / whole-network Operator Strategy Security validation
-- `workflow_tools.py`: Security → Sensitivity → Candidate → AC / Security Validation 연결
+- `security_tools.py`: line / generator contingency Security Analysis 지원 기능
+- `generator_contingency_tools.py`: 발전기 탈락 AC Load Flow 및 Security Analysis
+- `generator_screening_tools.py`: 연결 발전기 전체 N-1 batch screening
+- `sensitivity_tools.py`: 발전기 injection 변화에 대한 선로 유효전력 조류 민감도
+- `control_tools.py`: balanced redispatch 후보 / 제약 guardrail / AC·Security 재검증
+- `workflow_tools.py`: line outage Security → Sensitivity → Redispatch 후보 → 검증 workflow
 
-Domain layer는 LLM 없이도 직접 호출할 수 있도록 유지한다.
+### Agent Layer
 
-### 2. Public Physics API Layer
+`src/ai_ems/agent/tools.py`는 Domain function을 LLM-facing Tool schema로 노출한다.
 
-Agent / Web UI와 별개로 실행할 수 있는 물리해석 API이다.
+현재 Agent Tool:
 
 ```text
-src/ai_ems/api/
-├─ app.py
-├─ routes.py
-├─ schemas.py
-└─ adapters.py
+network_summary
+line_list
+line_detail
+generator_list
+line_contingency
+generator_contingency_analysis
+generator_contingency_comparison
+generator_contingency_screening
+generator_sensitivity
+balanced_redispatch_validation
+contingency_response_analysis
 ```
 
-역할:
+고위험 계산 결과는 LLM이 수치를 다시 자유롭게 해석하지 않도록 deterministic formatter를 사용한다.
 
-- `app.py`: 독립 FastAPI Physics service 생성
-- `routes.py`: 외부 Simulator가 호출할 REST endpoint
-- `schemas.py`: Public Request / Response 계약
-- `adapters.py`: 내부 Domain result를 안정된 Public Response로 변환
+```text
+User
+ ↓
+LLM: intent / Tool selection
+ ↓
+Physical-analysis Tool
+ ↓
+Structured Result
+ ↓
+Deterministic Formatter
+ ↓
+Operator-facing Response
+```
+
+### Public Physics API Layer
 
 현재 endpoint:
 
@@ -155,173 +153,82 @@ POST /api/v1/redispatch-validation
 POST /api/v1/contingency-response
 ```
 
-외부 Simulator는 PyPowSyBl 객체 구조를 직접 알 필요 없이 위 API의 JSON 계약만 사용하면 된다.
-
-### 3. Agent Layer
-
-```text
-src/ai_ems/agent/
-├─ graph.py
-├─ tools.py
-└─ formatters.py
-```
-
-- `tools.py`: Domain function을 LLM-facing Tool schema로 노출
-- `graph.py`: LangGraph agent / ToolNode routing / Ollama Local LLM Tool Calling
-- `formatters.py`: 고수준 corrective-action workflow 결과를 deterministic하게 출력
-
-현재 Agent Tool은 다음 8개이다.
-
-```text
-network_summary
-line_list
-line_detail
-generator_list
-line_contingency
-generator_sensitivity
-balanced_redispatch_validation
-contingency_response_analysis
-```
-
-### 4. Web UI Layer
-
-`web_app.py`는 Agent와 KPG 계통 시각화를 위한 별도 FastAPI app이다.
-
-```text
-Web UI / Chat
-      ↓
-web_app.py
-      ↓
-Agent + Domain Tools
-```
-
-Physics API와 Web UI는 독립된 port에서 동시에 실행할 수 있다.
+세부 계약은 [`docs/specs/API_SPEC.md`](docs/specs/API_SPEC.md)를 참고한다.
 
 ---
 
-## Corrective-action Workflow
+## Main Workflows
 
-사용자가 다음과 같이 요청하면:
-
-```text
-LINE-81-84 사고 발생 시 대응방안 찾아줘
-```
-
-Agent는 고수준 Tool인 `contingency_response_analysis`를 호출한다.
+### Line-outage corrective-action workflow
 
 ```text
+Line Contingency
+      ↓
 Security Analysis
-        ↓
-사고 전 / 사고 후 위반 비교
-        ↓
-가장 심한 위반 선로 선택
-        ↓
+      ↓
+Most Severe Violation Selection
+      ↓
 Sensitivity Analysis
-        ↓
-Balanced Redispatch 후보 생성
-        ↓
-발전기 출력범위 Guardrail
-        ↓
-후보별 AC 검증
-        ↓
-Whole-network Security 재검증
-        ↓
-후보 Ranking
+      ↓
+Balanced Redispatch Candidate Generation
+      ↓
+Generator Feasibility Guardrail
+      ↓
+AC Validation
+      ↓
+Whole-network Security Re-validation
+      ↓
+Candidate Ranking
 ```
 
-현재 candidate ranking은 다음을 우선한다.
+`best_tested_candidate`는 **시험한 후보 중 최선의 결과**이며 OPF / SCED 기반 최적해를 의미하지 않는다.
 
-1. AC / Operator Strategy 수렴 여부
-2. Redispatch로 인한 신규 위반 발생 여부
-3. 제어 후 위반 설비 수
-4. 목표 선로 개선량
-5. 기존 Sensitivity candidate rank
-
-이 결과는 **시험한 후보 중 최선의 결과**이며 OPF / SCED에 의한 최적 Redispatch를 의미하지 않는다.
-
-### Deterministic Response
-
-작은 Local LLM이 수치 단위, 부호, `%`와 `%p`, MW와 MVA 등을 잘못 해석하는 문제를 줄이기 위해 고수준 corrective-action 결과는 두 번째 LLM inference를 거치지 않는다.
+### Generator-outage workflow
 
 ```text
-User
- ↓
-LLM: intent / Tool selection
- ↓
-Domain Workflow
- ↓
-Structured Result
- ↓
-Python Deterministic Formatter
- ↓
-Final Response
+Specific Generator Outage
+      ↓
+Single or Distributed Slack AC Load Flow
+      ↓
+Security Analysis
+      ↓
+Deterministic Result Explanation
 ```
 
-이를 통해 다음을 고정한다.
+Single / Distributed slack은 Load Flow balancing 가정이며 운영자 Redispatch가 아니다.
 
-- MW / MVA 구분
-- loading percent와 percentage point 구분
-- 사고로 발생한 신규 위반과 Redispatch로 추가 발생한 신규 위반 구분
-- 시험하지 않은 제어를 검증된 조치처럼 표현하지 않음
-- tested candidate와 optimization 결과를 구분
+### Generator N-1 batch screening
 
----
+```text
+All Connected Generators
+      ↓
+Independent Generator N-1 Contingencies
+      ↓
+AC Security Analysis
+      ↓
+Physics-first Deterministic Ranking
+      ↓
+Top-N Review Candidates
+```
 
-## Verified Scenarios
-
-### LINE-81-84 outage
-
-사고 전에는 위반이 없었고, 사고 후 다음 두 신규 APPARENT_POWER 위반이 발생하였다.
-
-- `LINE-16-28`: 약 `4465.24 MVA`, loading 약 `102.79%`
-- `LINE-134-193`: 약 `2194.38 MVA`, loading 약 `101.03%`
-
-사고 위치와 떨어진 설비에서도 조류 재분배로 신규 제약 위반이 발생할 수 있어 corrective action은 whole-network에서 다시 검증해야 한다.
-
-### LINE-183-190 outage
-
-- most severe violation: `LINE-176-190`
-- tested best candidate: `GEN-10#0 +10 MW / GEN-190 -10 MW`
-- apparent power: 약 `2476.13 → 2469.21 MVA`
-- loading: 약 `114.00% → 113.68%`
-- 신규 whole-network violation 없음
-- 기존 `LINE-176-190` 위반은 잔존
-
-이 사례는 영향도가 높은 후보를 찾는 것과 실제 제약 해소는 별개의 문제임을 보여준다.
+Screening ranking은 AI score나 고장 확률이 아니라 물리해석 결과 기반 **review priority**다.
 
 ---
 
-## Documentation
+## Environment
 
-상세 문서는 `docs/` 아래에 목적별로 구분한다.
-
-### Specifications
-
-- [Physics API Specification](docs/specs/API_SPEC.md)
-- [Physics Module Specification](docs/specs/MODULE_SPEC.md)
-- [KPG-193 PyPowSyBl Adapter Specification](docs/specs/KPG_POWSYBL_ADAPTER_SPEC.md)
-
-### Experiment Records
-
-- [KPG-193 기반 PyPowSyBl 계통해석 및 제어 후보 검증](docs/experiments/KPG-193%20기반%20PyPowSyBl%20계통해석%20및%20제어%20후보%20검증.md)
-- [PyPowSyBl Physics API 및 AI-EMS Agent 연계 PoC](docs/experiments/PyPowSyBl%20Physics%20API%20%EB%B0%8F%20AI-EMS%20Agent%20%EC%97%B0%EA%B3%84%20PoC.md)
-- [KPG-193 발전기 N-1 Single/Distributed Slack 비교](docs/experiments/KPG-193%20%EB%B0%9C%EC%A0%84%EA%B8%B0%20N-1%20SingleDistributed%20Slack%20%EB%B9%84%EA%B5%90.md)
-
----
-
-## Environment Configuration
-
-프로젝트 설정은 repository root의 `.env`를 사용한다.
-
-실제 `.env`는 Git에 commit하지 않으며, 공유 가능한 예시는 `.env.example`에 둔다.
-
-초기 설정:
+Python 3.11 기준.
 
 ```bash
+python3.11 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-예시:
+프로젝트 설정은 repository root의 `.env`를 사용하며 `src/ai_ems/config.py`가 자동 로드한다.
+
+주요 설정:
 
 ```dotenv
 AI_EMS_MODEL=qwen3.5:9b
@@ -332,67 +239,6 @@ AI_EMS_WEB_HOST=127.0.0.1
 AI_EMS_WEB_PORT=8000
 AI_EMS_PHYSICS_HOST=127.0.0.1
 AI_EMS_PHYSICS_PORT=8001
-AI_EMS_LOG_LEVEL=info
-```
-
-`src/ai_ems/config.py`는 import되는 시점에 repository root의 `.env`를 `python-dotenv`로 자동 로드한다.
-
-```python
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-load_dotenv(PROJECT_ROOT / ".env", override=False)
-```
-
-따라서 `python app.py`, `web_app.py`, Physics API처럼 `ai_ems.config`를 import하는 Python 프로세스에서는 일반적인 로컬 실행 시 `source .env` 또는 `export AI_EMS_...`를 별도로 수행할 필요가 없다.
-
-설정 흐름은 다음과 같다.
-
-```text
-Python process 시작
-      ↓
-app / web_app / api.app import
-      ↓
-ai_ems.config import
-      ↓
-load_dotenv(PROJECT_ROOT / ".env", override=False)
-      ↓
-.env 값을 현재 Python process 환경에 로드
-      ↓
-os.getenv("AI_EMS_...")
-      ↓
-CASE_FILE / MODEL_NAME / HOST / PORT 등 설정값 생성
-```
-
-`override=False`이므로 shell이나 실행 환경에 이미 같은 환경변수가 설정되어 있다면 그 값이 `.env`보다 우선한다.
-
-또한 `CASE_FILE`, `BUS_LOCATION_FILE`과 같은 상대경로는 `_path_from_env()`에서 repository root 기준 절대경로로 변환한다.
-
-> **주의:** `.env` 자동 로드는 Python 프로세스 내부에서 일어난다. 따라서 shell 명령 자체에서 `$AI_EMS_WEB_HOST`, `$AI_EMS_WEB_PORT`처럼 변수를 직접 확장하려면 Python이 실행되기 전에 shell 환경변수가 필요하므로 `source .env` / `export`가 필요하다. 아래 Run 예제는 이 차이를 피하기 위해 host/port를 명시적으로 사용한다.
-
-일반적인 로컬 실행 준비:
-
-```bash
-source .venv/bin/activate
-```
-
-필요한 경우에만 shell 환경변수를 직접 로드한다.
-
-```bash
-set -a
-source .env
-set +a
-```
-
----
-
-## Installation
-
-Python 3.11 기준.
-
-```bash
-python3.11 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-cp .env.example .env
 ```
 
 ---
@@ -404,8 +250,6 @@ cp .env.example .env
 ```bash
 python app.py
 ```
-
-`app.py` 실행 중 `ai_ems.config`가 import되면서 `.env`가 자동으로 로드된다.
 
 ### Agent Web UI
 
@@ -419,8 +263,6 @@ python -m uvicorn web_app:app --host 127.0.0.1 --port 8000 --log-level info
 http://127.0.0.1:8000/
 ```
 
-`web_app.py`가 `ai_ems.config`의 `CASE_FILE`, `BUS_LOCATION_FILE`을 import하므로 계통 파일 경로 등 애플리케이션 설정은 `.env`에서 자동 로드된다.
-
 ### Standalone Physics API
 
 ```bash
@@ -433,88 +275,62 @@ Swagger UI:
 http://127.0.0.1:8001/docs
 ```
 
-`ai_ems.api.app` 역시 `ai_ems.config.CASE_FILE`을 import하므로 계통 case 설정은 `.env`에서 자동 로드된다.
+### Full-batch study
 
-`127.0.0.1`은 local-only access이다. 다른 PC 또는 Simulator에서 접속해야 하는 환경에서는 필요한 경우 `0.0.0.0`으로 bind하고 네트워크 / 방화벽 정책에 맞게 접근을 제한한다.
+```bash
+python scripts/run_kpg193_full_batch.py \
+  --generator-only \
+  --generator-slack distributed \
+  --chunk-size 100 \
+  --no-sensitivity
+```
+
+`contingency_summary.csv`에는 이미 deterministic review ranking이 포함되어 있으므로 별도 중복 ranking CSV는 생성하지 않는다. Sensitivity 결과가 없으면 빈 `topn_sensitivity.csv`도 생성하지 않는다.
 
 ---
 
-## Physics API Examples
+## Test
 
-### Security Analysis
-
-```bash
-curl -s -X POST "http://127.0.0.1:8001/api/v1/security-analysis" -H "Content-Type: application/json" -d '{"outage_line_id":"LINE-81-84"}' | python -m json.tool
-```
-
-### Sensitivity Analysis
-
-```bash
-curl -s -X POST "http://127.0.0.1:8001/api/v1/sensitivity-analysis" -H "Content-Type: application/json" -d '{"outage_line_id":"LINE-183-190","top_n":5}' | python -m json.tool
-```
-
-### Explicit Redispatch Validation
-
-```bash
-curl -s -X POST "http://127.0.0.1:8001/api/v1/redispatch-validation" -H "Content-Type: application/json" -d '{"outage_line_id":"LINE-183-190","monitored_line_id":"LINE-176-190","up_generator_id":"GEN-10#0","down_generator_id":"GEN-190","delta_mw":10.0}' | python -m json.tool
-```
-
-### Contingency Response Analysis
-
-```bash
-curl -s -X POST "http://127.0.0.1:8001/api/v1/contingency-response" -H "Content-Type: application/json" -d '{"outage_line_id":"LINE-81-84","delta_mw":10.0,"top_n":3}' | python -m json.tool
-```
-
-세부 Request / Response 계약은 [`docs/specs/API_SPEC.md`](docs/specs/API_SPEC.md), 모듈 역할과 통합 경계는 [`docs/specs/MODULE_SPEC.md`](docs/specs/MODULE_SPEC.md)를 참고한다.
-
----
-
-## Regression Test
+Regression test:
 
 ```bash
 python -m pytest -q
 ```
 
-현재 확인 결과:
-
-```text
-36 passed
-```
-
-실제 KPG case를 사용하는 smoke test:
+실제 KPG case smoke test:
 
 ```bash
 python tests/smoke_test.py
 ```
 
-검증된 기본 구조:
-
-```text
-193 Bus
-201 Generator
-193 Load
-385 AC Line
-2 HVDC
-AC Load Flow: CONVERGED
-```
-
-테스트 범위:
-
-- 실제 KPG / PyPowSyBl 계산 결과 regression
-- Security / Sensitivity / Redispatch / Contingency Public API adapter contract
-- KPG actual HVDC/VSC 모델 load 및 대표 N-1 smoke test
+실험용 probe 스크립트는 `tests/`와 repository root에 남아 있으며, 자동 regression test와 달리 특정 통합 흐름을 수동 확인하는 용도다.
 
 ---
 
-## KPG-193 Test System / Data Policy
+## Documentation
+
+### Specifications
+
+- [Physics API Specification](docs/specs/API_SPEC.md)
+- [Physics Module Specification](docs/specs/MODULE_SPEC.md)
+- [KPG-193 PyPowSyBl Adapter Specification](docs/specs/KPG_POWSYBL_ADAPTER_SPEC.md)
+
+### Experiment Records
+
+- [KPG-193 기반 PyPowSyBl 계통해석 및 제어 후보 검증](docs/experiments/KPG-193%20기반%20PyPowSyBl%20계통해석%20및%20제어%20후보%20검증.md)
+- [PyPowSyBl Physics API 및 AI-EMS Agent 연계 PoC](docs/experiments/PyPowSyBl%20Physics%20API%20%EB%B0%8F%20AI-EMS%20Agent%20%EC%97%B0%EA%B3%84%20PoC.md)
+- [KPG-193 발전기 N-1 Slack 보상 메커니즘 분석](docs/experiments/KPG-193%20%EB%B0%9C%EC%A0%84%EA%B8%B0%20N-1%20Slack%20%EB%B3%B4%EC%83%81%20%EB%A9%94%EC%BB%A4%EB%8B%88%EC%A6%98%20%EB%B6%84%EC%84%9D.md)
+- [KPG-193 발전기 N-1 Single/Distributed Slack 비교](docs/experiments/KPG-193%20%EB%B0%9C%EC%A0%84%EA%B8%B0%20N-1%20SingleDistributed%20Slack%20%EB%B9%84%EA%B5%90.md)
+
+보관된 실행 결과는 `results/` 아래에 둔다.
+
+---
+
+## KPG-193 Data Policy
 
 테스트 계통은 **KPG-193 v2.0**을 기반으로 한다.
 
-- Upstream: https://github.com/agm-center/kpg-testgrid
-- Documentation: https://agm.kentech.ac.kr/docs/kpg-test-system/
-- Paper: Geonho Song and Jip Kim, *KPG 193: A Synthetic Korean Power Grid Test System for Decarbonization Studies*, arXiv:2411.14756, 2024.
-
-이 repository에는 실제 실습용 KPG MATPOWER case와 위치 CSV를 포함하지 않는다.
+실제 실습용 MATPOWER case와 위치 CSV는 public repository에 포함하지 않는다.
 
 Local-only files:
 
@@ -523,11 +339,9 @@ data/KPG193_ver2_0_powsybl_full.mat
 data/bus_location.csv
 ```
 
-`KPG193_ver2_0_powsybl_full.mat`은 KPG의 주요 물리계통 및 운영/최적화 관련 필드를 유지하는 공통 MAT로 사용하고, PyPowSyBl에서는 `src/ai_ems/utils/kpg_powsybl_adapter.py`를 통해 병렬 dcline을 실제 IIDM HVDC / VSC로 구성한다.
+PyPowSyBl에서는 `src/ai_ems/utils/kpg_powsybl_adapter.py`를 통해 KPG 병렬 dcline을 IIDM HVDC / VSC로 구성한다.
 
 세부 사용법과 제약조건은 [`docs/specs/KPG_POWSYBL_ADAPTER_SPEC.md`](docs/specs/KPG_POWSYBL_ADAPTER_SPEC.md)를 참고한다.
-
-두 local-only 데이터 파일은 public GitHub에 업로드하지 않는다.
 
 ---
 
@@ -535,34 +349,11 @@ data/bus_location.csv
 
 현재 구현은 연구 / PoC 목적이다.
 
-- line contingency 중심이다.
+- 발전기 사고 후 corrective-action workflow는 아직 구현하지 않았다.
+- 현재 Sensitivity / Redispatch corrective-action workflow는 line outage 중심이다.
 - Redispatch 후보 생성은 OPF / SCED optimization이 아니다.
-- 현재 balanced `+ΔMW / -ΔMW` generator pair를 평가한다.
 - `best_tested_candidate`는 시험한 후보 중 최선이며 전역 최적해를 의미하지 않는다.
 - Sensitivity Analysis는 local linearization이며 실제 제어 효과는 AC 해석으로 재검증한다.
-- Whole-network validation은 정적 Security Analysis 기반이며 transient / dynamic stability를 의미하지 않는다.
-- 같은 bus / 설비군의 유사 generator ID가 동일하거나 매우 유사한 sensitivity를 가져 중복 성격의 후보가 나타날 수 있다.
-- 반복 `contingency-response` 호출은 network reload 경로가 있어 대량 처리 성능 최적화 대상이다.
-
----
-
-## Project Status / Freeze
-
-현재 PoC 기능 개발은 **freeze**한다.
-
-완료 기준:
-
-- Security / Sensitivity 실습 완료
-- explicit Redispatch validation 완료
-- corrective-action candidate workflow 완료
-- Agent Tool Calling PoC 완료
-- 외부 Simulator용 Physics API 분리
-- Mock Simulator 기반 Physics API integration probe 완료
-- Public Request / Response schema 및 adapter 분리
-- 핵심 Physics 기능 4종 API 제공
-- KPG actual HVDC / VSC adapter 적용 및 regression 검증
-- Swagger / 실제 HTTP 호출 검증
-- `36 passed` regression 확인
-- README 및 `docs/specs/`, `docs/experiments/` 문서 정리
-
-이후 코드 변경은 외부 Simulator 실제 통합 요구, regression 오류, 발표 사실 검증에서 필요한 경우에 한해 재개한다.
+- Single / Distributed slack은 Load Flow balancing 가정이며 운영자 Redispatch가 아니다.
+- 정적 AC Load Flow / Security Analysis는 transient, frequency, rotor-angle 등 동특성 안정도를 검증하지 않는다.
+- 반복 batch / contingency 호출의 성능 최적화는 향후 과제다.
