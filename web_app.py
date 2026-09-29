@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
@@ -14,7 +14,9 @@ from langchain_core.messages import (
 from pydantic import BaseModel
 
 from ai_ems import load_network
+from ai_ems.agent.formatters import format_generator_contingency_response
 from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph
+from ai_ems.agent.tools import create_agent_tools
 from ai_ems.tools.security_tools import (
     get_limit_unit,
     run_line_contingency,
@@ -30,6 +32,10 @@ UI_DIR = Path("ui")
 
 network = load_network(CASE_FILE)
 agent_graph = create_agent_graph(network)
+direct_agent_tools = {
+    tool.name: tool
+    for tool in create_agent_tools(network)
+}
 agent_sessions: dict[str, list[Any]] = {}
 
 bus_locations = pd.read_csv(BUS_LOCATION_FILE)
@@ -52,6 +58,11 @@ app = FastAPI(
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+
+
+class GeneratorContingencyRequest(BaseModel):
+    generator_id: str
+    slack_mode: Literal["single", "distributed"] = "single"
 
 
 @app.get("/")
@@ -202,6 +213,41 @@ def sensitivity_analysis(
     )
 
     return _sensitivity_result_for_ui(result)
+
+
+@app.post("/api/generator-contingency-analysis")
+def generator_contingency_analysis(request: GeneratorContingencyRequest):
+    generator_id = request.generator_id.strip()
+    if not generator_id:
+        raise HTTPException(
+            status_code=400,
+            detail="generator_id is required.",
+        )
+
+    tool = direct_agent_tools["generator_contingency_analysis"]
+
+    try:
+        result = tool.invoke(
+            {
+                "generator_id": generator_id,
+                "slack_mode": request.slack_mode,
+                "top_n_overloads": 5,
+            }
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Generator contingency analysis failed: {exc}",
+        ) from exc
+
+    return {
+        "answer": format_generator_contingency_response(result),
+        "result": _generator_contingency_result_for_ui(result),
+    }
 
 
 @app.post("/api/chat")
