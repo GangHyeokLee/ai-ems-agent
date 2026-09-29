@@ -1,4 +1,4 @@
-from ai_ems.agent.generator_comparison_formatter import (
+from ai_ems.agent.formatters import (
     format_generator_contingency_comparison,
 )
 from ai_ems.agent.tools import create_agent_tools
