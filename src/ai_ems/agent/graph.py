@@ -17,6 +17,9 @@ from ai_ems.agent.formatters import (
 from ai_ems.agent.generator_comparison_formatter import (
     format_generator_contingency_comparison,
 )
+from ai_ems.agent.generator_screening_formatter import (
+    format_generator_contingency_screening,
+)
 from ai_ems.agent.tools import create_agent_tools
 from ai_ems.config import (
     LLM_BASE_URL,
@@ -58,6 +61,13 @@ Tool selection and scope:
 - use generator_contingency_comparison when the user asks for BOTH single and
   distributed slack, asks to compare the two slack assumptions, or asks how the
   same generator outage changes between single and distributed slack
+- use generator_contingency_screening when the user asks to analyze all
+  generator N-1 contingencies, screen generator outages, find risky generator
+  outages, or rank the most severe generator contingencies
+- do not satisfy an all-generator screening request by repeatedly calling
+  generator_contingency_analysis; use generator_contingency_screening
+- generator_contingency_screening is a batch Security Analysis workflow, not
+  corrective redispatch or dynamic-stability analysis
 - do not satisfy an explicit single-vs-distributed comparison by running only
   one generator_contingency_analysis call
 - generator_sensitivity, balanced_redispatch_validation, and
@@ -161,6 +171,23 @@ Generator Contingency Analysis:
   slack balancing and state that its effectiveness must be evaluated and
   revalidated separately with a physical-analysis tool
 
+Generator N-1 Screening:
+- generator_contingency_screening evaluates all currently connected generators
+  as independent N-1 outages
+- total_contingencies is the number of generator contingencies actually screened
+- classification_counts summarizes the full screening set
+- top_contingencies contains the highest-priority cases according to the
+  deterministic physics-first batch ranking
+- CONVERGED_VIOLATION means the calculation converged but one or more equipment
+  limit violations were found after the contingency
+- max_loading_percent is equipment loading relative to its limit; do not
+  interpret it as probability, risk percentage, or dynamic stability margin
+- screening identifies contingencies for further review; it does not itself
+  determine or validate corrective actions
+- if the user asks to inspect a specific ranked screening result in a later turn,
+  use the generator_id from the previous screening result and call the appropriate
+  generator contingency tool for the requested detailed analysis
+
 Sensitivity Analysis:
 - always translate "sensitivity" as "민감도"; never use "감수성"
 - the current generator_sensitivity tool belongs to the line-outage workflow
@@ -263,6 +290,10 @@ def create_agent_graph(
             if result.get("analysis_type") != "Generator Contingency Comparison":
                 raise RuntimeError("Unexpected generator-comparison result payload.")
             response = format_generator_contingency_comparison(result)
+        elif tool_message.name == "generator_contingency_screening":
+            if result.get("analysis_type") != "Generator Contingency Screening":
+                raise RuntimeError("Unexpected generator-screening result payload.")
+            response = format_generator_contingency_screening(result)
         else:
             raise RuntimeError(
                 "Deterministic response received an unexpected tool result: "
@@ -282,6 +313,7 @@ def create_agent_graph(
                 "contingency_response_analysis",
                 "generator_contingency_analysis",
                 "generator_contingency_comparison",
+                "generator_contingency_screening",
             }:
                 return "deterministic_response"
 
