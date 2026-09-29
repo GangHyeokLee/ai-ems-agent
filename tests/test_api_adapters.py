@@ -417,3 +417,72 @@ def test_generator_contingency_response_adapter():
     assert response.generator_changes[0].delta_generation_mw == 19.426
 
     assert response.post_violated_equipment_count == 1
+
+
+def test_generator_contingency_response_adapter_handles_non_convergence():
+    domain_result = {
+        "generator_id": "GEN-X",
+        "contingency_id": "GEN_OUT_GEN-X",
+        "slack_mode": "single",
+        "balance_type": None,
+        "balancing_interpretation": (
+            "Load-flow balancing assumption; " "not operator corrective redispatch."
+        ),
+        "base_converged": True,
+        "post_contingency_converged": False,
+        "outage_generator": {
+            "generator_id": "GEN-X",
+            "connected": True,
+            "bus_id": "VL-X",
+            "target_p_mw": 1000.0,
+            "actual_generation_mw": 1000.0,
+            "min_p_mw": 0.0,
+            "max_p_mw": 1200.0,
+            "headroom_mw": 200.0,
+        },
+        "base": {
+            "loadflow": {
+                "converged": True,
+                "components": [],
+                "distributed_active_power_mw": 0.0,
+                "active_power_mismatch_mw": 0.0,
+            },
+            "power_balance": {
+                "observed_generation_mw": 10000.0,
+                "load_mw": 9000.0,
+                "line_active_power_loss_mw": 1000.0,
+                "balance_based_loss_mw": 1000.0,
+            },
+        },
+        "post_contingency": {
+            "loadflow": {
+                "converged": False,
+                "components": [],
+                "distributed_active_power_mw": 0.0,
+                "active_power_mismatch_mw": 0.0,
+            },
+            "power_balance": None,
+        },
+        "loss_change": {
+            "balance_based_loss_change_mw": None,
+            "line_active_power_loss_change_mw": None,
+        },
+        "generator_changes": [],
+        "major_overloads": [],
+        "security_analysis": {
+            "pre_status": "CONVERGED",
+            "post_status": "FAILED",
+            "pre_violated_equipment_count": 0,
+            "violated_equipment_count": 0,
+            "pre_violated_equipment": [],
+            "violated_equipment": [],
+        },
+    }
+
+    response = to_generator_contingency_response(domain_result)
+
+    assert response.post_contingency_converged is False
+    assert response.post_power_balance is None
+    assert response.balance_based_loss_change_mw is None
+    assert response.line_active_power_loss_change_mw is None
+    assert response.generator_changes == []
