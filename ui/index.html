@@ -75,7 +75,9 @@
     .slack-options label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
     #security-result, #sensitivity-result, #generator-contingency-result { margin-top: 12px; line-height: 1.6; }
     .sensitivity-button { margin-top: 10px; }
-    .sensitivity-candidate { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e7eb; }
+    .sensitivity-candidate, .generator-result-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e7eb; }
+    .generator-result-row { margin-top: 2px; }
+    .generator-result-note { margin-top: 8px; color: #64748b; font-size: 12px; }
   </style>
 </head>
 <body>
@@ -394,6 +396,7 @@
     }
 
     function formatValue(value, unit) { return value == null ? "-" : value.toFixed(2) + (unit ? ` ${unit}` : ""); }
+    function formatBoolStatus(value) { return value === true ? "CONVERGED" : value === false ? "NOT CONVERGED" : "-"; }
 
     function renderSecurityResult(result) {
       const element = document.getElementById("security-result");
@@ -476,13 +479,63 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ generator_id: generatorId, slack_mode: slackMode }),
         });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
-        resultElement.textContent = payload.answer;
-        applyGeneratorContingencyResult(payload.result);
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.detail || `HTTP ${response.status}`);
+        renderGeneratorContingencyResult(result);
+        applyGeneratorContingencyResult(result);
       } catch (error) {
         resultElement.textContent = `분석 실패: ${error.message}`;
       } finally { button.disabled = false; }
+    }
+
+    function renderGeneratorContingencyResult(result) {
+      const element = document.getElementById("generator-contingency-result");
+      const outage = result.outage_generator || {};
+      const post = result.post_loadflow || {};
+      const security = result.security || {};
+      const distributed = post.distributed_active_power_mw;
+      const mismatch = post.active_power_mismatch_mw;
+
+      let html = `
+        <div class="generator-result-row"><strong>Generator</strong>: ${escapeHtml(result.generator_id ?? "-")}</div>
+        <div class="generator-result-row"><strong>Bus</strong>: ${outage.bus_id ?? "-"}${outage.name_korean ? ` · ${escapeHtml(outage.name_korean)}` : ""}</div>
+        <div class="generator-result-row"><strong>Slack Mode</strong>: ${escapeHtml(result.slack_mode ?? "-")}</div>
+        <div class="generator-result-row"><strong>Base LF</strong>: ${formatBoolStatus(result.base_converged)}</div>
+        <div class="generator-result-row"><strong>Post LF</strong>: ${formatBoolStatus(result.post_contingency_converged)}</div>
+        <div class="generator-result-row"><strong>Pre-outage Generation</strong>: ${formatValue(outage.actual_generation_mw, "MW")}</div>
+      `;
+
+      if (result.slack_mode === "distributed") {
+        html += `<div class="generator-result-row"><strong>Distributed Balancing</strong>: ${formatValue(distributed, "MW")}</div>`;
+        html += `<div class="generator-result-row"><strong>Residual Mismatch</strong>: ${formatValue(mismatch, "MW")}</div>`;
+        if (result.balance_type) html += `<div class="generator-result-row"><strong>Balance Type</strong>: ${escapeHtml(result.balance_type)}</div>`;
+      } else {
+        html += `<div class="generator-result-row"><strong>Active Power Mismatch</strong>: ${formatValue(mismatch, "MW")}</div>`;
+      }
+
+      html += `<div class="generator-result-row"><strong>Violations</strong>: ${security.pre_violated_equipment_count ?? 0} → ${security.post_violated_equipment_count ?? 0}</div>`;
+
+      const overloads = result.major_overloads || [];
+      if (overloads.length > 0) {
+        html += `<div class="generator-result-section"><strong>Major Overloads</strong></div>`;
+        for (const item of overloads) {
+          html += `<div class="generator-result-row"><strong>${escapeHtml(item.equipment_id)}</strong>: ${formatValue(item.value, item.unit)} / Limit ${formatValue(item.limit, item.unit)}</div>`;
+          html += `<div class="generator-result-row">Loading: ${item.loading_percent == null ? "-" : item.loading_percent.toFixed(2) + " %"}</div>`;
+        }
+      }
+
+      const changes = (result.top_generator_changes || []).filter((item) => Math.abs(item.delta_generation_mw || 0) > 1e-6);
+      if (changes.length > 0) {
+        html += `<div class="generator-result-section"><strong>Top Generator Changes</strong></div>`;
+        for (const item of changes) {
+          html += `<div class="generator-result-row"><strong>${escapeHtml(item.generator_id)}</strong>: ${formatValue(item.generation_before_mw, "MW")} → ${formatValue(item.generation_after_mw, "MW")} (${item.delta_generation_mw >= 0 ? "+" : ""}${item.delta_generation_mw.toFixed(2)} MW)</div>`;
+        }
+      } else if (result.top_generator_changes && result.top_generator_changes.length > 0) {
+        html += `<div class="generator-result-section"><strong>Generator Changes</strong>: 0.00 MW</div>`;
+      }
+
+      html += `<div class="generator-result-note">Slack 설정은 Load Flow balancing 가정이며 운영자 Redispatch가 아닙니다.</div>`;
+      element.innerHTML = html;
     }
 
     function applyGeneratorContingencyResult(result) {
@@ -538,7 +591,7 @@
           else if (update.type === "generator_contingency") {
             document.getElementById("outage-generator").value = update.result.generator_id || "";
             document.querySelector(`input[name="generator-slack-mode"][value="${update.result.slack_mode}"]`)?.click();
-            document.getElementById("generator-contingency-result").textContent = payload.answer;
+            renderGeneratorContingencyResult(update.result);
             applyGeneratorContingencyResult(update.result);
           }
         }
