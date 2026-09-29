@@ -1,4 +1,7 @@
-from ai_ems.agent.formatters import format_contingency_response
+from ai_ems.agent.formatters import (
+    format_contingency_response,
+    format_generator_contingency_response,
+)
 
 
 def _base_result() -> dict:
@@ -30,6 +33,87 @@ def _base_result() -> dict:
                 "loading_after_percent": 102.81412991530779,
                 "violation_remaining": True,
             },
+        },
+    }
+
+
+def _generator_contingency_result(slack_mode: str) -> dict:
+    distributed = slack_mode == "distributed"
+
+    return {
+        "analysis_type": "Generator Contingency Analysis",
+        "generator_id": "GEN-124#1",
+        "contingency_id": "GEN_OUT_GEN-124#1",
+        "slack_mode": slack_mode,
+        "balance_type": (
+            "PROPORTIONAL_TO_GENERATION_P_MAX" if distributed else None
+        ),
+        "outage_generator": {
+            "generator_id": "GEN-124#1",
+            "actual_generation_mw": 984.3288325675776,
+        },
+        "base_converged": True,
+        "post_contingency_converged": True,
+        "post_loadflow": {
+            "components": [
+                {
+                    "reference_bus_id": "VL-190_0",
+                }
+            ],
+            "distributed_active_power_mw": (
+                969.1795744821459 if distributed else 0.0
+            ),
+            "active_power_mismatch_mw": (
+                0.4325424305619663 if distributed else 993.5141963911412
+            ),
+        },
+        "loss_change": {
+            "line_active_power_loss_change_mw": (
+                -14.711273135987994 if distributed else 9.205234622448984
+            ),
+        },
+        "top_generator_changes": (
+            [
+                {
+                    "generator_id": "GEN-82#5",
+                    "generation_before_mw": 1378.2597181169867,
+                    "generation_after_mw": 1397.685958251739,
+                    "delta_generation_mw": 19.426240134752334,
+                },
+                {
+                    "generator_id": "GEN-75#1",
+                    "generation_before_mw": 988.2000450120529,
+                    "generation_after_mw": 1002.7697251131173,
+                    "delta_generation_mw": 14.569680101064364,
+                },
+            ]
+            if distributed
+            else [
+                {
+                    "generator_id": "GEN-10#0",
+                    "generation_before_mw": 278.5717188472344,
+                    "generation_after_mw": 278.5717188472344,
+                    "delta_generation_mw": 0.0,
+                }
+            ]
+        ),
+        "major_overloads": [
+            {
+                "equipment_id": "LINE-134-193",
+                "unit": "MVA",
+                "limit": 2172.0,
+                "value": 2293.707612786606 if distributed else 2371.3426860781724,
+                "loading_percent": (
+                    105.60348125168537 if distributed else 109.17784005884772
+                ),
+                "violation_amount": (
+                    121.7076127866062 if distributed else 199.3426860781724
+                ),
+            }
+        ],
+        "security": {
+            "pre_violated_equipment_count": 0,
+            "post_violated_equipment_count": 1,
         },
     }
 
@@ -163,3 +247,39 @@ def test_format_contingency_response_handles_initial_security_nonconvergence() -
     assert "위반 여부를 판정할 수 없습니다" in text
     assert "Sensitivity Analysis 및 Redispatch 후보 검토를 수행하지 않았습니다" in text
     assert "위반이 없다는 의미가 아니라" in text
+
+
+def test_format_generator_contingency_response_single_slack_is_deterministic() -> None:
+    text = format_generator_contingency_response(
+        _generator_contingency_result("single")
+    )
+
+    assert "탈락 전 발전 출력: 984.33 MW" in text
+    assert "Load Flow balancing 가정: 단일 슬랙" in text
+    assert "사고 후 유효전력 mismatch: 993.51 MW" in text
+    assert "reference/slack bus: VL-190_0" in text
+    assert "특정 발전기가 실제로 993.51 MW를 공급했다는 의미가 아닙니다." in text
+    assert "생존 발전기 출력 변화: 상위 비교 기록에서 모두 0.00 MW" in text
+    assert "2371.34 MVA / 한계 2172.00 MVA" in text
+    assert "부하율 109.18%" in text
+    assert "한계 초과 199.34 MVA" in text
+    assert "선로 유효전력 손실 변화: 약 9.21 MW 증가" in text
+    assert "운영자 Redispatch가 아닙니다" in text
+
+
+def test_format_generator_contingency_response_distributed_slack_is_deterministic() -> None:
+    text = format_generator_contingency_response(
+        _generator_contingency_result("distributed")
+    )
+
+    assert "Load Flow balancing 가정: 분산 슬랙" in text
+    assert "분산 기준: PROPORTIONAL_TO_GENERATION_P_MAX" in text
+    assert "분산 슬랙 보상량: 969.18 MW" in text
+    assert "잔여 유효전력 mismatch: 0.43 MW" in text
+    assert "GEN-82#5: 1378.26 MW → 1397.69 MW (+19.43 MW)" in text
+    assert "GEN-75#1: 988.20 MW → 1002.77 MW (+14.57 MW)" in text
+    assert "2293.71 MVA / 한계 2172.00 MVA" in text
+    assert "부하율 105.60%" in text
+    assert "한계 초과 121.71 MVA" in text
+    assert "선로 유효전력 손실 변화: 약 14.71 MW 감소" in text
+    assert "운영자 Redispatch가 아닙니다" in text
