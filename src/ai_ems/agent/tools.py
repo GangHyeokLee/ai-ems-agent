@@ -18,7 +18,10 @@ from ai_ems.tools.security_tools import (
     select_primary_violation,
 )
 from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
-from ai_ems.tools.workflow_tools import analyze_contingency_response
+from ai_ems.tools.workflow_tools import (
+    analyze_contingency_response,
+    analyze_generator_outage_response,
+)
 from ai_ems.tools.generator_contingency_tools import (
     analyze_generator_contingency,
 )
@@ -357,6 +360,45 @@ def create_agent_tools(
             top_n=top_n,
         )
 
+    @tool
+    def generator_outage_response_analysis(
+        generator_id: str,
+        slack_mode: Literal["single", "distributed"] = "distributed",
+        balance_type: str | None = None,
+        delta_mw: float = 10.0,
+        top_n: int = 3,
+    ) -> dict[str, Any]:
+        """Analyze corrective-action candidates after a generator outage.
+
+        Use this high-level tool when the user asks for response measures,
+        corrective action, redispatch candidates, or mitigation after a
+        specific generator outage.
+
+        The workflow performs generator-outage Security Analysis, automatically
+        selects the most severe overloaded line, calculates post-contingency
+        generator sensitivities, generates balanced redispatch candidates, and
+        physically revalidates the tested candidates with AC Load Flow and
+        whole-network Security Analysis.
+
+        slack_mode can be "single" or "distributed". Distributed slack is the
+        default Load Flow balancing assumption for this corrective-action
+        workflow.
+
+        The returned best_tested_candidate is only the best among the tested
+        candidates. It is not an OPF/SCED optimum.
+        """
+        if top_n < 1 or top_n > 10:
+            raise ValueError("top_n must be between 1 and 10.")
+
+        return analyze_generator_outage_response(
+            case_path=case_path,
+            outage_generator_id=generator_id,
+            slack_mode=slack_mode,
+            balance_type=balance_type,
+            delta_mw=delta_mw,
+            top_n=top_n,
+        )
+
     return [
         network_summary,
         line_list,
@@ -369,4 +411,5 @@ def create_agent_tools(
         generator_sensitivity,
         balanced_redispatch_validation,
         contingency_response_analysis,
+        generator_outage_response_analysis,
     ]
