@@ -53,6 +53,10 @@
     .generator-choice { display: block; width: 100%; padding: 5px 7px; margin-top: 2px; border: 0; border-radius: 5px; background: transparent; text-align: left; color: #475569; cursor: pointer; }
     .generator-choice:hover { background: #eef2ff; color: #1e293b; }
     .generator-choice strong { color: #0f172a; }
+    .generator-choice.disconnected-generator { color: #94a3b8; }
+    .generator-choice.disconnected-generator strong { color: #64748b; }
+    .generator-status { margin-left: 4px; font-size: 11px; font-weight: 700; }
+    .generator-status.disconnected { color: #dc2626; }
 
     #chat { height: calc(100% - 46px); padding: 16px; display: flex; flex-direction: column; }
     #messages { flex: 1; overflow-y: auto; }
@@ -67,6 +71,12 @@
     #chat-input button:disabled { cursor: not-allowed; opacity: .6; }
 
     .analysis-box { margin-bottom: 16px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f8fafc; }
+    .analysis-box-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; user-select: none; }
+    .analysis-box-header strong { flex: 1; }
+    .analysis-box .analysis-toggle { width: auto; min-width: 32px; padding: 2px 7px; border: 0; background: transparent; color: #64748b; font-size: 17px; line-height: 1.2; }
+    .analysis-box .analysis-toggle:hover { background: #e2e8f0; }
+    .analysis-box-content { margin-top: 8px; }
+    .analysis-box.collapsed .analysis-box-content { display: none; }
     .analysis-box input[type="text"] { width: 100%; margin-top: 6px; margin-bottom: 8px; padding: 8px; }
     .analysis-box button { width: 100%; padding: 9px; border: none; border-radius: 6px; cursor: pointer; }
     .analysis-box button:disabled { cursor: not-allowed; opacity: .6; }
@@ -78,6 +88,7 @@
     .sensitivity-candidate, .generator-result-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e7eb; }
     .generator-result-row { margin-top: 2px; }
     .generator-result-note { margin-top: 8px; color: #64748b; font-size: 12px; }
+    .generator-state-note { color: #b45309; }
   </style>
 </head>
 <body>
@@ -105,25 +116,35 @@
       <div class="panel-title">AI Assistant</div>
       <div id="chat">
         <div id="messages">
-          <div class="analysis-box">
-            <strong>Security Analysis</strong>
-            <input id="outage-line" type="text" value="LINE-16-28" placeholder="Outage line ID" />
-            <button id="analyze-button">Analyze</button>
-            <div id="security-result">사고 선로를 입력하고 분석하세요.</div>
-            <button id="sensitivity-button" class="sensitivity-button" disabled>Sensitivity Analysis</button>
-            <div id="sensitivity-result">Security Analysis 후 민감도를 분석할 수 있습니다.</div>
+          <div class="analysis-box" id="security-analysis-box">
+            <div class="analysis-box-header" data-box-id="security-analysis-box">
+              <strong>Security Analysis</strong>
+              <button type="button" class="analysis-toggle" aria-expanded="true" title="접기">▾</button>
+            </div>
+            <div class="analysis-box-content">
+              <input id="outage-line" type="text" value="LINE-16-28" placeholder="Outage line ID" />
+              <button id="analyze-button">Analyze</button>
+              <div id="security-result">사고 선로를 입력하고 분석하세요.</div>
+              <button id="sensitivity-button" class="sensitivity-button" disabled>Sensitivity Analysis</button>
+              <div id="sensitivity-result">Security Analysis 후 민감도를 분석할 수 있습니다.</div>
+            </div>
           </div>
 
           <div class="analysis-box" id="generator-contingency-box">
-            <strong>Generator Contingency Analysis</strong>
-            <span class="analysis-subtitle">지도에서 발전기 행을 클릭하면 자동으로 입력됩니다.</span>
-            <input id="outage-generator" type="text" placeholder="Generator ID (예: GEN-124#1)" />
-            <div class="slack-options">
-              <label><input type="radio" name="generator-slack-mode" value="single" checked /> Single</label>
-              <label><input type="radio" name="generator-slack-mode" value="distributed" /> Distributed</label>
+            <div class="analysis-box-header" data-box-id="generator-contingency-box">
+              <strong>Generator Contingency Analysis</strong>
+              <button type="button" class="analysis-toggle" aria-expanded="true" title="접기">▾</button>
             </div>
-            <button id="generator-analyze-button">Analyze</button>
-            <div id="generator-contingency-result">발전기를 선택하거나 ID를 입력하고 분석하세요.</div>
+            <div class="analysis-box-content">
+              <span class="analysis-subtitle">지도에서 발전기 행을 클릭하면 자동으로 입력됩니다.</span>
+              <input id="outage-generator" type="text" placeholder="Generator ID (예: GEN-124#1)" />
+              <div class="slack-options">
+                <label><input type="radio" name="generator-slack-mode" value="single" checked /> Single</label>
+                <label><input type="radio" name="generator-slack-mode" value="distributed" /> Distributed</label>
+              </div>
+              <button id="generator-analyze-button">Analyze</button>
+              <div id="generator-contingency-result">발전기를 선택하거나 ID를 입력하고 분석하세요.</div>
+            </div>
           </div>
 
           <div id="chat-log"></div>
@@ -142,6 +163,7 @@
     let mapProjection = null;
     let chatBusy = false;
     let latestSecurityResult = null;
+    let generatorStateMap = new Map();
 
     function getSessionId() {
       let sessionId = sessionStorage.getItem(SESSION_STORAGE_KEY);
@@ -155,8 +177,28 @@
     async function loadNetworkMap() {
       const response = await fetch("/api/network-map");
       const data = await response.json();
+      generatorStateMap = new Map((data.generators || []).map((item) => [item.generator_id, item]));
       drawNetwork(data);
       applyLayerVisibility();
+      updateGeneratorAnalyzeAvailability();
+    }
+
+    function setAnalysisBoxCollapsed(boxId, collapsed) {
+      const box = document.getElementById(boxId);
+      if (!box) return;
+      box.classList.toggle("collapsed", collapsed);
+      const button = box.querySelector(".analysis-toggle");
+      if (button) {
+        button.textContent = collapsed ? "▸" : "▾";
+        button.setAttribute("aria-expanded", String(!collapsed));
+        button.title = collapsed ? "펼치기" : "접기";
+      }
+    }
+
+    function toggleAnalysisBox(boxId) {
+      const box = document.getElementById(boxId);
+      if (!box) return;
+      setAnalysisBoxCollapsed(boxId, !box.classList.contains("collapsed"));
     }
 
     function drawNetwork(data) {
@@ -200,6 +242,7 @@
           event.stopPropagation();
           clearMapSelection();
           element.classList.add("selected-line");
+          setAnalysisBoxCollapsed("security-analysis-box", false);
           document.getElementById("outage-line").value = line.line_id;
           invalidateSecurityResult();
           showLineTooltip(event, line, bus1, bus2);
@@ -275,12 +318,32 @@
       document.querySelectorAll(".selected-bus").forEach((el) => el.classList.remove("selected-bus"));
     }
 
+    function updateGeneratorAnalyzeAvailability() {
+      const generatorId = document.getElementById("outage-generator").value.trim();
+      const button = document.getElementById("generator-analyze-button");
+      const resultElement = document.getElementById("generator-contingency-result");
+      const generator = generatorStateMap.get(generatorId);
+
+      if (generator && generator.connected === false) {
+        button.disabled = true;
+        resultElement.innerHTML = `<span class="generator-state-note"><strong>${escapeHtml(generatorId)}</strong>은 현재 계통에서 이미 분리된 발전기입니다. 이미 disconnected 상태이므로 추가 발전기 탈락 N-1 분석 대상이 아닙니다.</span>`;
+        return false;
+      }
+
+      button.disabled = false;
+      return true;
+    }
+
     function selectGenerator(generatorId, busId) {
+      setAnalysisBoxCollapsed("generator-contingency-box", false);
       document.getElementById("outage-generator").value = generatorId;
       document.querySelectorAll(".network-generator").forEach((el) => {
         el.classList.toggle("selected-generator", String(el.dataset.busId) === String(busId));
       });
-      document.getElementById("generator-contingency-result").textContent = `${generatorId} 선택됨. Slack mode를 선택하고 Analyze를 실행하세요.`;
+
+      if (updateGeneratorAnalyzeAvailability()) {
+        document.getElementById("generator-contingency-result").textContent = `${generatorId} 선택됨. Slack mode를 선택하고 Analyze를 실행하세요.`;
+      }
       hideMapTooltip(false);
     }
 
@@ -302,7 +365,10 @@
       const first = generators[0];
       const rows = generators.map((item) => {
         const target = item.target_p_mw == null ? "" : ` · Target ${item.target_p_mw.toFixed(2)} MW`;
-        return `<button type="button" class="generator-choice" data-generator-id="${escapeHtml(item.generator_id)}" data-bus-id="${busId}"><strong>${escapeHtml(item.generator_id)}</strong>${target}</button>`;
+        const disconnected = item.connected === false;
+        const status = disconnected ? `<span class="generator-status disconnected">Disconnected</span>` : "";
+        const rowClass = disconnected ? "generator-choice disconnected-generator" : "generator-choice";
+        return `<button type="button" class="${rowClass}" data-generator-id="${escapeHtml(item.generator_id)}" data-bus-id="${busId}"><strong>${escapeHtml(item.generator_id)}</strong>${target}${status}</button>`;
       }).join("");
 
       showMapTooltip(event, `
@@ -384,6 +450,7 @@
     }
 
     function applySecurityResult(result) {
+      setAnalysisBoxCollapsed("security-analysis-box", false);
       if (result.outage_line_id) document.getElementById("outage-line").value = result.outage_line_id;
       resetSecurityHighlight(); resetSensitivityMarkers(); resetGeneratorContingencyMarkers();
       highlightLine(result.outage_line_id, "outage-line");
@@ -436,6 +503,7 @@
     }
 
     function applySensitivityResult(result) {
+      setAnalysisBoxCollapsed("security-analysis-box", false);
       resetSensitivityMarkers();
       const element = document.getElementById("sensitivity-result");
       if (!result.candidates || result.candidates.length === 0) {
@@ -468,6 +536,8 @@
       const generatorId = document.getElementById("outage-generator").value.trim();
       const resultElement = document.getElementById("generator-contingency-result");
       if (!generatorId) { resultElement.textContent = "발전기 ID를 선택하거나 입력하세요."; return; }
+      if (!updateGeneratorAnalyzeAvailability()) return;
+
       const slackMode = document.querySelector('input[name="generator-slack-mode"]:checked').value;
       const button = document.getElementById("generator-analyze-button");
       button.disabled = true;
@@ -485,10 +555,13 @@
         applyGeneratorContingencyResult(result);
       } catch (error) {
         resultElement.textContent = `분석 실패: ${error.message}`;
-      } finally { button.disabled = false; }
+      } finally {
+        updateGeneratorAnalyzeAvailability();
+      }
     }
 
     function renderGeneratorContingencyResult(result) {
+      setAnalysisBoxCollapsed("generator-contingency-box", false);
       const element = document.getElementById("generator-contingency-result");
       const outage = result.outage_generator || {};
       const post = result.post_loadflow || {};
@@ -603,9 +676,21 @@
     document.getElementById("sensitivity-button").addEventListener("click", runSensitivityAnalysis);
     document.getElementById("generator-analyze-button").addEventListener("click", runGeneratorContingencyAnalysis);
     document.getElementById("outage-line").addEventListener("input", invalidateSecurityResult);
+    document.getElementById("outage-generator").addEventListener("input", () => {
+      const generatorId = document.getElementById("outage-generator").value.trim();
+      if (updateGeneratorAnalyzeAvailability() && generatorId) {
+        document.getElementById("generator-contingency-result").textContent = `${generatorId} 선택됨. Slack mode를 선택하고 Analyze를 실행하세요.`;
+      }
+    });
     document.getElementById("chat-send").addEventListener("click", sendChatMessage);
     document.getElementById("chat-message").addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendChatMessage(); } });
     for (const id of ["layer-lines", "layer-buses", "layer-generators", "layer-analysis"]) document.getElementById(id).addEventListener("change", applyLayerVisibility);
+    document.querySelectorAll(".analysis-box-header").forEach((header) => {
+      header.addEventListener("click", (event) => {
+        event.preventDefault();
+        toggleAnalysisBox(header.dataset.boxId);
+      });
+    });
     document.getElementById("map-tooltip-close").addEventListener("click", (event) => { event.stopPropagation(); hideMapTooltip(); });
     document.getElementById("map-tooltip").addEventListener("click", (event) => event.stopPropagation());
     document.addEventListener("click", (event) => {
