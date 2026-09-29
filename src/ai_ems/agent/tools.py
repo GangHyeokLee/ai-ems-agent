@@ -22,6 +22,9 @@ from ai_ems.tools.workflow_tools import analyze_contingency_response
 from ai_ems.tools.generator_contingency_tools import (
     analyze_generator_contingency,
 )
+from ai_ems.tools.generator_screening_tools import (
+    run_generator_contingency_screening,
+)
 
 
 def create_agent_tools(
@@ -234,6 +237,35 @@ def create_agent_tools(
         }
 
     @tool
+    def generator_contingency_screening(
+        slack_mode: Literal["single", "distributed"] = "single",
+        top_n: int = 5,
+    ) -> dict[str, Any]:
+        """Screen all connected generator N-1 contingencies.
+
+        Use this tool when the user asks to analyze all generator outages,
+        perform generator N-1 screening, find risky generator contingencies,
+        or rank the most severe generator outages.
+
+        slack_mode can be "single" or "distributed".
+
+        This tool runs AC Security Analysis for all currently connected
+        generators and returns an overall classification summary plus the
+        highest-priority contingencies.
+
+        This is screening/ranking, not corrective redispatch or dynamic
+        stability analysis.
+        """
+        if top_n < 1 or top_n > 20:
+            raise ValueError("top_n must be between 1 and 20.")
+
+        return run_generator_contingency_screening(
+            case_path=case_path,
+            slack_mode=slack_mode,
+            top_n=top_n,
+        )
+
+    @tool
     def generator_sensitivity(
         outage_line_id: str,
         monitored_line_id: str | None = None,
@@ -333,6 +365,7 @@ def create_agent_tools(
         line_contingency,
         generator_contingency_analysis,
         generator_contingency_comparison,
+        generator_contingency_screening,
         generator_sensitivity,
         balanced_redispatch_validation,
         contingency_response_analysis,
