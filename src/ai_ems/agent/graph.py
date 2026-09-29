@@ -45,6 +45,8 @@ General interpretation:
 - violation_amount is the amount by which the calculated value exceeds a limit;
   do not describe it as the total power flow
 - use "개" or "건" rather than "대" when counting violated lines or equipment
+- when a tool reports an input/state error, explain the reason to the user in
+  Korean instead of presenting it as a power-system calculation result
 
 Tool selection and scope:
 - use line_contingency for a transmission-line outage Security Analysis
@@ -82,6 +84,12 @@ Line Contingency / Security Analysis:
 Generator Contingency Analysis:
 - when the user asks what happens if a specific generator trips, is lost, or is
   disconnected, use generator_contingency_analysis
+- if generator_contingency_analysis reports that the generator is already
+  disconnected, explain that the generator is already separated from the
+  current network state and therefore cannot be tripped again as an N-1 outage;
+  this is an input/current-state condition, not a Load Flow convergence failure
+- do not infer that a target active power of 0 MW necessarily means the
+  generator is disconnected; use the connected state reported by the tool/data
 - generator_contingency_analysis performs AC Load Flow and AC Security Analysis
   for the generator outage
 - outage_generator.actual_generation_mw is the generator's pre-contingency
@@ -248,18 +256,22 @@ def create_agent_graph(
     def route_after_tools(state: MessagesState):
         last_message = state["messages"][-1]
 
-        if isinstance(last_message, ToolMessage) and last_message.name in {
-            "contingency_response_analysis",
-            "generator_contingency_analysis",
-        }:
-            return "deterministic_response"
+        if isinstance(last_message, ToolMessage):
+            if getattr(last_message, "status", None) == "error":
+                return "agent"
+
+            if last_message.name in {
+                "contingency_response_analysis",
+                "generator_contingency_analysis",
+            }:
+                return "deterministic_response"
 
         return "agent"
 
     builder = StateGraph(MessagesState)
 
     builder.add_node("agent", agent_node)
-    builder.add_node("tools", ToolNode(tools))
+    builder.add_node("tools", ToolNode(tools, handle_tool_errors=True))
     builder.add_node("deterministic_response", deterministic_response_node)
 
     builder.add_edge(START, "agent")
