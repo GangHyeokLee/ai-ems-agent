@@ -1,3 +1,10 @@
+import pytest
+from pydantic import ValidationError
+
+from ai_ems.api.schemas import (
+    GeneratorContingencyAnalysisRequest,
+)
+
 from ai_ems.api.adapters import (
     to_contingency_response,
     to_redispatch_validation_response,
@@ -486,3 +493,19 @@ def test_generator_contingency_response_adapter_handles_non_convergence():
     assert response.balance_based_loss_change_mw is None
     assert response.line_active_power_loss_change_mw is None
     assert response.generator_changes == []
+
+
+def test_generator_contingency_request_rejects_invalid_slack_mode():
+    with pytest.raises(ValidationError):
+        GeneratorContingencyAnalysisRequest(
+            generator_id="GEN-124#1",
+            slack_mode="wrong",
+        )
+
+
+def test_generator_contingency_request_rejects_invalid_top_n():
+    with pytest.raises(ValidationError):
+        GeneratorContingencyAnalysisRequest(
+            generator_id="GEN-124#1",
+            top_n_overloads=0,
+        )

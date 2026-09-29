@@ -372,7 +372,7 @@ def analyze_generator_contingency(
             parameters.balance_type.name if parameters.distributed_slack else None
         ),
         "balancing_interpretation": (
-            "Load-flow balancing assumption; " "not operator corrective redispatch."
+            "Load-flow balancing " "assumption; not operator corrective redispatch."
         ),
         "base_converged": True,
         "post_contingency_converged": post_loadflow["converged"],

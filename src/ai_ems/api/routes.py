@@ -5,6 +5,7 @@ from ai_ems.api.adapters import (
     to_security_response,
     to_sensitivity_response,
     to_redispatch_validation_response,
+    to_generator_contingency_response,
 )
 from ai_ems.api.schemas import (
     ContingencyResponseRequest,
@@ -15,6 +16,8 @@ from ai_ems.api.schemas import (
     SecurityAnalysisResponse,
     SensitivityAnalysisRequest,
     SensitivityAnalysisResponse,
+    GeneratorContingencyAnalysisRequest,
+    GeneratorContingencyAnalysisResponse,
 )
 
 from ai_ems.tools.control_tools import (
@@ -29,6 +32,10 @@ from ai_ems.tools.sensitivity_tools import (
 )
 
 from ai_ems.tools.workflow_tools import analyze_contingency_response
+
+from ai_ems.tools.generator_contingency_tools import (
+    analyze_generator_contingency,
+)
 
 
 def create_physics_router(
@@ -165,6 +172,38 @@ def create_physics_router(
             )
 
             return to_redispatch_validation_response(result)
+
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=str(exc),
+            ) from exc
+
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=str(exc),
+            ) from exc
+
+    @router.post(
+        "/generator-contingency-analysis",
+        response_model=GeneratorContingencyAnalysisResponse,
+    )
+    def generator_contingency_analysis(
+        request: GeneratorContingencyAnalysisRequest,
+    ):
+        try:
+            result = analyze_generator_contingency(
+                case_path=case_path,
+                generator_id=request.generator_id,
+                slack_mode=request.slack_mode,
+                balance_type=request.balance_type,
+                top_n_overloads=request.top_n_overloads,
+            )
+
+            return to_generator_contingency_response(
+                result
+            )
 
         except ValueError as exc:
             raise HTTPException(
