@@ -60,9 +60,7 @@ def generate_generator_outage_redispatch_candidates(
     if outage_generator_id not in generators.index:
         raise ValueError(f"Unknown outage generator: {outage_generator_id}")
     if not bool(generators.loc[outage_generator_id, "connected"]):
-        raise ValueError(
-            f"Generator is already disconnected: {outage_generator_id}"
-        )
+        raise ValueError(f"Generator is already disconnected: {outage_generator_id}")
     if monitored_line_id not in lines.index:
         raise ValueError(f"Unknown monitored line: {monitored_line_id}")
 
@@ -81,9 +79,7 @@ def generate_generator_outage_redispatch_candidates(
 
     monitored_branches = security_result.get("monitored_branches", [])
     if not monitored_branches:
-        raise RuntimeError(
-            f"No monitored result returned for {monitored_line_id}."
-        )
+        raise RuntimeError(f"No monitored result returned for {monitored_line_id}.")
 
     post_p1_mw = float(monitored_branches[0]["p1_mw"])
 
@@ -98,9 +94,7 @@ def generate_generator_outage_redispatch_candidates(
         parameters,
     )
     if not post_loadflow["converged"]:
-        raise RuntimeError(
-            "Post-generator-contingency AC Load Flow did not converge."
-        )
+        raise RuntimeError("Post-generator-contingency AC Load Flow did not converge.")
 
     post_generators = generator_snapshot(post_network)
 
@@ -149,6 +143,7 @@ def generate_generator_outage_redispatch_candidates(
             feasible_up.append(
                 {
                     "generator_id": generator_id,
+                    "bus_id": state.get("bus_id"),
                     "sensitivity": sensitivity,
                     "post_actual_before_mw": actual_mw,
                     "post_actual_screened_after_mw": up_actual_mw,
@@ -167,6 +162,7 @@ def generate_generator_outage_redispatch_candidates(
             feasible_down.append(
                 {
                     "generator_id": generator_id,
+                    "bus_id": state.get("bus_id"),
                     "sensitivity": sensitivity,
                     "post_actual_before_mw": actual_mw,
                     "post_actual_screened_after_mw": down_actual_mw,
@@ -182,13 +178,11 @@ def generate_generator_outage_redispatch_candidates(
             if up["generator_id"] == down["generator_id"]:
                 continue
 
-            predicted_change_mw = (
-                up["sensitivity"] - down["sensitivity"]
-            ) * float(delta_mw)
-            predicted_p1_mw = post_p1_mw + predicted_change_mw
-            predicted_abs_reduction_mw = (
-                abs(post_p1_mw) - abs(predicted_p1_mw)
+            predicted_change_mw = (up["sensitivity"] - down["sensitivity"]) * float(
+                delta_mw
             )
+            predicted_p1_mw = post_p1_mw + predicted_change_mw
+            predicted_abs_reduction_mw = abs(post_p1_mw) - abs(predicted_p1_mw)
 
             if predicted_abs_reduction_mw <= 0:
                 continue
@@ -197,6 +191,8 @@ def generate_generator_outage_redispatch_candidates(
                 {
                     "up_generator_id": up["generator_id"],
                     "down_generator_id": down["generator_id"],
+                    "up_bus_id": up.get("bus_id"),
+                    "down_bus_id": down.get("bus_id"),
                     "delta_mw": float(delta_mw),
                     "net_requested_change_mw": 0.0,
                     "up_sensitivity_mw_per_mw": up["sensitivity"],
@@ -205,14 +201,10 @@ def generate_generator_outage_redispatch_candidates(
                     "predicted_active_power_change_mw": predicted_change_mw,
                     "predicted_p1_mw": predicted_p1_mw,
                     "predicted_abs_p1_reduction_mw": predicted_abs_reduction_mw,
-                    "up_post_actual_before_mw": up[
-                        "post_actual_before_mw"
-                    ],
+                    "up_post_actual_before_mw": up["post_actual_before_mw"],
                     "up_target_before_mw": up["target_before_mw"],
                     "up_target_after_mw": up["target_after_mw"],
-                    "down_post_actual_before_mw": down[
-                        "post_actual_before_mw"
-                    ],
+                    "down_post_actual_before_mw": down["post_actual_before_mw"],
                     "down_target_before_mw": down["target_before_mw"],
                     "down_target_after_mw": down["target_after_mw"],
                 }
@@ -226,7 +218,10 @@ def generate_generator_outage_redispatch_candidates(
         )
     )
 
-    candidates = ranked_pairs[:top_n]
+    candidates = _select_diverse_candidates(
+        ranked_pairs,
+        top_n=top_n,
+    )
     for rank, candidate in enumerate(candidates, start=1):
         candidate["rank"] = rank
 
@@ -238,9 +233,7 @@ def generate_generator_outage_redispatch_candidates(
         "monitored_line_id": monitored_line_id,
         "slack_mode": slack_mode,
         "balance_type": (
-            parameters.balance_type.name
-            if parameters.distributed_slack
-            else None
+            parameters.balance_type.name if parameters.distributed_slack else None
         ),
         "delta_mw": float(delta_mw),
         "post_contingency_p1_mw": post_p1_mw,
@@ -295,9 +288,7 @@ def validate_generator_outage_balanced_redispatch(
             raise ValueError(f"{label} not found: {generator_id}")
 
     if not bool(generators.loc[outage_generator_id, "connected"]):
-        raise ValueError(
-            f"Generator is already disconnected: {outage_generator_id}"
-        )
+        raise ValueError(f"Generator is already disconnected: {outage_generator_id}")
     if not bool(generators.loc[up_generator_id, "connected"]):
         raise ValueError(f"Up generator is disconnected: {up_generator_id}")
     if not bool(generators.loc[down_generator_id, "connected"]):
@@ -320,9 +311,7 @@ def validate_generator_outage_balanced_redispatch(
 
     monitored_branches = security_result.get("monitored_branches", [])
     if not monitored_branches:
-        raise RuntimeError(
-            f"No monitored result returned for {monitored_line_id}."
-        )
+        raise RuntimeError(f"No monitored result returned for {monitored_line_id}.")
 
     before_mva = float(monitored_branches[0]["apparent_power_mva"])
     limit_mva = _find_apparent_power_limit(
@@ -338,9 +327,7 @@ def validate_generator_outage_balanced_redispatch(
 
     post_loadflow = loadflow_balance_snapshot(control_network, parameters)
     if not post_loadflow["converged"]:
-        raise RuntimeError(
-            "Post-generator-contingency AC Load Flow did not converge."
-        )
+        raise RuntimeError("Post-generator-contingency AC Load Flow did not converge.")
 
     before_generators = generator_snapshot(control_network)
     up_before = before_generators[up_generator_id]
@@ -400,9 +387,7 @@ def validate_generator_outage_balanced_redispatch(
         "monitored_line_id": monitored_line_id,
         "slack_mode": slack_mode,
         "balance_type": (
-            parameters.balance_type.name
-            if parameters.distributed_slack
-            else None
+            parameters.balance_type.name if parameters.distributed_slack else None
         ),
         "redispatch": {
             "up_generator_id": up_generator_id,
@@ -641,3 +626,45 @@ def _within_limits(
     if max_mw is not None and value_mw > max_mw:
         return False
     return True
+
+
+def _select_diverse_candidates(
+    ranked_pairs: list[dict[str, Any]],
+    top_n: int,
+) -> list[dict[str, Any]]:
+    selected: list[dict[str, Any]] = []
+    seen_effects: set[tuple[Any, ...]] = set()
+
+    for candidate in ranked_pairs:
+        up_bus_id = candidate.get("up_bus_id")
+        down_bus_id = candidate.get("down_bus_id")
+
+        if up_bus_id is not None and down_bus_id is not None:
+            effect_key = (
+                "bus_pair",
+                up_bus_id,
+                down_bus_id,
+            )
+        else:
+            effect_key = (
+                "sensitivity_pair",
+                round(
+                    candidate["up_sensitivity_mw_per_mw"],
+                    6,
+                ),
+                round(
+                    candidate["down_sensitivity_mw_per_mw"],
+                    6,
+                ),
+            )
+
+        if effect_key in seen_effects:
+            continue
+
+        seen_effects.add(effect_key)
+        selected.append(candidate)
+
+        if len(selected) >= top_n:
+            break
+
+    return selected
