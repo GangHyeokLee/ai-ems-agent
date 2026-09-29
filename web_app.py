@@ -14,7 +14,6 @@ from langchain_core.messages import (
 from pydantic import BaseModel
 
 from ai_ems import load_network
-from ai_ems.agent.formatters import format_generator_contingency_response
 from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph
 from ai_ems.agent.tools import create_agent_tools
 from ai_ems.tools.security_tools import (
@@ -244,10 +243,7 @@ def generator_contingency_analysis(request: GeneratorContingencyRequest):
             detail=f"Generator contingency analysis failed: {exc}",
         ) from exc
 
-    return {
-        "answer": format_generator_contingency_response(result),
-        "result": _generator_contingency_result_for_ui(result),
-    }
+    return _generator_contingency_result_for_ui(result)
 
 
 @app.post("/api/chat")
