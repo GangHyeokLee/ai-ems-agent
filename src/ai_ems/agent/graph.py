@@ -15,6 +15,7 @@ from ai_ems.agent.formatters import (
     format_generator_contingency_comparison,
     format_generator_contingency_response,
     format_generator_contingency_screening,
+    format_generator_outage_response,
 )
 from ai_ems.agent.tools import create_agent_tools
 from ai_ems.config import (
@@ -38,6 +39,10 @@ DETERMINISTIC_FORMATTERS = {
     "generator_contingency_screening": (
         "Generator Contingency Screening",
         format_generator_contingency_screening,
+    ),
+    "generator_outage_response_analysis": (
+        "Generator Outage Response Analysis",
+        format_generator_outage_response,
     ),
 }
 
@@ -79,6 +84,9 @@ Tool selection and scope:
 - use generator_contingency_screening when the user asks to analyze all
   generator N-1 contingencies, screen generator outages, find risky generator
   outages, or rank the most severe generator contingencies
+- use generator_outage_response_analysis when the user asks for corrective
+  action, response measures, redispatch candidates, mitigation, or operator
+  response after a specific generator outage
 - do not satisfy an all-generator screening request by repeatedly calling
   generator_contingency_analysis; use generator_contingency_screening
 - generator_contingency_screening is a batch Security Analysis workflow, not
@@ -86,14 +94,11 @@ Tool selection and scope:
 - do not satisfy an explicit single-vs-distributed comparison by running only
   one generator_contingency_analysis call
 - generator_sensitivity, balanced_redispatch_validation, and
-  contingency_response_analysis currently use outage_line_id and belong to the
+  contingency_response_analysis use outage_line_id and belong to the
   line-outage workflow
-- do NOT use line-outage sensitivity or redispatch tools as if they validated a
-  generator-outage corrective action
-- if the user asks for corrective-action analysis after a generator outage,
-  first report the generator-contingency result and clearly state that the
-  current corrective-action workflow is line-outage based unless a
-  generator-outage corrective-action tool is explicitly available
+- do NOT use line-outage sensitivity or redispatch tools as substitutes for
+  generator-outage corrective-action analysis; use
+  generator_outage_response_analysis instead
 
 Line Contingency / Security Analysis:
 - clearly state whether the calculation converged
@@ -118,7 +123,8 @@ Line Contingency / Security Analysis:
 Generator Contingency Analysis:
 - when the user asks what happens if a specific generator trips, is lost, or is
   disconnected, use generator_contingency_analysis unless the user explicitly
-  asks to compare both single and distributed slack
+  asks to compare both single and distributed slack or asks for corrective
+  action / response measures
 - generator_contingency_comparison runs the same generator outage twice using
   the physical analysis tool: once with single slack and once with distributed
   slack; use its returned results for comparison instead of recalling values
@@ -202,10 +208,42 @@ Generator N-1 Screening:
 - if the user asks to inspect a specific ranked screening result in a later turn,
   use the generator_id from the previous screening result and call the appropriate
   generator contingency tool for the requested detailed analysis
+- if the user asks for response measures or corrective action for that ranked
+  generator contingency, use generator_outage_response_analysis
+
+Generator Outage Corrective Action:
+- generator_outage_response_analysis is the preferred high-level corrective-
+  action workflow for a specific generator outage
+- it combines generator-outage Security Analysis, automatic severe-overload
+  selection, post-contingency Sensitivity Analysis, balanced Redispatch
+  candidate generation, AC Load Flow validation, and whole-network Security
+  revalidation
+- distributed slack is the default Load Flow balancing assumption for this
+  workflow; distributed slack itself is not operator redispatch
+- the Redispatch actions returned by the workflow are explicit corrective
+  actions applied separately from slack balancing
+- best_tested_candidate means the best among the candidates actually tested; it
+  is not an OPF/SCED optimum or a guaranteed corrective action
+- candidate rankings based on sensitivity are candidate-selection results, not
+  final physical validation; use the AC/Security revalidation result when
+  describing actual effectiveness
+- sensitivity prediction is monitored-branch ACTIVE-POWER FLOW change in MW;
+  AC validation may report APPARENT-POWER improvement in MVA. Do not compare MW
+  and MVA as if they were the same physical quantity
+- violation_remaining=True means the tested Redispatch did not fully clear the
+  monitored equipment-limit violation, even if the overload was reduced
+- only say that no new whole-network violations were introduced when
+  whole_network_validation explicitly reports new_violation_detected=False
+- do not present an untested Redispatch magnitude, load shedding, topology
+  change, sequential control, or other action as validated
+- this workflow performs static AC Load Flow / Security Analysis and does not
+  verify transient, frequency, rotor-angle, or other dynamic stability
 
 Sensitivity Analysis:
 - always translate "sensitivity" as "민감도"; never use "감수성"
-- the current generator_sensitivity tool belongs to the line-outage workflow
+- the generator_sensitivity tool belongs to the line-outage workflow; generator-
+  outage corrective-action sensitivity is handled internally by
+  generator_outage_response_analysis
 - generator sensitivity means the change in monitored-branch ACTIVE-POWER FLOW
   caused by a change in generator injection
 - describe branch active-power flow as "유효전력 조류" or
@@ -225,7 +263,7 @@ Sensitivity Analysis:
 - any proposed corrective action must be validated with AC Power Flow or
   Security Analysis
 
-Corrective Action / Redispatch Workflow:
+Line Corrective Action / Redispatch Workflow:
 - contingency_response_analysis is the preferred high-level workflow only when
   the user asks to analyze a LINE outage and review, recommend, or evaluate
   corrective-action / redispatch candidates
