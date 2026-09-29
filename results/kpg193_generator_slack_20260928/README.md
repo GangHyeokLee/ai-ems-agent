@@ -119,15 +119,15 @@ python scripts/run_kpg193_full_batch.py \
 
 ## 보관 파일
 
+`contingency_summary.csv`는 이미 결정론적 review ranking이 반영된 사고별 요약이므로 동일 내용을 복제하던 별도 `risk_ranking.csv`는 제거했다. 이번 두 실행은 Sensitivity 후처리를 비활성화했으므로 빈 `topn_sensitivity.csv`도 보관하지 않는다.
+
 | 파일 | 역할 | Single | Distributed |
 |---|---|---|---|
 | `run_manifest.json` | 입력 해시, 환경, 설정, 실행 당시 코드 상태 | [열기](single/run_manifest.json) | [열기](distributed/run_manifest.json) |
-| `contingency_summary.csv` | 사고별 수렴·위반 분류와 지표 | [열기](single/contingency_summary.csv) | [열기](distributed/contingency_summary.csv) |
+| `contingency_summary.csv` | 사고별 수렴·위반 분류, 지표 및 review ranking | [열기](single/contingency_summary.csv) | [열기](distributed/contingency_summary.csv) |
 | `violations.csv` | 설비별 제약 위반 상세 | [열기](single/violations.csv) | [열기](distributed/violations.csv) |
-| `risk_ranking.csv` | 사고 위험 순위 | [열기](single/risk_ranking.csv) | [열기](distributed/risk_ranking.csv) |
 | `summary.json` | 집계 및 상세 결과 | [열기](single/summary.json) | [열기](distributed/summary.json) |
 | `report.html` | 조회용 보고서 | [열기](single/report.html) | [열기](distributed/report.html) |
-| `topn_sensitivity.csv` | 이번 실행에서는 분석 미수행으로 빈 파일 | [열기](single/topn_sensitivity.csv) | [열기](distributed/topn_sensitivity.csv) |
 
 HTML 보고서는 파일을 내려받아 브라우저로 열어 확인할 수 있다.
 
@@ -142,7 +142,7 @@ HTML 보고서는 파일을 내려받아 브라우저로 열어 확인할 수 �
 - 관련 수정은 이후 커밋되어 `2b4ef34`로 병합되었다. 보관 결과를 머지 커밋에서 재실행한 결과로 표기하지 않는다. `c6c9587`만 체크아웃하면 실행 당시 수정 사항은 포함되지 않는다.
 - manifest의 절대 경로와 코드 상태는 원본 실행 기록으로 보존했다. 보관 폴더로 복사했다고 경로를 바꾸지 않았다.
 - 실행자가 공유한 검증 로그: `pytest` 36개 통과, `git diff --check` 지적 없음. README 작성 과정에서는 시뮬레이션이나 테스트를 재실행하지 않았다.
-- 저장소에 복사된 14개 파일은 앞서 제공된 결과 ZIP과 Git blob 해시가 모두 일치한다. CSV를 다시 집계하여 사고 수, 분류, 최대 부하율, 사고별 상태 전이를 확인했다.
+- 원본 결과의 물리 계산 값과 실행 이력은 유지하고, 동일 내용의 중복 CSV와 비활성 분석의 빈 CSV만 저장소 정리 과정에서 제거했다.
 
 ## 다음 실험
 
