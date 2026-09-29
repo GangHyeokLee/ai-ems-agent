@@ -14,6 +14,9 @@ from ai_ems.agent.formatters import (
     format_contingency_response,
     format_generator_contingency_response,
 )
+from ai_ems.agent.generator_comparison_formatter import (
+    format_generator_contingency_comparison,
+)
 from ai_ems.agent.tools import create_agent_tools
 from ai_ems.config import (
     LLM_BASE_URL,
@@ -50,7 +53,13 @@ General interpretation:
 
 Tool selection and scope:
 - use line_contingency for a transmission-line outage Security Analysis
-- use generator_contingency_analysis for a specific generator outage
+- use generator_contingency_analysis when the user asks for one specific slack
+  mode for a generator outage
+- use generator_contingency_comparison when the user asks for BOTH single and
+  distributed slack, asks to compare the two slack assumptions, or asks how the
+  same generator outage changes between single and distributed slack
+- do not satisfy an explicit single-vs-distributed comparison by running only
+  one generator_contingency_analysis call
 - generator_sensitivity, balanced_redispatch_validation, and
   contingency_response_analysis currently use outage_line_id and belong to the
   line-outage workflow
@@ -83,8 +92,13 @@ Line Contingency / Security Analysis:
 
 Generator Contingency Analysis:
 - when the user asks what happens if a specific generator trips, is lost, or is
-  disconnected, use generator_contingency_analysis
-- if generator_contingency_analysis reports that the generator is already
+  disconnected, use generator_contingency_analysis unless the user explicitly
+  asks to compare both single and distributed slack
+- generator_contingency_comparison runs the same generator outage twice using
+  the physical analysis tool: once with single slack and once with distributed
+  slack; use its returned results for comparison instead of recalling values
+  from earlier conversation
+- if a generator-contingency tool reports that the generator is already
   disconnected, explain that the generator is already separated from the
   current network state and therefore cannot be tripped again as an N-1 outage;
   this is an input/current-state condition, not a Load Flow convergence failure
@@ -245,6 +259,10 @@ def create_agent_graph(
             if result.get("analysis_type") != "Generator Contingency Analysis":
                 raise RuntimeError("Unexpected generator-contingency result payload.")
             response = format_generator_contingency_response(result)
+        elif tool_message.name == "generator_contingency_comparison":
+            if result.get("analysis_type") != "Generator Contingency Comparison":
+                raise RuntimeError("Unexpected generator-comparison result payload.")
+            response = format_generator_contingency_comparison(result)
         else:
             raise RuntimeError(
                 "Deterministic response received an unexpected tool result: "
@@ -263,6 +281,7 @@ def create_agent_graph(
             if last_message.name in {
                 "contingency_response_analysis",
                 "generator_contingency_analysis",
+                "generator_contingency_comparison",
             }:
                 return "deterministic_response"
 
