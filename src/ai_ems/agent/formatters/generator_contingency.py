@@ -1,5 +1,7 @@
 from typing import Any
 
+from .common import format_mw, format_signed_change
+
 
 def format_generator_contingency_response(result: dict[str, Any]) -> str:
     generator_id = result["generator_id"]
@@ -19,7 +21,7 @@ def format_generator_contingency_response(result: dict[str, Any]) -> str:
 
     outage_p = outage_generator.get("actual_generation_mw")
     if outage_p is not None:
-        lines.append(f"- 탈락 전 발전 출력: {outage_p:.2f} MW")
+        lines.append(f"- 탈락 전 발전 출력: {format_mw(outage_p)}")
 
     components = post_loadflow.get("components", [])
     reference_bus_id = components[0].get("reference_bus_id") if components else None
@@ -31,9 +33,9 @@ def format_generator_contingency_response(result: dict[str, Any]) -> str:
         if result.get("balance_type") is not None:
             lines.append(f"- 분산 기준: {result['balance_type']}")
         if distributed_mw is not None:
-            lines.append(f"- 분산 슬랙 보상량: {distributed_mw:.2f} MW")
+            lines.append(f"- 분산 슬랙 보상량: {format_mw(distributed_mw)}")
         if mismatch_mw is not None:
-            lines.append(f"- 잔여 유효전력 mismatch: {mismatch_mw:.2f} MW")
+            lines.append(f"- 잔여 유효전력 mismatch: {format_mw(mismatch_mw)}")
 
         changed_generators = [
             item
@@ -57,9 +59,9 @@ def format_generator_contingency_response(result: dict[str, Any]) -> str:
     else:
         lines.append("- Load Flow balancing 가정: 단일 슬랙")
         if distributed_mw is not None:
-            lines.append(f"- 분산 슬랙 보상량: {distributed_mw:.2f} MW")
+            lines.append(f"- 분산 슬랙 보상량: {format_mw(distributed_mw)}")
         if mismatch_mw is not None:
-            lines.append(f"- 사고 후 유효전력 mismatch: {mismatch_mw:.2f} MW")
+            lines.append(f"- 사고 후 유효전력 mismatch: {format_mw(mismatch_mw)}")
         if reference_bus_id is not None:
             lines.append(f"- reference/slack bus: {reference_bus_id}")
         if mismatch_mw is not None:
@@ -107,17 +109,13 @@ def format_generator_contingency_response(result: dict[str, Any]) -> str:
     else:
         lines.append("- 주요 사고 후 선로 과부하는 확인되지 않았습니다.")
 
-    loss_change = result.get("loss_change", {})
-    line_loss_change = loss_change.get("line_active_power_loss_change_mw")
+    line_loss_change = result.get("loss_change", {}).get(
+        "line_active_power_loss_change_mw"
+    )
     if line_loss_change is not None:
-        if line_loss_change >= 0:
-            lines.append(
-                f"- 선로 유효전력 손실 변화: 약 {line_loss_change:.2f} MW 증가"
-            )
-        else:
-            lines.append(
-                f"- 선로 유효전력 손실 변화: 약 {abs(line_loss_change):.2f} MW 감소"
-            )
+        lines.append(
+            f"- 선로 유효전력 손실 변화: {format_signed_change(line_loss_change)}"
+        )
 
     lines.extend(
         [
