@@ -26,6 +26,25 @@ from ai_ems.config import (
     MODEL_NAME,
 )
 
+DETERMINISTIC_FORMATTERS = {
+    "contingency_response_analysis": (
+        "Contingency Response Analysis",
+        format_contingency_response,
+    ),
+    "generator_contingency_analysis": (
+        "Generator Contingency Analysis",
+        format_generator_contingency_response,
+    ),
+    "generator_contingency_comparison": (
+        "Generator Contingency Comparison",
+        format_generator_contingency_comparison,
+    ),
+    "generator_contingency_screening": (
+        "Generator Contingency Screening",
+        format_generator_contingency_screening,
+    ),
+}
+
 SYSTEM_PROMPT = """
 You are an AI assistant for power-system analysis.
 
@@ -277,30 +296,23 @@ def create_agent_graph(
             raise RuntimeError("Expected JSON string content from workflow tool.")
 
         result = json.loads(tool_message.content)
+        formatter_config = DETERMINISTIC_FORMATTERS.get(tool_message.name)
 
-        if tool_message.name == "contingency_response_analysis":
-            if result.get("analysis_type") != "Contingency Response Analysis":
-                raise RuntimeError("Unexpected contingency-response result payload.")
-            response = format_contingency_response(result)
-        elif tool_message.name == "generator_contingency_analysis":
-            if result.get("analysis_type") != "Generator Contingency Analysis":
-                raise RuntimeError("Unexpected generator-contingency result payload.")
-            response = format_generator_contingency_response(result)
-        elif tool_message.name == "generator_contingency_comparison":
-            if result.get("analysis_type") != "Generator Contingency Comparison":
-                raise RuntimeError("Unexpected generator-comparison result payload.")
-            response = format_generator_contingency_comparison(result)
-        elif tool_message.name == "generator_contingency_screening":
-            if result.get("analysis_type") != "Generator Contingency Screening":
-                raise RuntimeError("Unexpected generator-screening result payload.")
-            response = format_generator_contingency_screening(result)
-        else:
+        if formatter_config is None:
             raise RuntimeError(
                 "Deterministic response received an unexpected tool result: "
                 f"{tool_message.name}"
             )
 
-        return {"messages": [AIMessage(content=response)]}
+        expected_analysis_type, formatter = formatter_config
+        if result.get("analysis_type") != expected_analysis_type:
+            raise RuntimeError(
+                "Unexpected analysis_type for deterministic response: "
+                f"expected {expected_analysis_type!r}, "
+                f"got {result.get('analysis_type')!r}."
+            )
+
+        return {"messages": [AIMessage(content=formatter(result))]}
 
     def route_after_tools(state: MessagesState):
         last_message = state["messages"][-1]
@@ -309,12 +321,7 @@ def create_agent_graph(
             if getattr(last_message, "status", None) == "error":
                 return "agent"
 
-            if last_message.name in {
-                "contingency_response_analysis",
-                "generator_contingency_analysis",
-                "generator_contingency_comparison",
-                "generator_contingency_screening",
-            }:
+            if last_message.name in DETERMINISTIC_FORMATTERS:
                 return "deterministic_response"
 
         return "agent"
