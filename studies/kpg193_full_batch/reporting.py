@@ -24,7 +24,6 @@ def write_study_outputs(
         "manifest": output_dir / "run_manifest.json",
         "summary": output_dir / "contingency_summary.csv",
         "violations": output_dir / "violations.csv",
-        "sensitivity": output_dir / "topn_sensitivity.csv",
         "result_json": output_dir / "summary.json",
         "report": output_dir / "report.html",
     }
@@ -33,7 +32,10 @@ def write_study_outputs(
     _write_json(paths["result_json"], result)
     summary.to_csv(paths["summary"], index=False, encoding="utf-8-sig")
     violations.to_csv(paths["violations"], index=False, encoding="utf-8-sig")
-    sensitivity.to_csv(paths["sensitivity"], index=False, encoding="utf-8-sig")
+
+    if not sensitivity.empty:
+        paths["sensitivity"] = output_dir / "topn_sensitivity.csv"
+        sensitivity.to_csv(paths["sensitivity"], index=False, encoding="utf-8-sig")
 
     comparison = pd.DataFrame()
     mapping = pd.DataFrame()
