@@ -51,14 +51,15 @@ uses only `additional_disconnected_element_ids` after excluding that element.
 8. contingency ID
 
 This is a review priority, not an AI score and not a failure probability.
+`contingency_summary.csv` already stores the deterministically ranked summary,
+so a separate duplicate ranking CSV is not generated.
 
 ## Outputs
 
 - `run_manifest.json`
 - `contingency_summary.csv`
 - `violations.csv`
-- `risk_ranking.csv`
-- `topn_sensitivity.csv`
+- `topn_sensitivity.csv` only when sensitivity results exist
 - `summary.json`
 - `report.html`
 - `legacy_comparison.csv` when `--legacy-csv` is supplied
