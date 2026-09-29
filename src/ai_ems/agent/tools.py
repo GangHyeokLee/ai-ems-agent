@@ -28,6 +28,68 @@ def create_agent_tools(
     network,
     case_path: str | Path = CASE_FILE,
 ):
+    def build_generator_contingency_payload(
+        generator_id: str,
+        slack_mode: Literal["single", "distributed"],
+        balance_type: str | None = None,
+        top_n_overloads: int = 5,
+    ) -> dict[str, Any]:
+        result = analyze_generator_contingency(
+            case_path=case_path,
+            generator_id=generator_id,
+            slack_mode=slack_mode,
+            balance_type=balance_type,
+            top_n_overloads=top_n_overloads,
+        )
+
+        generator_changes = sorted(
+            result.get("generator_changes", []),
+            key=lambda item: abs(item.get("delta_generation_mw") or 0.0),
+            reverse=True,
+        )
+
+        security = result["security_analysis"]
+
+        return {
+            "analysis_type": "Generator Contingency Analysis",
+            "generator_id": result["generator_id"],
+            "contingency_id": result["contingency_id"],
+            "slack_mode": result["slack_mode"],
+            "balance_type": result.get("balance_type"),
+            "balancing_interpretation": result["balancing_interpretation"],
+            "outage_generator": result["outage_generator"],
+            "base_converged": result["base_converged"],
+            "post_contingency_converged": result["post_contingency_converged"],
+            "base_loadflow": result["base"]["loadflow"],
+            "post_loadflow": result["post_contingency"]["loadflow"],
+            "base_power_balance": result["base"]["power_balance"],
+            "post_power_balance": result["post_contingency"].get("power_balance"),
+            "loss_change": result["loss_change"],
+            "generator_change_count": len(generator_changes),
+            "top_generator_changes": generator_changes[:5],
+            "major_overloads": result.get("major_overloads", []),
+            "security": {
+                "pre_status": security.get("pre_status"),
+                "post_status": security.get("post_status"),
+                "pre_violated_equipment_count": security.get(
+                    "pre_violated_equipment_count",
+                    0,
+                ),
+                "post_violated_equipment_count": security.get(
+                    "violated_equipment_count",
+                    0,
+                ),
+                "pre_violations": security.get(
+                    "pre_violated_equipment",
+                    [],
+                ),
+                "post_violations": security.get(
+                    "violated_equipment",
+                    [],
+                ),
+            },
+        }
+
     @tool
     def network_summary() -> dict[str, Any]:
         """Get a summary of the current power network."""
@@ -122,8 +184,9 @@ def create_agent_tools(
     ) -> dict[str, Any]:
         """Analyze one generator outage with AC Load Flow and Security Analysis.
 
-        Use this tool when the user asks what happens if a specific generator
-        trips or is disconnected.
+        Use this tool when the user asks for one specific slack mode for a
+        generator outage. If the user asks to compare both single and
+        distributed slack, use generator_contingency_comparison instead.
 
         slack_mode can be "single" or "distributed".
         Distributed slack is a load-flow balancing assumption, not operator
@@ -132,63 +195,42 @@ def create_agent_tools(
         balance_type should normally be omitted. It is only applicable when
         slack_mode is "distributed".
         """
-        result = analyze_generator_contingency(
-            case_path=case_path,
+        return build_generator_contingency_payload(
             generator_id=generator_id,
             slack_mode=slack_mode,
             balance_type=balance_type,
             top_n_overloads=top_n_overloads,
         )
 
-        generator_changes = sorted(
-            result.get("generator_changes", []),
-            key=lambda item: abs(item.get("delta_generation_mw") or 0.0),
-            reverse=True,
+    @tool
+    def generator_contingency_comparison(
+        generator_id: str,
+        top_n_overloads: int = 5,
+    ) -> dict[str, Any]:
+        """Compare single-slack and distributed-slack results for one generator outage.
+
+        Use this tool when the user explicitly asks for both slack modes, a
+        single-vs-distributed comparison, or asks how the slack assumption
+        changes the same generator-outage result. The tool runs the physical
+        generator-contingency analysis twice: once with single slack and once
+        with distributed slack.
+        """
+        single = build_generator_contingency_payload(
+            generator_id=generator_id,
+            slack_mode="single",
+            top_n_overloads=top_n_overloads,
+        )
+        distributed = build_generator_contingency_payload(
+            generator_id=generator_id,
+            slack_mode="distributed",
+            top_n_overloads=top_n_overloads,
         )
 
-        security = result["security_analysis"]
-
         return {
-            "analysis_type": "Generator Contingency Analysis",
-            "generator_id": result["generator_id"],
-            "contingency_id": result["contingency_id"],
-            "slack_mode": result["slack_mode"],
-            "balance_type": result.get("balance_type"),
-            "balancing_interpretation": result["balancing_interpretation"],
-            "outage_generator": result["outage_generator"],
-            "base_converged": result["base_converged"],
-            "post_contingency_converged": result["post_contingency_converged"],
-            "base_loadflow": result["base"]["loadflow"],
-            "post_loadflow": result["post_contingency"]["loadflow"],
-            "base_power_balance": result["base"]["power_balance"],
-            "post_power_balance": result["post_contingency"].get("power_balance"),
-            "loss_change": result["loss_change"],
-            "generator_change_count": len(generator_changes),
-            "top_generator_changes": generator_changes[:5],
-            "major_overloads": result.get(
-                "major_overloads",
-                [],
-            ),
-            "security": {
-                "pre_status": security.get("pre_status"),
-                "post_status": security.get("post_status"),
-                "pre_violated_equipment_count": security.get(
-                    "pre_violated_equipment_count",
-                    0,
-                ),
-                "post_violated_equipment_count": security.get(
-                    "violated_equipment_count",
-                    0,
-                ),
-                "pre_violations": security.get(
-                    "pre_violated_equipment",
-                    [],
-                ),
-                "post_violations": security.get(
-                    "violated_equipment",
-                    [],
-                ),
-            },
+            "analysis_type": "Generator Contingency Comparison",
+            "generator_id": generator_id,
+            "single": single,
+            "distributed": distributed,
         }
 
     @tool
@@ -290,6 +332,7 @@ def create_agent_tools(
         generator_list,
         line_contingency,
         generator_contingency_analysis,
+        generator_contingency_comparison,
         generator_sensitivity,
         balanced_redispatch_validation,
         contingency_response_analysis,
