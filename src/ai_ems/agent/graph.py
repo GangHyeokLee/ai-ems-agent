@@ -10,7 +10,10 @@ from langgraph.graph import (
 )
 from langgraph.prebuilt import ToolNode, tools_condition
 
-from ai_ems.agent.formatters import format_contingency_response
+from ai_ems.agent.formatters import (
+    format_contingency_response,
+    format_generator_contingency_response,
+)
 from ai_ems.agent.tools import create_agent_tools
 from ai_ems.config import (
     LLM_BASE_URL,
@@ -221,28 +224,34 @@ def create_agent_graph(
 
         if not isinstance(tool_message, ToolMessage):
             raise RuntimeError("Expected ToolMessage before deterministic response.")
-        if tool_message.name != "contingency_response_analysis":
-            raise RuntimeError(
-                "Deterministic response received an unexpected tool result: "
-                f"{tool_message.name}"
-            )
         if not isinstance(tool_message.content, str):
             raise RuntimeError("Expected JSON string content from workflow tool.")
 
         result = json.loads(tool_message.content)
-        if result.get("analysis_type") != "Contingency Response Analysis":
-            raise RuntimeError("Unexpected contingency-response result payload.")
 
-        response = format_contingency_response(result)
+        if tool_message.name == "contingency_response_analysis":
+            if result.get("analysis_type") != "Contingency Response Analysis":
+                raise RuntimeError("Unexpected contingency-response result payload.")
+            response = format_contingency_response(result)
+        elif tool_message.name == "generator_contingency_analysis":
+            if result.get("analysis_type") != "Generator Contingency Analysis":
+                raise RuntimeError("Unexpected generator-contingency result payload.")
+            response = format_generator_contingency_response(result)
+        else:
+            raise RuntimeError(
+                "Deterministic response received an unexpected tool result: "
+                f"{tool_message.name}"
+            )
+
         return {"messages": [AIMessage(content=response)]}
 
     def route_after_tools(state: MessagesState):
         last_message = state["messages"][-1]
 
-        if (
-            isinstance(last_message, ToolMessage)
-            and last_message.name == "contingency_response_analysis"
-        ):
+        if isinstance(last_message, ToolMessage) and last_message.name in {
+            "contingency_response_analysis",
+            "generator_contingency_analysis",
+        }:
             return "deterministic_response"
 
         return "agent"
