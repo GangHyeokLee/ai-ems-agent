@@ -67,6 +67,41 @@
       height: 100%;
     }
 
+    .map-layer-control {
+      position: absolute;
+      z-index: 15;
+      top: 12px;
+      right: 12px;
+      min-width: 132px;
+      padding: 10px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.94);
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
+      color: #334155;
+      font-size: 12px;
+    }
+
+    .map-layer-control strong {
+      display: block;
+      margin-bottom: 7px;
+      color: #0f172a;
+      font-size: 12px;
+    }
+
+    .map-layer-option {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 5px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .map-layer-option input {
+      margin: 0;
+    }
+
     .network-line {
       stroke: #94a3b8;
       stroke-width: 1;
@@ -118,12 +153,72 @@
       fill: #0f172a;
     }
 
+    .network-generator {
+      cursor: pointer;
+    }
+
+    .network-generator path {
+      fill: #16a34a;
+      stroke: white;
+      stroke-width: 1.4;
+    }
+
+    .network-generator text {
+      fill: white;
+      font-size: 8px;
+      font-weight: 700;
+      text-anchor: middle;
+      dominant-baseline: central;
+      pointer-events: none;
+    }
+
+    .analysis-marker {
+      cursor: pointer;
+    }
+
+    .generator-outage-marker path {
+      fill: #dc2626;
+      stroke: white;
+      stroke-width: 2;
+    }
+
+    .generator-outage-marker text,
+    .generator-change-marker text {
+      fill: white;
+      font-size: 8px;
+      font-weight: 700;
+      text-anchor: middle;
+      dominant-baseline: central;
+      pointer-events: none;
+    }
+
+    .generator-change-marker circle {
+      fill: #7c3aed;
+      stroke: white;
+      stroke-width: 2;
+    }
+
+    .layer-hidden {
+      display: none !important;
+    }
+
+    #map.analysis-hidden .analysis-marker {
+      display: none !important;
+    }
+
+    #map.analysis-hidden .network-line.outage-line,
+    #map.analysis-hidden .network-line.violation-line {
+      stroke: #94a3b8;
+      stroke-width: 1;
+      opacity: 0.65;
+    }
+
     .map-tooltip {
       position: absolute;
       z-index: 20;
       display: none;
       min-width: 220px;
-      max-width: 320px;
+      max-width: 340px;
       padding: 12px 14px;
       border: 1px solid #cbd5e1;
       border-radius: 8px;
@@ -309,6 +404,27 @@
       <div class="panel-title">KPG-193 Network</div>
       <div id="map">
         <svg id="network-map" viewBox="0 0 700 900" preserveAspectRatio="xMidYMid meet"></svg>
+
+        <div class="map-layer-control">
+          <strong>지도 표시</strong>
+          <label class="map-layer-option">
+            <input id="layer-lines" type="checkbox" checked />
+            <span>선로</span>
+          </label>
+          <label class="map-layer-option">
+            <input id="layer-buses" type="checkbox" checked />
+            <span>버스</span>
+          </label>
+          <label class="map-layer-option">
+            <input id="layer-generators" type="checkbox" />
+            <span>발전기</span>
+          </label>
+          <label class="map-layer-option">
+            <input id="layer-analysis" type="checkbox" checked />
+            <span>분석 결과</span>
+          </label>
+        </div>
+
         <div id="map-tooltip" class="map-tooltip">
           <button id="map-tooltip-close" class="map-tooltip-close">×</button>
           <div id="map-tooltip-content"></div>
@@ -360,6 +476,7 @@
       const response = await fetch("/api/network-map");
       const data = await response.json();
       drawNetwork(data);
+      applyLayerVisibility();
     }
 
     function drawNetwork(data) {
@@ -397,7 +514,7 @@
         element.setAttribute("y1", p1.y);
         element.setAttribute("x2", p2.x);
         element.setAttribute("y2", p2.y);
-        element.setAttribute("class", "network-line");
+        element.setAttribute("class", "network-line layer-line");
         element.dataset.lineId = line.line_id;
         svg.appendChild(element);
 
@@ -406,7 +523,7 @@
         hitElement.setAttribute("y1", p1.y);
         hitElement.setAttribute("x2", p2.x);
         hitElement.setAttribute("y2", p2.y);
-        hitElement.setAttribute("class", "network-line-hit");
+        hitElement.setAttribute("class", "network-line-hit layer-line");
         hitElement.dataset.lineId = line.line_id;
         hitElement.addEventListener("mouseenter", () => element.classList.add("hover-line"));
         hitElement.addEventListener("mouseleave", () => element.classList.remove("hover-line"));
@@ -427,7 +544,7 @@
         element.setAttribute("cx", point.x);
         element.setAttribute("cy", point.y);
         element.setAttribute("r", 3);
-        element.setAttribute("class", "network-bus");
+        element.setAttribute("class", "network-bus layer-bus");
         element.dataset.busId = bus.bus_id;
         element.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -437,6 +554,70 @@
         });
         svg.appendChild(element);
       }
+
+      renderGeneratorLayer(data.generators || []);
+    }
+
+    function renderGeneratorLayer(generators) {
+      if (!mapProjection) return;
+      const svg = document.getElementById("network-map");
+      const groups = groupByBus(generators);
+
+      for (const [busId, items] of groups.entries()) {
+        const first = items[0];
+        if (first.latitude == null || first.longitude == null) continue;
+        const point = mapProjection(first);
+        const group = document.createElementNS(SVG_NS, "g");
+        group.setAttribute("class", "network-generator layer-generator");
+        group.dataset.busId = busId;
+
+        const path = document.createElementNS(SVG_NS, "path");
+        path.setAttribute(
+          "d",
+          `M ${point.x} ${point.y - 8} L ${point.x - 7} ${point.y + 6} L ${point.x + 7} ${point.y + 6} Z`
+        );
+
+        const text = document.createElementNS(SVG_NS, "text");
+        text.setAttribute("x", point.x);
+        text.setAttribute("y", point.y + 1);
+        text.textContent = items.length;
+
+        group.appendChild(path);
+        group.appendChild(text);
+        group.addEventListener("click", (event) => {
+          event.stopPropagation();
+          showGeneratorTooltip(event, busId, items);
+        });
+        svg.appendChild(group);
+      }
+    }
+
+    function groupByBus(items) {
+      const groups = new Map();
+      for (const item of items) {
+        if (item.bus_id == null) continue;
+        if (!groups.has(item.bus_id)) groups.set(item.bus_id, []);
+        groups.get(item.bus_id).push(item);
+      }
+      return groups;
+    }
+
+    function applyLayerVisibility() {
+      const linesVisible = document.getElementById("layer-lines").checked;
+      const busesVisible = document.getElementById("layer-buses").checked;
+      const generatorsVisible = document.getElementById("layer-generators").checked;
+      const analysisVisible = document.getElementById("layer-analysis").checked;
+
+      setLayerHidden(".layer-line", !linesVisible);
+      setLayerHidden(".layer-bus", !busesVisible);
+      setLayerHidden(".layer-generator", !generatorsVisible);
+      document.getElementById("map").classList.toggle("analysis-hidden", !analysisVisible);
+    }
+
+    function setLayerHidden(selector, hidden) {
+      document.querySelectorAll(selector).forEach((element) => {
+        element.classList.toggle("layer-hidden", hidden);
+      });
     }
 
     function clearMapSelection() {
@@ -463,6 +644,22 @@
         `);
     }
 
+    function showGeneratorTooltip(event, busId, generators) {
+      const first = generators[0];
+      const rows = generators.map((item) => `
+          <div class="map-tooltip-row">
+            <strong>${item.generator_id}</strong>
+            ${item.target_p_mw == null ? "" : ` · Target ${item.target_p_mw.toFixed(2)} MW`}
+          </div>
+        `).join("");
+
+      showMapTooltip(event, `
+          <div class="map-tooltip-title">Bus ${busId} · ${first.name_korean ?? "-"}</div>
+          <div class="map-tooltip-row"><strong>발전기</strong>: ${generators.length}개</div>
+          ${rows}
+        `);
+    }
+
     function showSensitivityTooltip(event, busId, generators) {
       const first = generators[0];
       const rows = generators.map((item) => `
@@ -472,6 +669,19 @@
       showMapTooltip(event, `
           <div class="map-tooltip-title">Bus ${busId} · ${first.name_korean}</div>
           <div class="map-tooltip-row"><strong>민감도 후보</strong>: ${generators.length}개</div>
+          ${rows}
+        `);
+    }
+
+    function showGeneratorContingencyTooltip(event, title, items) {
+      const rows = items.map((item) => {
+        const delta = item.delta_generation_mw;
+        const deltaText = delta == null ? "" : ` · ΔP ${delta >= 0 ? "+" : ""}${delta.toFixed(2)} MW`;
+        return `<div class="map-tooltip-row"><strong>${item.generator_id}</strong>${deltaText}</div>`;
+      }).join("");
+
+      showMapTooltip(event, `
+          <div class="map-tooltip-title">${title}</div>
           ${rows}
         `);
     }
@@ -520,6 +730,7 @@
       document.getElementById("sensitivity-button").disabled = true;
       resetSecurityHighlight();
       resetSensitivityMarkers();
+      resetGeneratorContingencyMarkers();
       hideMapTooltip();
       document.getElementById("sensitivity-result").textContent = "Security Analysis 후 민감도를 분석할 수 있습니다.";
 
@@ -539,6 +750,7 @@
       }
       resetSecurityHighlight();
       resetSensitivityMarkers();
+      resetGeneratorContingencyMarkers();
       highlightLine(result.outage_line_id, "outage-line");
       for (const violation of result.violations || []) {
         highlightLine(violation.equipment_id, "violation-line");
@@ -547,22 +759,16 @@
       renderSecurityResult(result);
       latestSecurityResult = result;
 
-      const sensitivityButton =
-        document.getElementById("sensitivity-button");
-      const sensitivityResult =
-        document.getElementById("sensitivity-result");
-
-      const assessmentAvailable =
-        result.violation_assessment_available === true;
+      const sensitivityButton = document.getElementById("sensitivity-button");
+      const sensitivityResult = document.getElementById("sensitivity-result");
+      const assessmentAvailable = result.violation_assessment_available === true;
 
       sensitivityButton.disabled = !assessmentAvailable;
 
       if (assessmentAvailable) {
-        sensitivityResult.textContent =
-          "Security Analysis 후 민감도를 분석할 수 있습니다.";
+        sensitivityResult.textContent = "Security Analysis 후 민감도를 분석할 수 있습니다.";
       } else {
-        sensitivityResult.textContent =
-          "상정사고 분석이 수렴하지 않아 민감도 분석을 수행할 수 없습니다.";
+        sensitivityResult.textContent = "상정사고 분석이 수렴하지 않아 민감도 분석을 수행할 수 없습니다.";
       }
     }
 
@@ -604,6 +810,10 @@
 
     function resetSensitivityMarkers() {
       document.querySelectorAll(".sensitivity-marker").forEach((marker) => marker.remove());
+    }
+
+    function resetGeneratorContingencyMarkers() {
+      document.querySelectorAll(".generator-contingency-marker").forEach((marker) => marker.remove());
     }
 
     function invalidateSecurityResult() {
@@ -679,19 +889,14 @@
     function renderSensitivityMarkers(candidates) {
       if (!mapProjection) return;
       const svg = document.getElementById("network-map");
-      const groups = new Map();
-
-      for (const candidate of candidates) {
-        if (candidate.latitude == null || candidate.longitude == null) continue;
-        if (!groups.has(candidate.bus_id)) groups.set(candidate.bus_id, []);
-        groups.get(candidate.bus_id).push(candidate);
-      }
+      const groups = groupByBus(candidates);
 
       for (const [busId, generators] of groups.entries()) {
         const first = generators[0];
-        const point = mapProjection({ latitude: first.latitude, longitude: first.longitude });
+        if (first.latitude == null || first.longitude == null) continue;
+        const point = mapProjection(first);
         const group = document.createElementNS(SVG_NS, "g");
-        group.setAttribute("class", "sensitivity-marker");
+        group.setAttribute("class", "sensitivity-marker analysis-marker");
         const circle = document.createElementNS(SVG_NS, "circle");
         circle.setAttribute("cx", point.x);
         circle.setAttribute("cy", point.y);
@@ -705,6 +910,76 @@
         group.addEventListener("click", (event) => {
           event.stopPropagation();
           showSensitivityTooltip(event, busId, generators);
+        });
+        svg.appendChild(group);
+      }
+    }
+
+    function applyGeneratorContingencyResult(result) {
+      resetSecurityHighlight();
+      resetSensitivityMarkers();
+      resetGeneratorContingencyMarkers();
+
+      for (const overload of result.major_overloads || []) {
+        highlightLine(overload.equipment_id, "violation-line");
+      }
+
+      renderGeneratorContingencyMarkers(result);
+    }
+
+    function renderGeneratorContingencyMarkers(result) {
+      if (!mapProjection) return;
+      const svg = document.getElementById("network-map");
+      const outage = result.outage_generator;
+
+      if (outage && outage.latitude != null && outage.longitude != null) {
+        const point = mapProjection(outage);
+        const group = document.createElementNS(SVG_NS, "g");
+        group.setAttribute("class", "generator-contingency-marker generator-outage-marker analysis-marker");
+
+        const path = document.createElementNS(SVG_NS, "path");
+        path.setAttribute(
+          "d",
+          `M ${point.x} ${point.y - 11} L ${point.x - 11} ${point.y} L ${point.x} ${point.y + 11} L ${point.x + 11} ${point.y} Z`
+        );
+        const text = document.createElementNS(SVG_NS, "text");
+        text.setAttribute("x", point.x);
+        text.setAttribute("y", point.y);
+        text.textContent = "OUT";
+        group.appendChild(path);
+        group.appendChild(text);
+        group.addEventListener("click", (event) => {
+          event.stopPropagation();
+          showGeneratorContingencyTooltip(event, `사고 발전기 · Bus ${outage.bus_id}`, [outage]);
+        });
+        svg.appendChild(group);
+      }
+
+      const changed = (result.top_generator_changes || []).filter(
+        (item) => Math.abs(item.delta_generation_mw || 0) > 1e-6
+      );
+      const groups = groupByBus(changed);
+
+      for (const [busId, generators] of groups.entries()) {
+        const first = generators[0];
+        if (first.latitude == null || first.longitude == null) continue;
+        const point = mapProjection(first);
+        const group = document.createElementNS(SVG_NS, "g");
+        group.setAttribute("class", "generator-contingency-marker generator-change-marker analysis-marker");
+
+        const circle = document.createElementNS(SVG_NS, "circle");
+        circle.setAttribute("cx", point.x);
+        circle.setAttribute("cy", point.y);
+        circle.setAttribute("r", 10);
+        const text = document.createElementNS(SVG_NS, "text");
+        text.setAttribute("x", point.x);
+        text.setAttribute("y", point.y);
+        text.textContent = generators.length;
+        group.appendChild(circle);
+        group.appendChild(text);
+        group.addEventListener("click", (event) => {
+          event.stopPropagation();
+          showGeneratorContingencyTooltip(event, `Balancing 변화 · Bus ${busId}`, generators);
         });
         svg.appendChild(group);
       }
@@ -749,6 +1024,8 @@
             applySecurityResult(update.result);
           } else if (update.type === "sensitivity") {
             applySensitivityResult(update.result);
+          } else if (update.type === "generator_contingency") {
+            applyGeneratorContingencyResult(update.result);
           }
         }
       } catch (error) {
@@ -771,6 +1048,11 @@
         sendChatMessage();
       }
     });
+
+    for (const id of ["layer-lines", "layer-buses", "layer-generators", "layer-analysis"]) {
+      document.getElementById(id).addEventListener("change", applyLayerVisibility);
+    }
+
     document.getElementById("map-tooltip-close").addEventListener("click", (event) => {
       event.stopPropagation();
       hideMapTooltip();
