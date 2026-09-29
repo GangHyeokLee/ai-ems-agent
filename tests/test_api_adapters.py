@@ -3,6 +3,7 @@ from ai_ems.api.adapters import (
     to_redispatch_validation_response,
     to_security_response,
     to_sensitivity_response,
+    to_generator_contingency_response,
 )
 
 
@@ -299,3 +300,120 @@ def test_redispatch_validation_response_adapter() -> None:
     assert response.whole_network_converged is True
     assert response.new_violation_detected is False
     assert response.remaining_violation_ids == ["LINE-176-190"]
+
+
+def test_generator_contingency_response_adapter():
+    domain_result = {
+        "generator_id": "GEN-124#1",
+        "contingency_id": "GEN_OUT_GEN-124#1",
+        "slack_mode": "distributed",
+        "balance_type": "PROPORTIONAL_TO_GENERATION_P_MAX",
+        "balancing_interpretation": (
+            "Load-flow balancing assumption; " "not operator corrective redispatch."
+        ),
+        "base_converged": True,
+        "post_contingency_converged": True,
+        "outage_generator": {
+            "generator_id": "GEN-124#1",
+            "connected": True,
+            "bus_id": "VL-124_0",
+            "target_p_mw": 984.329,
+            "actual_generation_mw": 984.329,
+            "min_p_mw": 950.0,
+            "max_p_mw": 1000.0,
+            "headroom_mw": 15.671,
+        },
+        "base": {
+            "loadflow": {
+                "converged": True,
+                "components": [],
+                "distributed_active_power_mw": 0.0,
+                "active_power_mismatch_mw": 0.0,
+            },
+            "power_balance": {
+                "observed_generation_mw": 10000.0,
+                "load_mw": 9168.0,
+                "line_active_power_loss_mw": 832.0,
+                "balance_based_loss_mw": 832.0,
+            },
+        },
+        "post_contingency": {
+            "loadflow": {
+                "converged": True,
+                "components": [],
+                "distributed_active_power_mw": 969.18,
+                "active_power_mismatch_mw": 0.433,
+            },
+            "power_balance": {
+                "observed_generation_mw": 9985.0,
+                "load_mw": 9168.0,
+                "line_active_power_loss_mw": 817.316,
+                "balance_based_loss_mw": 817.311,
+            },
+        },
+        "loss_change": {
+            "balance_based_loss_change_mw": -14.689,
+            "line_active_power_loss_change_mw": -14.684,
+        },
+        "generator_changes": [
+            {
+                "generator_id": "GEN-82#5",
+                "bus_id": "VL-82_0",
+                "generation_before_mw": 1378.26,
+                "generation_after_mw": 1397.686,
+                "delta_generation_mw": 19.426,
+                "min_p_mw": 0.0,
+                "max_p_mw": 1400.0,
+                "headroom_before_mw": 21.74,
+                "headroom_after_mw": 2.314,
+            }
+        ],
+        "major_overloads": [
+            {
+                "equipment_id": "LINE-134-193",
+                "limit_type": "APPARENT_POWER",
+                "limit_name": "RateC",
+                "unit": "MVA",
+                "limit": 2172.0,
+                "value": 2293.708,
+                "violation_amount": 121.708,
+                "loading_percent": 105.603,
+            }
+        ],
+        "security_analysis": {
+            "pre_status": "CONVERGED",
+            "post_status": "CONVERGED",
+            "pre_violated_equipment_count": 0,
+            "violated_equipment_count": 1,
+            "pre_violated_equipment": [],
+            "violated_equipment": [
+                {
+                    "equipment_id": "LINE-134-193",
+                    "limit_type": "APPARENT_POWER",
+                    "limit_name": "RateC",
+                    "unit": "MVA",
+                    "limit": 2172.0,
+                    "value": 2293.708,
+                    "violation_amount": 121.708,
+                    "loading_percent": 105.603,
+                }
+            ],
+        },
+    }
+
+    response = to_generator_contingency_response(domain_result)
+
+    assert response.generator_id == "GEN-124#1"
+    assert response.slack_mode == "distributed"
+
+    assert response.post_loadflow.distributed_active_power_mw == 969.18
+
+    assert len(response.major_overloads) == 1
+
+    assert response.major_overloads[0].equipment_id == "LINE-134-193"
+
+    assert len(response.generator_changes) == 1
+
+    assert response.generator_changes[0].delta_generation_mw == 19.426
+
+    assert response.post_violated_equipment_count == 1

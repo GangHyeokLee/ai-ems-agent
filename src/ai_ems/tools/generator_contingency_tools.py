@@ -260,15 +260,15 @@ def analyze_generator_contingency(
     top_n_overloads: int = 10,
 ) -> dict[str, Any]:
     """
-    Analyze a single generator outage using AC Load Flow.
-
-    This is a detailed Domain-level analysis for understanding
-    how the generator outage is balanced under Single or
-    Distributed slack assumptions.
+    Analyze a single generator outage using AC Load Flow
+    and Security Analysis.
 
     Distributed slack is a Load Flow balancing assumption.
     It must not be interpreted as operator corrective redispatch.
     """
+
+    if top_n_overloads <= 0:
+        raise ValueError("top_n_overloads must be greater than 0.")
 
     parameters = build_generator_loadflow_parameters(
         slack_mode=slack_mode,
@@ -300,7 +300,7 @@ def analyze_generator_contingency(
     )
 
     if not base_loadflow["converged"]:
-        raise RuntimeError("Base-case AC Load Flow " "did not converge.")
+        raise RuntimeError("Base-case AC Load Flow did not converge.")
 
     base_generators = generator_snapshot(
         base_network,
@@ -316,8 +316,16 @@ def analyze_generator_contingency(
         - base_power_balance["load_mw"]
     )
 
+    base_result = {
+        "loadflow": base_loadflow,
+        "power_balance": {
+            **base_power_balance,
+            "balance_based_loss_mw": base_balance_based_loss_mw,
+        },
+    }
+
     #
-    # Post-contingency case
+    # Post-contingency AC Load Flow
     #
 
     post_network = load_network(case_path)
@@ -332,32 +340,69 @@ def analyze_generator_contingency(
         parameters,
     )
 
+    #
+    # Security Analysis
+    #
+    # Use a fresh base network because Security Analysis
+    # applies the contingency internally.
+    #
+
+    security_network = load_network(case_path)
+
+    security_result = run_generator_contingency_security(
+        security_network,
+        outage_generator_id=generator_id,
+        parameters=parameters,
+    )
+
+    line_ids = {str(line_id) for line_id in security_network.get_lines().index}
+
+    major_overloads = build_major_overloads(
+        security_result,
+        line_ids=line_ids,
+        top_n=top_n_overloads,
+    )
+
+    common_result = {
+        "analysis_type": "Generator Contingency Detail Analysis",
+        "generator_id": generator_id,
+        "contingency_id": security_result["contingency_id"],
+        "slack_mode": slack_mode,
+        "balance_type": (
+            parameters.balance_type.name if parameters.distributed_slack else None
+        ),
+        "balancing_interpretation": (
+            "Load-flow balancing assumption; " "not operator corrective redispatch."
+        ),
+        "base_converged": True,
+        "post_contingency_converged": post_loadflow["converged"],
+        "outage_generator": base_generators[generator_id],
+        "base": base_result,
+        "major_overloads": major_overloads,
+        "security_analysis": security_result,
+    }
+
+    #
+    # Post-contingency non-convergence
+    #
+
     if not post_loadflow["converged"]:
         return {
-            "analysis_type": "Generator Contingency Detail Analysis",
-            "generator_id": generator_id,
-            "slack_mode": slack_mode,
-            "balance_type": (
-                parameters.balance_type.name if parameters.distributed_slack else None
-            ),
-            "balancing_interpretation": (
-                "Load-flow balancing assumption; " "not operator corrective redispatch."
-            ),
-            "base_converged": True,
-            "post_contingency_converged": False,
-            "outage_generator": base_generators[generator_id],
-            "base": {
-                "loadflow": base_loadflow,
-                "power_balance": {
-                    **base_power_balance,
-                    "balance_based_loss_mw": base_balance_based_loss_mw,
-                },
-            },
+            **common_result,
             "post_contingency": {
                 "loadflow": post_loadflow,
+                "power_balance": None,
+            },
+            "loss_change": {
+                "balance_based_loss_change_mw": None,
+                "line_active_power_loss_change_mw": None,
             },
             "generator_changes": [],
         }
+
+    #
+    # Post-contingency converged result
+    #
 
     post_generators = generator_snapshot(
         post_network,
@@ -379,19 +424,6 @@ def analyze_generator_contingency(
         outage_generator_id=generator_id,
     )
 
-    security_network = load_network(case_path)
-
-    security_result = run_generator_contingency_security(
-        security_network,
-        outage_generator_id=generator_id,
-        parameters=parameters,
-    )
-
-    major_overloads = build_major_overloads(
-        security_result,
-        top_n=top_n_overloads,
-    )
-
     loss_change_mw = post_balance_based_loss_mw - base_balance_based_loss_mw
 
     line_loss_change_mw = (
@@ -400,26 +432,7 @@ def analyze_generator_contingency(
     )
 
     return {
-        "analysis_type": "Generator Contingency Detail Analysis",
-        "generator_id": generator_id,
-        "contingency_id": security_result["contingency_id"],
-        "slack_mode": slack_mode,
-        "balance_type": (
-            parameters.balance_type.name if parameters.distributed_slack else None
-        ),
-        "balancing_interpretation": (
-            "Load-flow balancing assumption; " "not operator corrective redispatch."
-        ),
-        "base_converged": True,
-        "post_contingency_converged": True,
-        "outage_generator": base_generators[generator_id],
-        "base": {
-            "loadflow": base_loadflow,
-            "power_balance": {
-                **base_power_balance,
-                "balance_based_loss_mw": base_balance_based_loss_mw,
-            },
-        },
+        **common_result,
         "post_contingency": {
             "loadflow": post_loadflow,
             "power_balance": {
@@ -432,16 +445,15 @@ def analyze_generator_contingency(
             "line_active_power_loss_change_mw": line_loss_change_mw,
         },
         "generator_changes": generator_changes,
-        "major_overloads": major_overloads,
-        "security_analysis": security_result,
     }
 
 
 def build_major_overloads(
     security_result: dict[str, Any],
+    line_ids: set[str],
     top_n: int = 10,
 ) -> list[dict[str, Any]]:
-    """Select the most severe post-contingency branch overloads."""
+    """Select the most severe post-contingency line overloads."""
 
     if top_n <= 0:
         raise ValueError("top_n must be greater than 0.")
@@ -452,6 +464,11 @@ def build_major_overloads(
         "violated_equipment",
         [],
     ):
+        equipment_id = str(item.get("equipment_id", ""))
+
+        if equipment_id not in line_ids:
+            continue
+
         loading_percent = item.get("loading_percent")
 
         if loading_percent is None:
@@ -462,10 +479,10 @@ def build_major_overloads(
 
         overloads.append(
             {
-                "equipment_id": item["equipment_id"],
-                "limit_type": item["limit_type"],
-                "limit_name": item["limit_name"],
-                "unit": item["unit"],
+                "equipment_id": equipment_id,
+                "limit_type": item.get("limit_type"),
+                "limit_name": item.get("limit_name"),
+                "unit": item.get("unit"),
                 "limit": item.get("limit"),
                 "value": item.get("value"),
                 "loading_percent": float(loading_percent),

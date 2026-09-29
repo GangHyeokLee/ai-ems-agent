@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -143,3 +145,108 @@ class RedispatchValidationResponse(BaseModel):
     new_violation_ids: list[str]
     resolved_violation_ids: list[str]
     remaining_violation_ids: list[str]
+
+
+class GeneratorContingencyAnalysisRequest(BaseModel):
+    generator_id: str
+    slack_mode: Literal["single", "distributed"] = "single"
+    balance_type: str | None = None
+    top_n_overloads: int = Field(
+        default=10,
+        ge=1,
+    )
+
+
+class GeneratorStateResponse(BaseModel):
+    generator_id: str
+    connected: bool
+    bus_id: str | None = None
+
+    target_p_mw: float | None = None
+    actual_generation_mw: float | None = None
+
+    min_p_mw: float | None = None
+    max_p_mw: float | None = None
+    headroom_mw: float | None = None
+
+
+class GeneratorChangeResponse(BaseModel):
+    generator_id: str
+    bus_id: str | None = None
+
+    generation_before_mw: float | None = None
+    generation_after_mw: float | None = None
+    delta_generation_mw: float | None = None
+
+    min_p_mw: float | None = None
+    max_p_mw: float | None = None
+
+    headroom_before_mw: float | None = None
+    headroom_after_mw: float | None = None
+
+
+class SlackBusResponse(BaseModel):
+    bus_id: str
+    active_power_mismatch_mw: float
+
+
+class LoadFlowComponentResponse(BaseModel):
+    status: str
+    reference_bus_id: str
+
+    distributed_active_power_mw: float
+
+    slack_buses: list[SlackBusResponse]
+
+
+class LoadFlowBalanceResponse(BaseModel):
+    converged: bool
+
+    components: list[LoadFlowComponentResponse]
+
+    distributed_active_power_mw: float
+    active_power_mismatch_mw: float
+
+
+class PowerBalanceResponse(BaseModel):
+    observed_generation_mw: float
+    load_mw: float
+    line_active_power_loss_mw: float
+    balance_based_loss_mw: float
+
+
+class GeneratorContingencyAnalysisResponse(BaseModel):
+    generator_id: str
+    contingency_id: str
+
+    slack_mode: str
+    balance_type: str | None = None
+
+    balancing_interpretation: str
+
+    base_converged: bool
+    post_contingency_converged: bool
+
+    outage_generator: GeneratorStateResponse
+
+    base_loadflow: LoadFlowBalanceResponse
+    post_loadflow: LoadFlowBalanceResponse
+
+    base_power_balance: PowerBalanceResponse
+    post_power_balance: PowerBalanceResponse | None
+
+    balance_based_loss_change_mw: float | None = None
+    line_active_power_loss_change_mw: float | None = None
+
+    generator_changes: list[GeneratorChangeResponse]
+
+    major_overloads: list[ViolationSummary]
+
+    security_pre_status: str | None = None
+    security_post_status: str | None = None
+
+    pre_violated_equipment_count: int
+    post_violated_equipment_count: int
+
+    pre_violations: list[ViolationSummary]
+    post_violations: list[ViolationSummary]

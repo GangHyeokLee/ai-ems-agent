@@ -8,6 +8,11 @@ from ai_ems.api.schemas import (
     SensitivityAnalysisResponse,
     SensitivityCandidateResponse,
     ViolationSummary,
+    GeneratorChangeResponse,
+    GeneratorContingencyAnalysisResponse,
+    GeneratorStateResponse,
+    LoadFlowBalanceResponse,
+    PowerBalanceResponse,
 )
 
 
@@ -271,6 +276,118 @@ def to_redispatch_validation_response(
             item["equipment_id"]
             for item in whole.get(
                 "remaining_violations",
+                [],
+            )
+        ],
+    )
+
+
+def _generator_state_response(
+    item: dict[str, Any],
+) -> GeneratorStateResponse:
+    return GeneratorStateResponse(
+        generator_id=item["generator_id"],
+        connected=item["connected"],
+        bus_id=item.get("bus_id"),
+        target_p_mw=item.get("target_p_mw"),
+        actual_generation_mw=item.get("actual_generation_mw"),
+        min_p_mw=item.get("min_p_mw"),
+        max_p_mw=item.get("max_p_mw"),
+        headroom_mw=item.get("headroom_mw"),
+    )
+
+
+def _generator_change_response(
+    item: dict[str, Any],
+) -> GeneratorChangeResponse:
+    return GeneratorChangeResponse(
+        generator_id=item["generator_id"],
+        bus_id=item.get("bus_id"),
+        generation_before_mw=item.get("generation_before_mw"),
+        generation_after_mw=item.get("generation_after_mw"),
+        delta_generation_mw=item.get("delta_generation_mw"),
+        min_p_mw=item.get("min_p_mw"),
+        max_p_mw=item.get("max_p_mw"),
+        headroom_before_mw=item.get("headroom_before_mw"),
+        headroom_after_mw=item.get("headroom_after_mw"),
+    )
+
+
+def _power_balance_response(
+    item: dict[str, Any] | None,
+) -> PowerBalanceResponse | None:
+    if item is None:
+        return None
+
+    return PowerBalanceResponse(
+        observed_generation_mw=item["observed_generation_mw"],
+        load_mw=item["load_mw"],
+        line_active_power_loss_mw=item["line_active_power_loss_mw"],
+        balance_based_loss_mw=item["balance_based_loss_mw"],
+    )
+
+
+def to_generator_contingency_response(
+    result: dict[str, Any],
+) -> GeneratorContingencyAnalysisResponse:
+    base = result["base"]
+    post = result["post_contingency"]
+    loss_change = result["loss_change"]
+
+    security = result["security_analysis"]
+
+    return GeneratorContingencyAnalysisResponse(
+        generator_id=result["generator_id"],
+        contingency_id=result["contingency_id"],
+        slack_mode=result["slack_mode"],
+        balance_type=result.get("balance_type"),
+        balancing_interpretation=result["balancing_interpretation"],
+        base_converged=result["base_converged"],
+        post_contingency_converged=result["post_contingency_converged"],
+        outage_generator=_generator_state_response(result["outage_generator"]),
+        base_loadflow=LoadFlowBalanceResponse(**base["loadflow"]),
+        post_loadflow=LoadFlowBalanceResponse(**post["loadflow"]),
+        base_power_balance=_power_balance_response(base["power_balance"]),
+        post_power_balance=_power_balance_response(post.get("power_balance")),
+        balance_based_loss_change_mw=loss_change.get("balance_based_loss_change_mw"),
+        line_active_power_loss_change_mw=loss_change.get(
+            "line_active_power_loss_change_mw"
+        ),
+        generator_changes=[
+            _generator_change_response(item)
+            for item in result.get(
+                "generator_changes",
+                [],
+            )
+        ],
+        major_overloads=[
+            _violation_summary(item)
+            for item in result.get(
+                "major_overloads",
+                [],
+            )
+        ],
+        security_pre_status=security.get("pre_status"),
+        security_post_status=security.get("post_status"),
+        pre_violated_equipment_count=security.get(
+            "pre_violated_equipment_count",
+            0,
+        ),
+        post_violated_equipment_count=security.get(
+            "violated_equipment_count",
+            0,
+        ),
+        pre_violations=[
+            _violation_summary(item)
+            for item in security.get(
+                "pre_violated_equipment",
+                [],
+            )
+        ],
+        post_violations=[
+            _violation_summary(item)
+            for item in security.get(
+                "violated_equipment",
                 [],
             )
         ],

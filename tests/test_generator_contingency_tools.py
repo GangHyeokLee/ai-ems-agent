@@ -122,3 +122,39 @@ def test_generator_contingency_result_is_json_serializable():
     )
 
     assert serialized
+
+
+def test_unknown_generator():
+    with pytest.raises(
+        ValueError,
+        match="Unknown generator",
+    ):
+        analyze_generator_contingency(
+            CASE_FILE,
+            generator_id="GEN-NOT-EXIST",
+        )
+
+
+def test_invalid_balance_type():
+    with pytest.raises(
+        ValueError,
+        match="Unsupported balance_type",
+    ):
+        analyze_generator_contingency(
+            CASE_FILE,
+            generator_id="GEN-124#1",
+            slack_mode="distributed",
+            balance_type="INVALID_BALANCE_TYPE",
+        )
+
+
+def test_invalid_top_n_overloads():
+    with pytest.raises(
+        ValueError,
+        match="top_n_overloads must be greater than 0",
+    ):
+        analyze_generator_contingency(
+            CASE_FILE,
+            generator_id="GEN-124#1",
+            top_n_overloads=0,
+        )
