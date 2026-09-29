@@ -1,430 +1,97 @@
 <!doctype html>
 <html lang="ko">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-
   <title>AI-EMS Agent</title>
-
   <style>
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #f4f6f8; }
+    header { height: 64px; padding: 0 24px; display: flex; align-items: center; background: #1f2937; color: white; }
+    header h1 { margin: 0; font-size: 22px; }
+    main { height: calc(100vh - 64px); padding: 16px; display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+    .panel { background: white; border-radius: 8px; border: 1px solid #d1d5db; overflow: hidden; }
+    .panel-title { padding: 12px 16px; font-weight: bold; border-bottom: 1px solid #e5e7eb; }
+    #map { position: relative; height: calc(100% - 46px); display: flex; align-items: center; justify-content: center; color: #6b7280; }
+    #network-map { width: 100%; height: 100%; }
 
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-      background: #f4f6f8;
-    }
+    .map-layer-control { position: absolute; z-index: 15; top: 12px; right: 12px; min-width: 132px; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: rgba(255,255,255,.94); box-shadow: 0 4px 16px rgba(15,23,42,.12); color: #334155; font-size: 12px; }
+    .map-layer-control strong { display: block; margin-bottom: 7px; color: #0f172a; }
+    .map-layer-option { display: flex; align-items: center; gap: 7px; margin-top: 5px; cursor: pointer; user-select: none; }
+    .map-layer-option input { margin: 0; }
 
-    header {
-      height: 64px;
-      padding: 0 24px;
-      display: flex;
-      align-items: center;
-      background: #1f2937;
-      color: white;
-    }
+    .network-line { stroke: #94a3b8; stroke-width: 1; opacity: .65; pointer-events: none; }
+    .network-line.hover-line, .network-line.selected-line { stroke: #475569; stroke-width: 3; opacity: 1; }
+    .network-line.outage-line { stroke: #dc2626; stroke-width: 5; opacity: 1; }
+    .network-line.violation-line { stroke: #f59e0b; stroke-width: 5; opacity: 1; }
+    .network-line-hit { stroke: transparent; stroke-width: 14; fill: none; pointer-events: stroke; cursor: pointer; }
+    .network-bus { fill: #2563eb; stroke: white; stroke-width: .6; cursor: pointer; }
+    .network-bus:hover, .network-bus.selected-bus { r: 5; }
+    .network-bus.selected-bus { fill: #0f172a; }
 
-    header h1 {
-      margin: 0;
-      font-size: 22px;
-    }
+    .network-generator { cursor: pointer; }
+    .network-generator path { fill: #16a34a; stroke: white; stroke-width: 1.4; }
+    .network-generator text { fill: white; font-size: 8px; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+    .network-generator.selected-generator path { fill: #0f172a; stroke-width: 2.5; }
 
-    main {
-      height: calc(100vh - 64px);
-      padding: 16px;
-      display: grid;
-      grid-template-columns: 2fr 1fr;
-      gap: 16px;
-    }
+    .analysis-marker { cursor: pointer; }
+    .generator-outage-marker path { fill: #dc2626; stroke: white; stroke-width: 2; }
+    .generator-outage-marker text, .generator-change-marker text { fill: white; font-size: 8px; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+    .generator-change-marker circle, .sensitivity-marker circle { fill: #7c3aed; stroke: white; stroke-width: 2; }
+    .sensitivity-marker text { fill: white; font-size: 9px; font-weight: bold; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
 
-    .panel {
-      background: white;
-      border-radius: 8px;
-      border: 1px solid #d1d5db;
-      overflow: hidden;
-    }
-
-    .panel-title {
-      padding: 12px 16px;
-      font-weight: bold;
-      border-bottom: 1px solid #e5e7eb;
-    }
-
-    #map {
-      position: relative;
-      height: calc(100% - 46px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #6b7280;
-    }
-
-    #network-map {
-      width: 100%;
-      height: 100%;
-    }
-
-    .map-layer-control {
-      position: absolute;
-      z-index: 15;
-      top: 12px;
-      right: 12px;
-      min-width: 132px;
-      padding: 10px 12px;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.94);
-      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12);
-      color: #334155;
-      font-size: 12px;
-    }
-
-    .map-layer-control strong {
-      display: block;
-      margin-bottom: 7px;
-      color: #0f172a;
-      font-size: 12px;
-    }
-
-    .map-layer-option {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-      margin-top: 5px;
-      cursor: pointer;
-      user-select: none;
-    }
-
-    .map-layer-option input {
-      margin: 0;
-    }
-
-    .network-line {
-      stroke: #94a3b8;
-      stroke-width: 1;
-      opacity: 0.65;
-      pointer-events: none;
-    }
-
-    .network-line.hover-line,
-    .network-line.selected-line {
-      stroke: #475569;
-      stroke-width: 3;
-      opacity: 1;
-    }
-
-    .network-line.outage-line {
-      stroke: #dc2626;
-      stroke-width: 5;
-      opacity: 1;
-    }
-
-    .network-line.violation-line {
-      stroke: #f59e0b;
-      stroke-width: 5;
-      opacity: 1;
-    }
-
-    .network-line-hit {
-      stroke: transparent;
-      stroke-width: 14;
-      fill: none;
-      pointer-events: stroke;
-      cursor: pointer;
-    }
-
-    .network-bus {
-      fill: #2563eb;
-      stroke: white;
-      stroke-width: 0.6;
-      cursor: pointer;
-    }
-
-    .network-bus:hover {
-      r: 5;
-      fill: #dc2626;
-    }
-
-    .network-bus.selected-bus {
-      r: 5;
-      fill: #0f172a;
-    }
-
-    .network-generator {
-      cursor: pointer;
-    }
-
-    .network-generator path {
-      fill: #16a34a;
-      stroke: white;
-      stroke-width: 1.4;
-    }
-
-    .network-generator text {
-      fill: white;
-      font-size: 8px;
-      font-weight: 700;
-      text-anchor: middle;
-      dominant-baseline: central;
-      pointer-events: none;
-    }
-
-    .analysis-marker {
-      cursor: pointer;
-    }
-
-    .generator-outage-marker path {
-      fill: #dc2626;
-      stroke: white;
-      stroke-width: 2;
-    }
-
-    .generator-outage-marker text,
-    .generator-change-marker text {
-      fill: white;
-      font-size: 8px;
-      font-weight: 700;
-      text-anchor: middle;
-      dominant-baseline: central;
-      pointer-events: none;
-    }
-
-    .generator-change-marker circle {
-      fill: #7c3aed;
-      stroke: white;
-      stroke-width: 2;
-    }
-
-    .layer-hidden {
-      display: none !important;
-    }
-
-    #map.analysis-hidden .analysis-marker {
-      display: none !important;
-    }
-
+    .layer-hidden { display: none !important; }
+    #map.analysis-hidden .analysis-marker { display: none !important; }
     #map.analysis-hidden .network-line.outage-line,
-    #map.analysis-hidden .network-line.violation-line {
-      stroke: #94a3b8;
-      stroke-width: 1;
-      opacity: 0.65;
-    }
+    #map.analysis-hidden .network-line.violation-line { stroke: #94a3b8; stroke-width: 1; opacity: .65; }
 
-    .map-tooltip {
-      position: absolute;
-      z-index: 20;
-      display: none;
-      min-width: 220px;
-      max-width: 340px;
-      padding: 12px 14px;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      background: rgba(255, 255, 255, 0.98);
-      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
-      color: #0f172a;
-      font-size: 13px;
-      line-height: 1.55;
-      pointer-events: auto;
-      user-select: text;
-    }
+    .map-tooltip { position: absolute; z-index: 20; display: none; min-width: 220px; max-width: 360px; padding: 12px 14px; border: 1px solid #cbd5e1; border-radius: 8px; background: rgba(255,255,255,.98); box-shadow: 0 8px 24px rgba(15,23,42,.18); color: #0f172a; font-size: 13px; line-height: 1.55; pointer-events: auto; user-select: text; }
+    .map-tooltip-title { margin: 0 24px 6px 0; font-size: 14px; font-weight: 700; }
+    .map-tooltip-row { color: #475569; }
+    .map-tooltip-row strong { color: #0f172a; }
+    .map-tooltip-close { position: absolute; top: 5px; right: 7px; width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: #64748b; font-size: 18px; cursor: pointer; }
+    .generator-choice { display: block; width: 100%; padding: 5px 7px; margin-top: 2px; border: 0; border-radius: 5px; background: transparent; text-align: left; color: #475569; cursor: pointer; }
+    .generator-choice:hover { background: #eef2ff; color: #1e293b; }
+    .generator-choice strong { color: #0f172a; }
 
-    .map-tooltip-title {
-      margin: 0 24px 6px 0;
-      font-size: 14px;
-      font-weight: 700;
-    }
+    #chat { height: calc(100% - 46px); padding: 16px; display: flex; flex-direction: column; }
+    #messages { flex: 1; overflow-y: auto; }
+    #chat-log { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
+    .chat-message { padding: 10px 12px; border-radius: 8px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .chat-message.user { align-self: flex-end; max-width: 88%; background: #dbeafe; }
+    .chat-message.agent { align-self: flex-start; max-width: 96%; background: #f1f5f9; }
+    .chat-message.system { align-self: stretch; background: #fff7ed; color: #9a3412; }
+    #chat-input { display: flex; gap: 8px; margin-top: 12px; }
+    #chat-input input { flex: 1; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; }
+    #chat-input button { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; }
+    #chat-input button:disabled { cursor: not-allowed; opacity: .6; }
 
-    .map-tooltip-row {
-      color: #475569;
-    }
-
-    .map-tooltip-row strong {
-      color: #0f172a;
-    }
-
-    .map-tooltip-close {
-      position: absolute;
-      top: 5px;
-      right: 7px;
-      width: 24px;
-      height: 24px;
-      padding: 0;
-      border: 0;
-      background: transparent;
-      color: #64748b;
-      font-size: 18px;
-      cursor: pointer;
-    }
-
-    #chat {
-      height: calc(100% - 46px);
-      padding: 16px;
-      display: flex;
-      flex-direction: column;
-    }
-
-    #messages {
-      flex: 1;
-      overflow-y: auto;
-    }
-
-    #chat-log {
-      margin-top: 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-
-    .chat-message {
-      padding: 10px 12px;
-      border-radius: 8px;
-      line-height: 1.5;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
-    .chat-message.user {
-      align-self: flex-end;
-      max-width: 88%;
-      background: #dbeafe;
-    }
-
-    .chat-message.agent {
-      align-self: flex-start;
-      max-width: 96%;
-      background: #f1f5f9;
-    }
-
-    .chat-message.system {
-      align-self: stretch;
-      background: #fff7ed;
-      color: #9a3412;
-    }
-
-    #chat-input {
-      display: flex;
-      gap: 8px;
-      margin-top: 12px;
-    }
-
-    #chat-input input {
-      flex: 1;
-      padding: 10px;
-      border: 1px solid #d1d5db;
-      border-radius: 6px;
-    }
-
-    #chat-input button {
-      padding: 10px 16px;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-    }
-
-    #chat-input button:disabled {
-      cursor: not-allowed;
-      opacity: 0.6;
-    }
-
-    .analysis-box {
-      margin-bottom: 16px;
-      padding: 12px;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      background: #f8fafc;
-    }
-
-    .analysis-box input {
-      width: 100%;
-      margin-top: 6px;
-      margin-bottom: 8px;
-      padding: 8px;
-    }
-
-    .analysis-box button {
-      width: 100%;
-      padding: 9px;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-    }
-
-    .analysis-box button:disabled {
-      cursor: not-allowed;
-      opacity: 0.6;
-    }
-
-    #security-result,
-    #sensitivity-result {
-      margin-top: 12px;
-      line-height: 1.6;
-    }
-
-    .sensitivity-button {
-      margin-top: 10px;
-    }
-
-    .sensitivity-candidate {
-      margin-top: 8px;
-      padding-top: 8px;
-      border-top: 1px solid #e5e7eb;
-    }
-
-    .sensitivity-marker {
-      cursor: pointer;
-    }
-
-    .sensitivity-marker circle {
-      fill: #7c3aed;
-      stroke: white;
-      stroke-width: 2;
-    }
-
-    .sensitivity-marker text {
-      fill: white;
-      font-size: 9px;
-      font-weight: bold;
-      text-anchor: middle;
-      dominant-baseline: middle;
-      pointer-events: none;
-    }
+    .analysis-box { margin-bottom: 16px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f8fafc; }
+    .analysis-box input[type="text"] { width: 100%; margin-top: 6px; margin-bottom: 8px; padding: 8px; }
+    .analysis-box button { width: 100%; padding: 9px; border: none; border-radius: 6px; cursor: pointer; }
+    .analysis-box button:disabled { cursor: not-allowed; opacity: .6; }
+    .analysis-subtitle { display: block; margin-top: 8px; margin-bottom: 4px; font-size: 12px; color: #475569; }
+    .slack-options { display: flex; gap: 14px; margin: 8px 0 10px; font-size: 13px; }
+    .slack-options label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+    #security-result, #sensitivity-result, #generator-contingency-result { margin-top: 12px; line-height: 1.6; }
+    .sensitivity-button { margin-top: 10px; }
+    .sensitivity-candidate { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e7eb; }
   </style>
 </head>
-
 <body>
-  <header>
-    <h1>AI-EMS Agent</h1>
-  </header>
-
+  <header><h1>AI-EMS Agent</h1></header>
   <main>
     <section class="panel">
       <div class="panel-title">KPG-193 Network</div>
       <div id="map">
         <svg id="network-map" viewBox="0 0 700 900" preserveAspectRatio="xMidYMid meet"></svg>
-
         <div class="map-layer-control">
           <strong>지도 표시</strong>
-          <label class="map-layer-option">
-            <input id="layer-lines" type="checkbox" checked />
-            <span>선로</span>
-          </label>
-          <label class="map-layer-option">
-            <input id="layer-buses" type="checkbox" checked />
-            <span>버스</span>
-          </label>
-          <label class="map-layer-option">
-            <input id="layer-generators" type="checkbox" />
-            <span>발전기</span>
-          </label>
-          <label class="map-layer-option">
-            <input id="layer-analysis" type="checkbox" checked />
-            <span>분석 결과</span>
-          </label>
+          <label class="map-layer-option"><input id="layer-lines" type="checkbox" checked /><span>선로</span></label>
+          <label class="map-layer-option"><input id="layer-buses" type="checkbox" checked /><span>버스</span></label>
+          <label class="map-layer-option"><input id="layer-generators" type="checkbox" /><span>발전기</span></label>
+          <label class="map-layer-option"><input id="layer-analysis" type="checkbox" checked /><span>분석 결과</span></label>
         </div>
-
         <div id="map-tooltip" class="map-tooltip">
           <button id="map-tooltip-close" class="map-tooltip-close">×</button>
           <div id="map-tooltip-content"></div>
@@ -445,9 +112,20 @@
             <div id="sensitivity-result">Security Analysis 후 민감도를 분석할 수 있습니다.</div>
           </div>
 
+          <div class="analysis-box" id="generator-contingency-box">
+            <strong>Generator Contingency Analysis</strong>
+            <span class="analysis-subtitle">지도에서 발전기 행을 클릭하면 자동으로 입력됩니다.</span>
+            <input id="outage-generator" type="text" placeholder="Generator ID (예: GEN-124#1)" />
+            <div class="slack-options">
+              <label><input type="radio" name="generator-slack-mode" value="single" checked /> Single</label>
+              <label><input type="radio" name="generator-slack-mode" value="distributed" /> Distributed</label>
+            </div>
+            <button id="generator-analyze-button">Analyze</button>
+            <div id="generator-contingency-result">발전기를 선택하거나 ID를 입력하고 분석하세요.</div>
+          </div>
+
           <div id="chat-log"></div>
         </div>
-
         <div id="chat-input">
           <input id="chat-message" type="text" placeholder="계통 분석을 요청하세요." />
           <button id="chat-send">전송</button>
@@ -484,50 +162,39 @@
       const width = 700;
       const height = 900;
       const padding = 40;
-      const latitudes = data.buses.map((bus) => bus.latitude);
-      const longitudes = data.buses.map((bus) => bus.longitude);
-      const minLat = Math.min(...latitudes);
-      const maxLat = Math.max(...latitudes);
-      const minLon = Math.min(...longitudes);
-      const maxLon = Math.max(...longitudes);
-      const busMap = new Map();
+      const minLat = Math.min(...data.buses.map((b) => b.latitude));
+      const maxLat = Math.max(...data.buses.map((b) => b.latitude));
+      const minLon = Math.min(...data.buses.map((b) => b.longitude));
+      const maxLon = Math.max(...data.buses.map((b) => b.longitude));
+      const busMap = new Map(data.buses.map((bus) => [bus.bus_id, bus]));
 
-      for (const bus of data.buses) busMap.set(bus.bus_id, bus);
-
-      function project(bus) {
-        const x = padding + ((bus.longitude - minLon) / (maxLon - minLon)) * (width - padding * 2);
-        const y = padding + ((maxLat - bus.latitude) / (maxLat - minLat)) * (height - padding * 2);
-        return { x, y };
-      }
-
-      mapProjection = project;
+      mapProjection = (bus) => ({
+        x: padding + ((bus.longitude - minLon) / (maxLon - minLon)) * (width - padding * 2),
+        y: padding + ((maxLat - bus.latitude) / (maxLat - minLat)) * (height - padding * 2),
+      });
 
       for (const line of data.lines) {
         const bus1 = busMap.get(line.bus1_id);
         const bus2 = busMap.get(line.bus2_id);
         if (!bus1 || !bus2) continue;
+        const p1 = mapProjection(bus1);
+        const p2 = mapProjection(bus2);
 
-        const p1 = project(bus1);
-        const p2 = project(bus2);
         const element = document.createElementNS(SVG_NS, "line");
-        element.setAttribute("x1", p1.x);
-        element.setAttribute("y1", p1.y);
-        element.setAttribute("x2", p2.x);
-        element.setAttribute("y2", p2.y);
+        element.setAttribute("x1", p1.x); element.setAttribute("y1", p1.y);
+        element.setAttribute("x2", p2.x); element.setAttribute("y2", p2.y);
         element.setAttribute("class", "network-line layer-line");
         element.dataset.lineId = line.line_id;
         svg.appendChild(element);
 
-        const hitElement = document.createElementNS(SVG_NS, "line");
-        hitElement.setAttribute("x1", p1.x);
-        hitElement.setAttribute("y1", p1.y);
-        hitElement.setAttribute("x2", p2.x);
-        hitElement.setAttribute("y2", p2.y);
-        hitElement.setAttribute("class", "network-line-hit layer-line");
-        hitElement.dataset.lineId = line.line_id;
-        hitElement.addEventListener("mouseenter", () => element.classList.add("hover-line"));
-        hitElement.addEventListener("mouseleave", () => element.classList.remove("hover-line"));
-        hitElement.addEventListener("click", (event) => {
+        const hit = document.createElementNS(SVG_NS, "line");
+        hit.setAttribute("x1", p1.x); hit.setAttribute("y1", p1.y);
+        hit.setAttribute("x2", p2.x); hit.setAttribute("y2", p2.y);
+        hit.setAttribute("class", "network-line-hit layer-line");
+        hit.dataset.lineId = line.line_id;
+        hit.addEventListener("mouseenter", () => element.classList.add("hover-line"));
+        hit.addEventListener("mouseleave", () => element.classList.remove("hover-line"));
+        hit.addEventListener("click", (event) => {
           event.stopPropagation();
           clearMapSelection();
           element.classList.add("selected-line");
@@ -535,15 +202,13 @@
           invalidateSecurityResult();
           showLineTooltip(event, line, bus1, bus2);
         });
-        svg.appendChild(hitElement);
+        svg.appendChild(hit);
       }
 
       for (const bus of data.buses) {
-        const point = project(bus);
+        const p = mapProjection(bus);
         const element = document.createElementNS(SVG_NS, "circle");
-        element.setAttribute("cx", point.x);
-        element.setAttribute("cy", point.y);
-        element.setAttribute("r", 3);
+        element.setAttribute("cx", p.x); element.setAttribute("cy", p.y); element.setAttribute("r", 3);
         element.setAttribute("class", "network-bus layer-bus");
         element.dataset.busId = bus.bus_id;
         element.addEventListener("click", (event) => {
@@ -558,40 +223,6 @@
       renderGeneratorLayer(data.generators || []);
     }
 
-    function renderGeneratorLayer(generators) {
-      if (!mapProjection) return;
-      const svg = document.getElementById("network-map");
-      const groups = groupByBus(generators);
-
-      for (const [busId, items] of groups.entries()) {
-        const first = items[0];
-        if (first.latitude == null || first.longitude == null) continue;
-        const point = mapProjection(first);
-        const group = document.createElementNS(SVG_NS, "g");
-        group.setAttribute("class", "network-generator layer-generator");
-        group.dataset.busId = busId;
-
-        const path = document.createElementNS(SVG_NS, "path");
-        path.setAttribute(
-          "d",
-          `M ${point.x} ${point.y - 8} L ${point.x - 7} ${point.y + 6} L ${point.x + 7} ${point.y + 6} Z`
-        );
-
-        const text = document.createElementNS(SVG_NS, "text");
-        text.setAttribute("x", point.x);
-        text.setAttribute("y", point.y + 1);
-        text.textContent = items.length;
-
-        group.appendChild(path);
-        group.appendChild(text);
-        group.addEventListener("click", (event) => {
-          event.stopPropagation();
-          showGeneratorTooltip(event, busId, items);
-        });
-        svg.appendChild(group);
-      }
-    }
-
     function groupByBus(items) {
       const groups = new Map();
       for (const item of items) {
@@ -602,112 +233,126 @@
       return groups;
     }
 
-    function applyLayerVisibility() {
-      const linesVisible = document.getElementById("layer-lines").checked;
-      const busesVisible = document.getElementById("layer-buses").checked;
-      const generatorsVisible = document.getElementById("layer-generators").checked;
-      const analysisVisible = document.getElementById("layer-analysis").checked;
+    function renderGeneratorLayer(generators) {
+      if (!mapProjection) return;
+      const svg = document.getElementById("network-map");
+      for (const [busId, items] of groupByBus(generators).entries()) {
+        const first = items[0];
+        if (first.latitude == null || first.longitude == null) continue;
+        const p = mapProjection(first);
+        const group = document.createElementNS(SVG_NS, "g");
+        group.setAttribute("class", "network-generator layer-generator");
+        group.dataset.busId = busId;
 
-      setLayerHidden(".layer-line", !linesVisible);
-      setLayerHidden(".layer-bus", !busesVisible);
-      setLayerHidden(".layer-generator", !generatorsVisible);
-      document.getElementById("map").classList.toggle("analysis-hidden", !analysisVisible);
+        const path = document.createElementNS(SVG_NS, "path");
+        path.setAttribute("d", `M ${p.x} ${p.y - 8} L ${p.x - 7} ${p.y + 6} L ${p.x + 7} ${p.y + 6} Z`);
+        const text = document.createElementNS(SVG_NS, "text");
+        text.setAttribute("x", p.x); text.setAttribute("y", p.y + 1); text.textContent = items.length;
+        group.appendChild(path); group.appendChild(text);
+        group.addEventListener("click", (event) => {
+          event.stopPropagation();
+          showGeneratorTooltip(event, busId, items);
+        });
+        svg.appendChild(group);
+      }
+    }
+
+    function applyLayerVisibility() {
+      setLayerHidden(".layer-line", !document.getElementById("layer-lines").checked);
+      setLayerHidden(".layer-bus", !document.getElementById("layer-buses").checked);
+      setLayerHidden(".layer-generator", !document.getElementById("layer-generators").checked);
+      document.getElementById("map").classList.toggle("analysis-hidden", !document.getElementById("layer-analysis").checked);
     }
 
     function setLayerHidden(selector, hidden) {
-      document.querySelectorAll(selector).forEach((element) => {
-        element.classList.toggle("layer-hidden", hidden);
-      });
+      document.querySelectorAll(selector).forEach((el) => el.classList.toggle("layer-hidden", hidden));
     }
 
     function clearMapSelection() {
-      document.querySelectorAll(".network-line.selected-line").forEach((line) => line.classList.remove("selected-line"));
-      document.querySelectorAll(".network-bus.selected-bus").forEach((bus) => bus.classList.remove("selected-bus"));
+      document.querySelectorAll(".selected-line").forEach((el) => el.classList.remove("selected-line"));
+      document.querySelectorAll(".selected-bus").forEach((el) => el.classList.remove("selected-bus"));
+    }
+
+    function selectGenerator(generatorId, busId) {
+      document.getElementById("outage-generator").value = generatorId;
+      document.querySelectorAll(".network-generator").forEach((el) => {
+        el.classList.toggle("selected-generator", String(el.dataset.busId) === String(busId));
+      });
+      document.getElementById("generator-contingency-result").textContent = `${generatorId} 선택됨. Slack mode를 선택하고 Analyze를 실행하세요.`;
+      hideMapTooltip(false);
     }
 
     function showBusTooltip(event, bus) {
       showMapTooltip(event, `
-          <div class="map-tooltip-title">Bus ${bus.bus_id}</div>
-          <div class="map-tooltip-row"><strong>지역</strong>: ${bus.name_korean}</div>
-          <div class="map-tooltip-row"><strong>English</strong>: ${bus.name_english}</div>
-          <div class="map-tooltip-row"><strong>위도</strong>: ${bus.latitude.toFixed(6)}</div>
-          <div class="map-tooltip-row"><strong>경도</strong>: ${bus.longitude.toFixed(6)}</div>
-        `);
+        <div class="map-tooltip-title">Bus ${bus.bus_id}</div>
+        <div class="map-tooltip-row"><strong>지역</strong>: ${bus.name_korean}</div>
+        <div class="map-tooltip-row"><strong>English</strong>: ${bus.name_english}</div>`);
     }
 
     function showLineTooltip(event, line, bus1, bus2) {
       showMapTooltip(event, `
-          <div class="map-tooltip-title">${line.line_id}</div>
-          <div class="map-tooltip-row"><strong>From</strong>: Bus ${line.bus1_id} · ${bus1.name_korean}</div>
-          <div class="map-tooltip-row"><strong>To</strong>: Bus ${line.bus2_id} · ${bus2.name_korean}</div>
-          <div class="map-tooltip-row">${bus1.name_english} ↔ ${bus2.name_english}</div>
-        `);
+        <div class="map-tooltip-title">${line.line_id}</div>
+        <div class="map-tooltip-row"><strong>From</strong>: Bus ${line.bus1_id} · ${bus1.name_korean}</div>
+        <div class="map-tooltip-row"><strong>To</strong>: Bus ${line.bus2_id} · ${bus2.name_korean}</div>`);
     }
 
     function showGeneratorTooltip(event, busId, generators) {
       const first = generators[0];
-      const rows = generators.map((item) => `
-          <div class="map-tooltip-row">
-            <strong>${item.generator_id}</strong>
-            ${item.target_p_mw == null ? "" : ` · Target ${item.target_p_mw.toFixed(2)} MW`}
-          </div>
-        `).join("");
+      const rows = generators.map((item) => {
+        const target = item.target_p_mw == null ? "" : ` · Target ${item.target_p_mw.toFixed(2)} MW`;
+        return `<button type="button" class="generator-choice" data-generator-id="${escapeHtml(item.generator_id)}" data-bus-id="${busId}"><strong>${escapeHtml(item.generator_id)}</strong>${target}</button>`;
+      }).join("");
 
       showMapTooltip(event, `
-          <div class="map-tooltip-title">Bus ${busId} · ${first.name_korean ?? "-"}</div>
-          <div class="map-tooltip-row"><strong>발전기</strong>: ${generators.length}개</div>
-          ${rows}
-        `);
+        <div class="map-tooltip-title">Bus ${busId} · ${escapeHtml(first.name_korean ?? "-")}</div>
+        <div class="map-tooltip-row"><strong>발전기</strong>: ${generators.length}개 · 분석할 발전기를 클릭하세요.</div>
+        ${rows}`);
+
+      document.querySelectorAll(".generator-choice").forEach((button) => {
+        button.addEventListener("click", (clickEvent) => {
+          clickEvent.stopPropagation();
+          selectGenerator(button.dataset.generatorId, button.dataset.busId);
+        });
+      });
     }
 
     function showSensitivityTooltip(event, busId, generators) {
       const first = generators[0];
-      const rows = generators.map((item) => `
-          <div class="map-tooltip-row"><strong>${item.generator_id}</strong>: ${item.sensitivity.toFixed(4)}</div>
-        `).join("");
-
-      showMapTooltip(event, `
-          <div class="map-tooltip-title">Bus ${busId} · ${first.name_korean}</div>
-          <div class="map-tooltip-row"><strong>민감도 후보</strong>: ${generators.length}개</div>
-          ${rows}
-        `);
+      const rows = generators.map((item) => `<div class="map-tooltip-row"><strong>${escapeHtml(item.generator_id)}</strong>: ${item.sensitivity.toFixed(4)}</div>`).join("");
+      showMapTooltip(event, `<div class="map-tooltip-title">Bus ${busId} · ${escapeHtml(first.name_korean)}</div>${rows}`);
     }
 
     function showGeneratorContingencyTooltip(event, title, items) {
       const rows = items.map((item) => {
         const delta = item.delta_generation_mw;
         const deltaText = delta == null ? "" : ` · ΔP ${delta >= 0 ? "+" : ""}${delta.toFixed(2)} MW`;
-        return `<div class="map-tooltip-row"><strong>${item.generator_id}</strong>${deltaText}</div>`;
+        return `<div class="map-tooltip-row"><strong>${escapeHtml(item.generator_id)}</strong>${deltaText}</div>`;
       }).join("");
-
-      showMapTooltip(event, `
-          <div class="map-tooltip-title">${title}</div>
-          ${rows}
-        `);
+      showMapTooltip(event, `<div class="map-tooltip-title">${escapeHtml(title)}</div>${rows}`);
     }
 
     function showMapTooltip(event, html) {
       const map = document.getElementById("map");
       const tooltip = document.getElementById("map-tooltip");
-      const content = document.getElementById("map-tooltip-content");
       const rect = map.getBoundingClientRect();
-      content.innerHTML = html;
+      document.getElementById("map-tooltip-content").innerHTML = html;
       tooltip.style.display = "block";
-
-      const tooltipWidth = tooltip.offsetWidth;
-      const tooltipHeight = tooltip.offsetHeight;
       const margin = 12;
       let left = event.clientX - rect.left + margin;
       let top = event.clientY - rect.top + margin;
-      if (left + tooltipWidth > rect.width - margin) left = event.clientX - rect.left - tooltipWidth - margin;
-      if (top + tooltipHeight > rect.height - margin) top = rect.height - tooltipHeight - margin;
+      if (left + tooltip.offsetWidth > rect.width - margin) left = event.clientX - rect.left - tooltip.offsetWidth - margin;
+      if (top + tooltip.offsetHeight > rect.height - margin) top = rect.height - tooltip.offsetHeight - margin;
       tooltip.style.left = `${Math.max(margin, left)}px`;
       tooltip.style.top = `${Math.max(margin, top)}px`;
     }
 
-    function hideMapTooltip() {
+    function hideMapTooltip(clearSelection = true) {
       document.getElementById("map-tooltip").style.display = "none";
-      clearMapSelection();
+      if (clearSelection) clearMapSelection();
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "").replace(/[&<>'"]/g, (ch) => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[ch]));
     }
 
     function resetSecurityHighlight() {
@@ -723,207 +368,126 @@
     async function runSecurityAnalysis() {
       const outageLineId = document.getElementById("outage-line").value.trim();
       if (!outageLineId) return;
-
       const resultElement = document.getElementById("security-result");
       resultElement.textContent = "분석 중...";
       latestSecurityResult = null;
       document.getElementById("sensitivity-button").disabled = true;
-      resetSecurityHighlight();
-      resetSensitivityMarkers();
-      resetGeneratorContingencyMarkers();
-      hideMapTooltip();
+      resetSecurityHighlight(); resetSensitivityMarkers(); resetGeneratorContingencyMarkers(); hideMapTooltip();
       document.getElementById("sensitivity-result").textContent = "Security Analysis 후 민감도를 분석할 수 있습니다.";
-
       try {
         const response = await fetch("/api/security-analysis?outage_line_id=" + encodeURIComponent(outageLineId));
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const result = await response.json();
-        applySecurityResult(result);
-      } catch (error) {
-        resultElement.textContent = `분석 실패: ${error.message}`;
-      }
+        applySecurityResult(await response.json());
+      } catch (error) { resultElement.textContent = `분석 실패: ${error.message}`; }
     }
 
     function applySecurityResult(result) {
-      if (result.outage_line_id) {
-        document.getElementById("outage-line").value = result.outage_line_id;
-      }
-      resetSecurityHighlight();
-      resetSensitivityMarkers();
-      resetGeneratorContingencyMarkers();
+      if (result.outage_line_id) document.getElementById("outage-line").value = result.outage_line_id;
+      resetSecurityHighlight(); resetSensitivityMarkers(); resetGeneratorContingencyMarkers();
       highlightLine(result.outage_line_id, "outage-line");
-      for (const violation of result.violations || []) {
-        highlightLine(violation.equipment_id, "violation-line");
-      }
-
+      for (const v of result.violations || []) highlightLine(v.equipment_id, "violation-line");
       renderSecurityResult(result);
       latestSecurityResult = result;
-
-      const sensitivityButton = document.getElementById("sensitivity-button");
-      const sensitivityResult = document.getElementById("sensitivity-result");
-      const assessmentAvailable = result.violation_assessment_available === true;
-
-      sensitivityButton.disabled = !assessmentAvailable;
-
-      if (assessmentAvailable) {
-        sensitivityResult.textContent = "Security Analysis 후 민감도를 분석할 수 있습니다.";
-      } else {
-        sensitivityResult.textContent = "상정사고 분석이 수렴하지 않아 민감도 분석을 수행할 수 없습니다.";
-      }
+      const available = result.violation_assessment_available === true;
+      document.getElementById("sensitivity-button").disabled = !available;
+      document.getElementById("sensitivity-result").textContent = available ? "Security Analysis 후 민감도를 분석할 수 있습니다." : "상정사고 분석이 수렴하지 않아 민감도 분석을 수행할 수 없습니다.";
     }
 
-    function formatValue(value, unit) {
-      if (value == null) return "-";
-      return value.toFixed(2) + (unit ? ` ${unit}` : "");
-    }
+    function formatValue(value, unit) { return value == null ? "-" : value.toFixed(2) + (unit ? ` ${unit}` : ""); }
 
     function renderSecurityResult(result) {
       const element = document.getElementById("security-result");
-
-      const violationCount =
-        result.violation_assessment_available === true
-          ? result.violated_equipment_count ?? 0
-          : "판정 불가";
-
-      let html = `
-          <div><strong>Outage</strong>: ${result.outage_line_id ?? "-"}</div>
-          <div><strong>Status</strong>: ${result.post_status ?? "-"}</div>
-          <div><strong>Violations</strong>: ${violationCount}</div>
-        `;
-
-      for (const violation of result.violations || []) {
-        const loading = violation.loading_percent == null ? "" : `
-            <div><strong>Loading</strong>: ${violation.loading_percent.toFixed(2)} %</div>
-          `;
-        html += `
-            <hr>
-            <div><strong>Violated Equipment</strong>: ${violation.equipment_id}</div>
-            <div><strong>Limit Type</strong>: ${violation.limit_type ?? "-"}</div>
-            ${loading}
-            <div><strong>Limit</strong>: ${formatValue(violation.limit, violation.unit)}</div>
-            <div><strong>Post-contingency</strong>: ${formatValue(violation.value, violation.unit)}</div>
-            <div><strong>Violation Amount</strong>: ${formatValue(violation.violation_amount, violation.unit)}</div>
-          `;
+      const count = result.violation_assessment_available === true ? (result.violated_equipment_count ?? 0) : "판정 불가";
+      let html = `<div><strong>Outage</strong>: ${result.outage_line_id ?? "-"}</div><div><strong>Status</strong>: ${result.post_status ?? "-"}</div><div><strong>Violations</strong>: ${count}</div>`;
+      for (const v of result.violations || []) {
+        html += `<hr><div><strong>Violated Equipment</strong>: ${v.equipment_id}</div><div><strong>Loading</strong>: ${v.loading_percent == null ? "-" : v.loading_percent.toFixed(2) + " %"}</div><div><strong>Limit</strong>: ${formatValue(v.limit, v.unit)}</div><div><strong>Post-contingency</strong>: ${formatValue(v.value, v.unit)}</div>`;
       }
       element.innerHTML = html;
     }
 
-    function resetSensitivityMarkers() {
-      document.querySelectorAll(".sensitivity-marker").forEach((marker) => marker.remove());
-    }
-
-    function resetGeneratorContingencyMarkers() {
-      document.querySelectorAll(".generator-contingency-marker").forEach((marker) => marker.remove());
-    }
+    function resetSensitivityMarkers() { document.querySelectorAll(".sensitivity-marker").forEach((m) => m.remove()); }
+    function resetGeneratorContingencyMarkers() { document.querySelectorAll(".generator-contingency-marker").forEach((m) => m.remove()); }
 
     function invalidateSecurityResult() {
       latestSecurityResult = null;
       document.getElementById("sensitivity-button").disabled = true;
-      document.getElementById("sensitivity-result").textContent =
-        "변경한 사고에 대해 Security Analysis를 먼저 실행하세요.";
+      document.getElementById("sensitivity-result").textContent = "변경한 사고에 대해 Security Analysis를 먼저 실행하세요.";
       resetSensitivityMarkers();
     }
 
     async function runSensitivityAnalysis() {
       const outageLineId = document.getElementById("outage-line").value.trim();
       if (!outageLineId) return;
-
-      if (
-        latestSecurityResult === null ||
-        latestSecurityResult.outage_line_id !== outageLineId
-      ) {
-        document.getElementById("sensitivity-result").textContent =
-          "현재 사고에 대한 Security Analysis를 먼저 실행하세요.";
+      if (!latestSecurityResult || latestSecurityResult.outage_line_id !== outageLineId) {
+        document.getElementById("sensitivity-result").textContent = "현재 사고에 대한 Security Analysis를 먼저 실행하세요.";
         return;
       }
-
-      if (latestSecurityResult.violation_assessment_available !== true) {
-        document.getElementById("sensitivity-result").textContent =
-          "상정사고 분석이 수렴하지 않아 민감도 분석을 수행할 수 없습니다.";
-        return;
-      }
-
       const resultElement = document.getElementById("sensitivity-result");
       resultElement.textContent = "민감도 분석 중...";
       resetSensitivityMarkers();
-
       try {
         const response = await fetch("/api/sensitivity-analysis?outage_line_id=" + encodeURIComponent(outageLineId) + "&top_n=5");
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const result = await response.json();
-        applySensitivityResult(result);
-      } catch (error) {
-        resultElement.textContent = `민감도 분석 실패: ${error.message}`;
-      }
+        applySensitivityResult(await response.json());
+      } catch (error) { resultElement.textContent = `민감도 분석 실패: ${error.message}`; }
     }
 
     function applySensitivityResult(result) {
       resetSensitivityMarkers();
-      renderSensitivityResult(result);
-      renderSensitivityMarkers(result.candidates || []);
-    }
-
-    function renderSensitivityResult(result) {
       const element = document.getElementById("sensitivity-result");
       if (!result.candidates || result.candidates.length === 0) {
         element.textContent = result.message || "민감도 후보가 없습니다.";
         return;
       }
-
-      let html = `
-          <div><strong>Target Line</strong>: ${result.monitored_line_id}</div>
-          <div><strong>Top Candidates</strong>: ${result.candidate_count}</div>
-        `;
-      result.candidates.forEach((candidate, index) => {
-        html += `
-            <div class="sensitivity-candidate">
-              <strong>${index + 1}. ${candidate.generator_id}</strong>
-              <div>Bus ${candidate.bus_id} · ${candidate.name_korean}</div>
-              <div>민감도: ${candidate.sensitivity.toFixed(4)}</div>
-            </div>
-          `;
-      });
+      let html = `<div><strong>Target Line</strong>: ${result.monitored_line_id}</div><div><strong>Top Candidates</strong>: ${result.candidate_count}</div>`;
+      result.candidates.forEach((c, i) => { html += `<div class="sensitivity-candidate"><strong>${i + 1}. ${c.generator_id}</strong><div>Bus ${c.bus_id} · ${c.name_korean}</div><div>민감도: ${c.sensitivity.toFixed(4)}</div></div>`; });
       element.innerHTML = html;
+      renderSensitivityMarkers(result.candidates);
     }
 
     function renderSensitivityMarkers(candidates) {
       if (!mapProjection) return;
       const svg = document.getElementById("network-map");
-      const groups = groupByBus(candidates);
-
-      for (const [busId, generators] of groups.entries()) {
+      for (const [busId, generators] of groupByBus(candidates).entries()) {
         const first = generators[0];
         if (first.latitude == null || first.longitude == null) continue;
-        const point = mapProjection(first);
-        const group = document.createElementNS(SVG_NS, "g");
-        group.setAttribute("class", "sensitivity-marker analysis-marker");
-        const circle = document.createElementNS(SVG_NS, "circle");
-        circle.setAttribute("cx", point.x);
-        circle.setAttribute("cy", point.y);
-        circle.setAttribute("r", 11);
-        const text = document.createElementNS(SVG_NS, "text");
-        text.setAttribute("x", point.x);
-        text.setAttribute("y", point.y);
-        text.textContent = generators.length;
-        group.appendChild(circle);
-        group.appendChild(text);
-        group.addEventListener("click", (event) => {
-          event.stopPropagation();
-          showSensitivityTooltip(event, busId, generators);
-        });
+        const p = mapProjection(first);
+        const group = document.createElementNS(SVG_NS, "g"); group.setAttribute("class", "sensitivity-marker analysis-marker");
+        const circle = document.createElementNS(SVG_NS, "circle"); circle.setAttribute("cx", p.x); circle.setAttribute("cy", p.y); circle.setAttribute("r", 11);
+        const text = document.createElementNS(SVG_NS, "text"); text.setAttribute("x", p.x); text.setAttribute("y", p.y); text.textContent = generators.length;
+        group.appendChild(circle); group.appendChild(text);
+        group.addEventListener("click", (event) => { event.stopPropagation(); showSensitivityTooltip(event, busId, generators); });
         svg.appendChild(group);
       }
     }
 
+    async function runGeneratorContingencyAnalysis() {
+      const generatorId = document.getElementById("outage-generator").value.trim();
+      const resultElement = document.getElementById("generator-contingency-result");
+      if (!generatorId) { resultElement.textContent = "발전기 ID를 선택하거나 입력하세요."; return; }
+      const slackMode = document.querySelector('input[name="generator-slack-mode"]:checked').value;
+      const button = document.getElementById("generator-analyze-button");
+      button.disabled = true;
+      resultElement.textContent = "발전기 상정사고 분석 중...";
+      hideMapTooltip(false);
+      try {
+        const response = await fetch("/api/generator-contingency-analysis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ generator_id: generatorId, slack_mode: slackMode }),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+        resultElement.textContent = payload.answer;
+        applyGeneratorContingencyResult(payload.result);
+      } catch (error) {
+        resultElement.textContent = `분석 실패: ${error.message}`;
+      } finally { button.disabled = false; }
+    }
+
     function applyGeneratorContingencyResult(result) {
-      resetSecurityHighlight();
-      resetSensitivityMarkers();
-      resetGeneratorContingencyMarkers();
-
-      for (const overload of result.major_overloads || []) {
-        highlightLine(overload.equipment_id, "violation-line");
-      }
-
+      resetSecurityHighlight(); resetSensitivityMarkers(); resetGeneratorContingencyMarkers();
+      for (const overload of result.major_overloads || []) highlightLine(overload.equipment_id, "violation-line");
       renderGeneratorContingencyMarkers(result);
     }
 
@@ -931,132 +495,65 @@
       if (!mapProjection) return;
       const svg = document.getElementById("network-map");
       const outage = result.outage_generator;
-
       if (outage && outage.latitude != null && outage.longitude != null) {
-        const point = mapProjection(outage);
-        const group = document.createElementNS(SVG_NS, "g");
-        group.setAttribute("class", "generator-contingency-marker generator-outage-marker analysis-marker");
-
-        const path = document.createElementNS(SVG_NS, "path");
-        path.setAttribute(
-          "d",
-          `M ${point.x} ${point.y - 11} L ${point.x - 11} ${point.y} L ${point.x} ${point.y + 11} L ${point.x + 11} ${point.y} Z`
-        );
-        const text = document.createElementNS(SVG_NS, "text");
-        text.setAttribute("x", point.x);
-        text.setAttribute("y", point.y);
-        text.textContent = "OUT";
-        group.appendChild(path);
-        group.appendChild(text);
-        group.addEventListener("click", (event) => {
-          event.stopPropagation();
-          showGeneratorContingencyTooltip(event, `사고 발전기 · Bus ${outage.bus_id}`, [outage]);
-        });
+        const p = mapProjection(outage);
+        const group = document.createElementNS(SVG_NS, "g"); group.setAttribute("class", "generator-contingency-marker generator-outage-marker analysis-marker");
+        const path = document.createElementNS(SVG_NS, "path"); path.setAttribute("d", `M ${p.x} ${p.y - 11} L ${p.x - 11} ${p.y} L ${p.x} ${p.y + 11} L ${p.x + 11} ${p.y} Z`);
+        const text = document.createElementNS(SVG_NS, "text"); text.setAttribute("x", p.x); text.setAttribute("y", p.y); text.textContent = "OUT";
+        group.appendChild(path); group.appendChild(text);
+        group.addEventListener("click", (event) => { event.stopPropagation(); showGeneratorContingencyTooltip(event, `사고 발전기 · Bus ${outage.bus_id}`, [outage]); });
         svg.appendChild(group);
       }
-
-      const changed = (result.top_generator_changes || []).filter(
-        (item) => Math.abs(item.delta_generation_mw || 0) > 1e-6
-      );
-      const groups = groupByBus(changed);
-
-      for (const [busId, generators] of groups.entries()) {
-        const first = generators[0];
-        if (first.latitude == null || first.longitude == null) continue;
-        const point = mapProjection(first);
-        const group = document.createElementNS(SVG_NS, "g");
-        group.setAttribute("class", "generator-contingency-marker generator-change-marker analysis-marker");
-
-        const circle = document.createElementNS(SVG_NS, "circle");
-        circle.setAttribute("cx", point.x);
-        circle.setAttribute("cy", point.y);
-        circle.setAttribute("r", 10);
-        const text = document.createElementNS(SVG_NS, "text");
-        text.setAttribute("x", point.x);
-        text.setAttribute("y", point.y);
-        text.textContent = generators.length;
-        group.appendChild(circle);
-        group.appendChild(text);
-        group.addEventListener("click", (event) => {
-          event.stopPropagation();
-          showGeneratorContingencyTooltip(event, `Balancing 변화 · Bus ${busId}`, generators);
-        });
+      const changed = (result.top_generator_changes || []).filter((item) => Math.abs(item.delta_generation_mw || 0) > 1e-6);
+      for (const [busId, generators] of groupByBus(changed).entries()) {
+        const first = generators[0]; if (first.latitude == null || first.longitude == null) continue;
+        const p = mapProjection(first);
+        const group = document.createElementNS(SVG_NS, "g"); group.setAttribute("class", "generator-contingency-marker generator-change-marker analysis-marker");
+        const circle = document.createElementNS(SVG_NS, "circle"); circle.setAttribute("cx", p.x); circle.setAttribute("cy", p.y); circle.setAttribute("r", 10);
+        const text = document.createElementNS(SVG_NS, "text"); text.setAttribute("x", p.x); text.setAttribute("y", p.y); text.textContent = generators.length;
+        group.appendChild(circle); group.appendChild(text);
+        group.addEventListener("click", (event) => { event.stopPropagation(); showGeneratorContingencyTooltip(event, `Balancing 변화 · Bus ${busId}`, generators); });
         svg.appendChild(group);
       }
     }
 
     function appendChatMessage(role, text) {
       const log = document.getElementById("chat-log");
-      const message = document.createElement("div");
-      message.className = `chat-message ${role}`;
-      message.textContent = text;
-      log.appendChild(message);
+      const el = document.createElement("div"); el.className = `chat-message ${role}`; el.textContent = text; log.appendChild(el);
       document.getElementById("messages").scrollTop = document.getElementById("messages").scrollHeight;
     }
 
     async function sendChatMessage() {
       if (chatBusy) return;
-      const input = document.getElementById("chat-message");
-      const button = document.getElementById("chat-send");
-      const message = input.value.trim();
+      const input = document.getElementById("chat-message"); const button = document.getElementById("chat-send"); const message = input.value.trim();
       if (!message) return;
-
-      appendChatMessage("user", message);
-      input.value = "";
-      chatBusy = true;
-      button.disabled = true;
-      input.disabled = true;
-
+      appendChatMessage("user", message); input.value = ""; chatBusy = true; button.disabled = true; input.disabled = true;
       try {
-        const response = await fetch("/api/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ session_id: getSessionId(), message }),
-        });
-
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
-
+        const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: getSessionId(), message }) });
+        const payload = await response.json(); if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
         appendChatMessage("agent", payload.answer || "응답이 없습니다.");
-
         for (const update of payload.ui_updates || []) {
-          if (update.type === "security") {
-            applySecurityResult(update.result);
-          } else if (update.type === "sensitivity") {
-            applySensitivityResult(update.result);
-          } else if (update.type === "generator_contingency") {
+          if (update.type === "security") applySecurityResult(update.result);
+          else if (update.type === "sensitivity") applySensitivityResult(update.result);
+          else if (update.type === "generator_contingency") {
+            document.getElementById("outage-generator").value = update.result.generator_id || "";
+            document.querySelector(`input[name="generator-slack-mode"][value="${update.result.slack_mode}"]`)?.click();
+            document.getElementById("generator-contingency-result").textContent = payload.answer;
             applyGeneratorContingencyResult(update.result);
           }
         }
-      } catch (error) {
-        appendChatMessage("system", `Agent 오류: ${error.message}`);
-      } finally {
-        chatBusy = false;
-        button.disabled = false;
-        input.disabled = false;
-        input.focus();
-      }
+      } catch (error) { appendChatMessage("system", `Agent 오류: ${error.message}`); }
+      finally { chatBusy = false; button.disabled = false; input.disabled = false; input.focus(); }
     }
 
     document.getElementById("analyze-button").addEventListener("click", runSecurityAnalysis);
     document.getElementById("sensitivity-button").addEventListener("click", runSensitivityAnalysis);
+    document.getElementById("generator-analyze-button").addEventListener("click", runGeneratorContingencyAnalysis);
     document.getElementById("outage-line").addEventListener("input", invalidateSecurityResult);
     document.getElementById("chat-send").addEventListener("click", sendChatMessage);
-    document.getElementById("chat-message").addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !event.shiftKey) {
-        event.preventDefault();
-        sendChatMessage();
-      }
-    });
-
-    for (const id of ["layer-lines", "layer-buses", "layer-generators", "layer-analysis"]) {
-      document.getElementById(id).addEventListener("change", applyLayerVisibility);
-    }
-
-    document.getElementById("map-tooltip-close").addEventListener("click", (event) => {
-      event.stopPropagation();
-      hideMapTooltip();
-    });
+    document.getElementById("chat-message").addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendChatMessage(); } });
+    for (const id of ["layer-lines", "layer-buses", "layer-generators", "layer-analysis"]) document.getElementById(id).addEventListener("change", applyLayerVisibility);
+    document.getElementById("map-tooltip-close").addEventListener("click", (event) => { event.stopPropagation(); hideMapTooltip(); });
     document.getElementById("map-tooltip").addEventListener("click", (event) => event.stopPropagation());
     document.addEventListener("click", (event) => {
       const tooltip = document.getElementById("map-tooltip");
@@ -1066,5 +563,4 @@
     loadNetworkMap();
   </script>
 </body>
-
 </html>
