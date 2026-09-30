@@ -1,9 +1,15 @@
 from __future__ import annotations
 
 from importlib.metadata import version
+from pathlib import Path
+import sys
 
 import pandas as pd
 import pypowsybl as pp
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from ai_ems.config import CASE_FILE
 from ai_ems.network import load_network
