@@ -2,12 +2,7 @@ import json
 
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_ollama import ChatOllama
-from langgraph.graph import (
-    END,
-    START,
-    MessagesState,
-    StateGraph,
-)
+from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
 
 from ai_ems.agent.formatters import (
@@ -16,12 +11,10 @@ from ai_ems.agent.formatters import (
     format_generator_contingency_response,
     format_generator_contingency_screening,
     format_generator_outage_response,
+    format_generator_risk_response,
 )
 from ai_ems.agent.tools import create_agent_tools
-from ai_ems.config import (
-    LLM_BASE_URL,
-    MODEL_NAME,
-)
+from ai_ems.config import LLM_BASE_URL, MODEL_NAME
 
 DETERMINISTIC_FORMATTERS = {
     "contingency_response_analysis": (
@@ -43,6 +36,10 @@ DETERMINISTIC_FORMATTERS = {
     "generator_outage_response_analysis": (
         "Generator Outage Response Analysis",
         format_generator_outage_response,
+    ),
+    "generator_risk_response_analysis": (
+        "Generator Risk Response Analysis",
+        format_generator_risk_response,
     ),
 }
 
@@ -83,10 +80,17 @@ Tool selection and scope:
   same generator outage changes between single and distributed slack
 - use generator_contingency_screening when the user asks to analyze all
   generator N-1 contingencies, screen generator outages, find risky generator
-  outages, or rank the most severe generator contingencies
+  outages, or rank the most severe generator contingencies WITHOUT also asking
+  for corrective action or response analysis in the same request
+- use generator_risk_response_analysis when ONE request asks BOTH to find/rank
+  the riskiest generator outage(s) AND to analyze corrective action, response
+  measures, mitigation, or Redispatch for the selected top-ranked outage
 - use generator_outage_response_analysis when the user asks for corrective
   action, response measures, redispatch candidates, mitigation, or operator
-  response after a specific generator outage
+  response after a SPECIFIC generator outage
+- do not satisfy a combined "find the riskiest generator and analyze the
+  response" request with generator_contingency_screening alone; use
+  generator_risk_response_analysis
 - do not satisfy an all-generator screening request by repeatedly calling
   generator_contingency_analysis; use generator_contingency_screening
 - generator_contingency_screening is a batch Security Analysis workflow, not
@@ -195,6 +199,9 @@ Generator Contingency Analysis:
 Generator N-1 Screening:
 - generator_contingency_screening evaluates all currently connected generators
   as independent N-1 outages
+- generator_risk_response_analysis first performs the same full screening and
+  then selects the rank-1 physics-first review candidate for corrective-action
+  analysis in the same workflow
 - total_contingencies is the number of generator contingencies actually screened
 - classification_counts summarizes the full screening set
 - top_contingencies contains the highest-priority cases according to the
@@ -214,6 +221,9 @@ Generator N-1 Screening:
 Generator Outage Corrective Action:
 - generator_outage_response_analysis is the preferred high-level corrective-
   action workflow for a specific generator outage
+- generator_risk_response_analysis is the preferred high-level workflow when
+  the specific outage generator is not given and the same request asks the
+  Agent to find the riskiest generator N-1 outage and analyze its response
 - it combines generator-outage Security Analysis, automatic severe-overload
   selection, post-contingency Sensitivity Analysis, balanced Redispatch
   candidate generation, AC Load Flow validation, and whole-network Security
