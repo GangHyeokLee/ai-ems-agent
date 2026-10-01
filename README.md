@@ -319,6 +319,49 @@ Swagger UI:
 http://127.0.0.1:8001/docs
 ```
 
+
+### Remote Ollama via Cloudflare Tunnel + Access
+
+Run AI-EMS Web UI and Physics API on each user's localhost.
+Only Windows Ollama on the GPU PC is shared remotely.
+
+Run cloudflared on Windows with origin http://127.0.0.1:11434 and
+origin HTTP Host header localhost:11434. Do not add routes for ports 8000/8001.
+Cloudflare account/domain configuration, cloudflared installation, Tunnel
+creation/startup, and automatic startup are separate system operations.
+Before enabling the public route, protect the entire Ollama hostname with
+an Access self-hosted application and a **Service Auth** policy allowing
+the selected Service Token.
+
+Set these in each client's ignored local .env or process environment:
+
+```dotenv
+AI_EMS_LLM_BASE_URL=https://ollama.example.com
+AI_EMS_MODEL=qwen3.5:9b
+AI_EMS_CF_ACCESS_CLIENT_ID=<service-token-client-id>
+AI_EMS_CF_ACCESS_CLIENT_SECRET=<service-token-client-secret>
+```
+
+Replace the example hostname and restart AI-EMS after configuration changes.
+The two Access variables become CF-Access-Client-Id and CF-Access-Client-Secret
+headers on both synchronous and asynchronous ChatOllama requests.
+If both are unset/empty, existing local behavior is preserved.
+Setting only one raises an error; credentials require an HTTPS base URL.
+Existing process environment variables take precedence over .env.
+
+Keep real credentials in the ignored local .env or secret environment variables.
+Never put them in .env.example, code, logs, or command-line URLs.
+Access Service Tokens and Tunnel connector tokens are separate credentials.
+
+Local tests verify authenticated and unauthenticated sync/async requests using
+mock HTTP transport. After Tunnel/Access setup, verify rejection of missing
+and invalid tokens, then test model listing, inference, AI-EMS tool calls and
+long responses with valid credentials. Check latency under concurrent GPU use.
+
+References:
+- [Ollama Tunnel configuration](https://docs.ollama.com/faq)
+- [Cloudflare Service Tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)
+
 ### Full-batch study
 
 ```bash

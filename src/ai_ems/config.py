@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -72,3 +73,24 @@ LOG_LEVEL = os.getenv(
     "AI_EMS_LOG_LEVEL",
     "info",
 )
+
+
+def get_llm_client_kwargs(base_url: str) -> dict:
+    """Return optional Access headers for both Ollama HTTP clients."""
+    client_id = os.getenv("AI_EMS_CF_ACCESS_CLIENT_ID", "").strip()
+    client_secret = os.getenv("AI_EMS_CF_ACCESS_CLIENT_SECRET", "").strip()
+    if not client_id and not client_secret:
+        return {}
+    if not client_id or not client_secret:
+        raise ValueError(
+            "Set both AI_EMS_CF_ACCESS_CLIENT_ID and "
+            "AI_EMS_CF_ACCESS_CLIENT_SECRET, or leave both unset."
+        )
+    if urlsplit(base_url).scheme.lower() != "https":
+        raise ValueError("Cloudflare Access credentials require an HTTPS LLM base URL.")
+    return {
+        "headers": {
+            "CF-Access-Client-Id": client_id,
+            "CF-Access-Client-Secret": client_secret,
+        },
+    }

@@ -14,7 +14,7 @@ from ai_ems.agent.formatters import (
     format_generator_risk_response,
 )
 from ai_ems.agent.tools import create_agent_tools
-from ai_ems.config import LLM_BASE_URL, MODEL_NAME
+from ai_ems.config import LLM_BASE_URL, MODEL_NAME, get_llm_client_kwargs
 
 DETERMINISTIC_FORMATTERS = {
     "contingency_response_analysis": (
@@ -319,10 +319,12 @@ def create_agent_graph(
     resolved_model_name = model_name or MODEL_NAME
     resolved_base_url = base_url or LLM_BASE_URL
 
+    client_kwargs = get_llm_client_kwargs(resolved_base_url)
     model = ChatOllama(
         model=resolved_model_name,
         base_url=resolved_base_url,
         temperature=0,
+        **({"client_kwargs": client_kwargs} if client_kwargs else {}),
     )
 
     model_with_tools = model.bind_tools(tools)
