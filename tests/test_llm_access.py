@@ -9,10 +9,12 @@ from ai_ems.config import get_llm_client_kwargs
 
 ID_ENV = "AI_EMS_CF_ACCESS_CLIENT_ID"
 SECRET_ENV = "AI_EMS_CF_ACCESS_CLIENT_SECRET"
+API_ENV = "AI_EMS_LLM_API_KEY"
 
 
 @pytest.fixture(autouse=True)
 def clear_access_env(monkeypatch):
+    monkeypatch.delenv(API_ENV, raising=False)
     monkeypatch.delenv(ID_ENV, raising=False)
     monkeypatch.delenv(SECRET_ENV, raising=False)
 
@@ -43,9 +45,11 @@ def test_credentials_require_https(monkeypatch):
         get_llm_client_kwargs("http://127.0.0.1:11434")
 
 
-@pytest.mark.parametrize("authenticated", [False, True])
+@pytest.mark.parametrize("authenticated", [False, "cloudflare", "bearer"])
 def test_sync_and_async_requests(monkeypatch, authenticated):
-    if authenticated:
+    if authenticated == "bearer":
+        monkeypatch.setenv(API_ENV, "dummy-api-key")
+    elif authenticated == "cloudflare":
         monkeypatch.setenv(ID_ENV, "dummy-id")
         monkeypatch.setenv(SECRET_ENV, "dummy-secret")
     requests = []
@@ -85,22 +89,27 @@ def test_sync_and_async_requests(monkeypatch, authenticated):
         assert asyncio.run(bound.ainvoke("hello")).content == "OK"
         assert len(requests) == 2
         for request in requests:
+            assert request.headers.get("Authorization") == (
+                "Bearer dummy-api-key" if authenticated == "bearer" else None
+            )
             assert request.headers.get("CF-Access-Client-Id") == (
-                "dummy-id" if authenticated else None
+                "dummy-id" if authenticated == "cloudflare" else None
             )
             assert request.headers.get("CF-Access-Client-Secret") == (
-                "dummy-secret" if authenticated else None
+                "dummy-secret" if authenticated == "cloudflare" else None
             )
     finally:
         model._client._client.close()
         asyncio.run(model._async_client._client.aclose())
 
 
-@pytest.mark.parametrize("authenticated", [False, True])
+@pytest.mark.parametrize("authenticated", [False, "cloudflare", "bearer"])
 def test_agent_graph_passes_optional_client_kwargs(monkeypatch, authenticated):
     from ai_ems.agent import graph
 
-    if authenticated:
+    if authenticated == "bearer":
+        monkeypatch.setenv(API_ENV, "dummy-api-key")
+    elif authenticated == "cloudflare":
         monkeypatch.setenv(ID_ENV, "dummy-id")
         monkeypatch.setenv(SECRET_ENV, "dummy-secret")
     monkeypatch.setattr(graph, "create_agent_tools", lambda network: [])
@@ -109,7 +118,11 @@ def test_agent_graph_passes_optional_client_kwargs(monkeypatch, authenticated):
         pass
 
     def capture(**kwargs):
-        if authenticated:
+        if authenticated == "bearer":
+            assert kwargs["client_kwargs"]["headers"] == {
+                "Authorization": "Bearer dummy-api-key",
+            }
+        elif authenticated == "cloudflare":
             assert kwargs["client_kwargs"]["headers"] == {
                 "CF-Access-Client-Id": "dummy-id",
                 "CF-Access-Client-Secret": "dummy-secret",
@@ -122,3 +135,53 @@ def test_agent_graph_passes_optional_client_kwargs(monkeypatch, authenticated):
     monkeypatch.setattr(graph, "ChatOllama", capture)
     with pytest.raises(Captured):
         graph.create_agent_graph(None, base_url="https://ollama.example.com")
+
+
+@pytest.mark.parametrize("url", [
+    "https://ollama.example.com",
+    "http://127.0.0.1:18080",
+    "http://127.0.0.1:18080/",
+])
+def test_bearer_allowed_urls(monkeypatch, url):
+    monkeypatch.setenv(API_ENV, "dummy-key")
+    assert get_llm_client_kwargs(url) == {"headers": {"Authorization": "Bearer dummy-key"}}
+
+
+@pytest.mark.parametrize("url", [
+    "http://127.0.0.1:11434",
+    "http://localhost:18080",
+    "http://127.0.0.1:18081",
+    "http://100.73.45.17:18080",
+    "http://127.0.0.1:18080.evil.example",
+    "http://127.0.0.1:18080@evil.example",
+    "http://127.0.0.1:18080/api/chat",
+    "http://127.0.0.1:18080?host=evil",
+    "https://user:password@ollama.example.com",
+    "https:///api/chat",
+])
+def test_bearer_rejects_insecure_or_ambiguous_urls(monkeypatch, url):
+    monkeypatch.setenv(API_ENV, "dummy-sensitive-value")
+    with pytest.raises(ValueError) as error:
+        get_llm_client_kwargs(url)
+    assert "dummy-sensitive-value" not in str(error.value)
+
+
+@pytest.mark.parametrize("cf_env", [ID_ENV, SECRET_ENV])
+def test_conflicting_authentication(monkeypatch, cf_env):
+    monkeypatch.setenv(API_ENV, "dummy-sensitive-value")
+    monkeypatch.setenv(cf_env, "dummy-cf-value")
+    with pytest.raises(ValueError, match="cannot be set together") as error:
+        get_llm_client_kwargs("https://ollama.example.com")
+    assert "dummy-sensitive-value" not in str(error.value)
+    assert "dummy-cf-value" not in str(error.value)
+
+
+def test_blank_api_key_preserves_local_behavior(monkeypatch):
+    monkeypatch.setenv(API_ENV, " ")
+    assert get_llm_client_kwargs("http://127.0.0.1:11434") == {}
+
+
+def test_rejects_header_injection(monkeypatch):
+    monkeypatch.setenv(API_ENV, "dummy-key\r\nX-Injected: yes")
+    with pytest.raises(ValueError, match="line breaks"):
+        get_llm_client_kwargs("https://ollama.example.com")

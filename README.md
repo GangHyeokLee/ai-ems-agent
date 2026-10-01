@@ -320,6 +320,51 @@ http://127.0.0.1:8001/docs
 ```
 
 
+### Bearer-authenticated local Ollama proxy (Windows)
+
+Windows Caddy listens only on 127.0.0.1:18080 and forwards only GET /api/tags
+and POST /api/chat to the fixed upstream 127.0.0.1:11434.
+The installed ChatOllama uses POST /api/chat for sync, async, streaming and
+tool calls; model validation on initialization is not enabled.
+Other paths/methods, including model management and /api/generate, return 403.
+Missing/invalid Bearer credentials return 401 before any upstream request.
+
+Install Windows Caddy and copy deploy/ollama-proxy to a local Windows directory.
+Set OLLAMA_PROXY_TOKEN in the launching process (64 lowercase hex characters,
+generated with a cryptographic RNG); never save the real token to files/Git or
+pass it on the command line. Start with:
+
+```powershell
+.\Start-OllamaProxy.ps1
+```
+
+The launcher refuses missing/invalid tokens before starting Caddy.
+Runtime JSON containing the token is sent via stdin only.
+Admin API, config persistence, automatic HTTPS and runtime logging are disabled;
+access logging is not configured. Responses flush at 10ms intervals.
+Stop the foreground launcher with Ctrl+C. No Windows service is installed.
+
+AI-EMS clients can set these process environment variables:
+
+```dotenv
+AI_EMS_LLM_BASE_URL=http://127.0.0.1:18080
+AI_EMS_LLM_API_KEY=<same-token>
+```
+
+AI_EMS_LLM_API_KEY sends Authorization: Bearer on both sync/async clients.
+Remote authentication requires HTTPS. The only HTTP exception is the exact
+local test URL http://127.0.0.1:18080 (optional trailing slash).
+localhost aliases, other ports, userinfo and remote HTTP are rejected.
+Set neither authentication mode to preserve existing unauthenticated local calls.
+Bearer and Cloudflare credentials cannot be combined.
+The proxy removes Authorization before forwarding to Ollama.
+
+This stage does not enable Tailscale Serve/Funnel, change OLLAMA_HOST, open
+firewall/router ports, or expose AI-EMS ports 8000/8001.
+WSL localhost differs from Windows localhost under NAT: do not change the
+existing WSL .env to this test URL until an actual network path is verified.
+The later tailnet/Funnel stage will use HTTPS and requires separate validation.
+
 ### Remote Ollama via Cloudflare Tunnel + Access
 
 Run AI-EMS Web UI and Physics API on each user's localhost.

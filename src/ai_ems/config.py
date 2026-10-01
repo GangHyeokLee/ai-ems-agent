@@ -76,21 +76,47 @@ LOG_LEVEL = os.getenv(
 
 
 def get_llm_client_kwargs(base_url: str) -> dict:
-    """Return optional Access headers for both Ollama HTTP clients."""
+    """Return optional authentication headers for both Ollama HTTP clients."""
+    api_key = os.getenv("AI_EMS_LLM_API_KEY", "").strip()
     client_id = os.getenv("AI_EMS_CF_ACCESS_CLIENT_ID", "").strip()
     client_secret = os.getenv("AI_EMS_CF_ACCESS_CLIENT_SECRET", "").strip()
-    if not client_id and not client_secret:
+    if api_key and (client_id or client_secret):
+        raise ValueError(
+            "AI_EMS_LLM_API_KEY and Cloudflare Access credentials cannot be set together."
+        )
+    if not api_key and not client_id and not client_secret:
         return {}
-    if not client_id or not client_secret:
+    if not api_key and (not client_id or not client_secret):
         raise ValueError(
             "Set both AI_EMS_CF_ACCESS_CLIENT_ID and "
             "AI_EMS_CF_ACCESS_CLIENT_SECRET, or leave both unset."
         )
-    if urlsplit(base_url).scheme.lower() != "https":
-        raise ValueError("Cloudflare Access credentials require an HTTPS LLM base URL.")
-    return {
-        "headers": {
+    if any("\r" in value or "\n" in value for value in (api_key, client_id, client_secret)):
+        raise ValueError("LLM authentication values must not contain line breaks.")
+
+    url = urlsplit(base_url)
+    secure_remote = (
+        url.scheme.lower() == "https"
+        and bool(url.hostname)
+        and url.username is None
+        and url.password is None
+    )
+    local_proxy = base_url in (
+        "http://127.0.0.1:18080",
+        "http://127.0.0.1:18080/",
+    )
+    if not secure_remote and not (api_key and local_proxy):
+        raise ValueError(
+            "LLM authentication requires HTTPS; Bearer authentication also allows "
+            "the local test proxy http://127.0.0.1:18080."
+        )
+
+    headers = (
+        {"Authorization": f"Bearer {api_key}"}
+        if api_key
+        else {
             "CF-Access-Client-Id": client_id,
             "CF-Access-Client-Secret": client_secret,
-        },
-    }
+        }
+    )
+    return {"headers": headers}
