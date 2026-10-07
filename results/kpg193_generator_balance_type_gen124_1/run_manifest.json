@@ -1,0 +1,19 @@
+{
+  "created_at": "2026-09-30T18:24:04.679422+09:00",
+  "pypowsybl_version": "1.16.1",
+  "loadflow_provider": "OpenLoadFlow",
+  "case_file": "/home/rkdgu/Projects/ai-ems-agent/data/KPG193_ver2_0_powsybl_full.mat",
+  "outage_generator_id": "GEN-124#1",
+  "monitored_line_id": "LINE-134-193",
+  "balance_types": [
+    "PROPORTIONAL_TO_GENERATION_P_MAX",
+    "PROPORTIONAL_TO_GENERATION_P",
+    "PROPORTIONAL_TO_GENERATION_REMAINING_MARGIN"
+  ],
+  "excluded_balance_type": "PROPORTIONAL_TO_GENERATION_PARTICIPATION_FACTOR",
+  "excluded_reason": "KPG-193 activePowerControl extension has no rows.",
+  "participation_delta_threshold_mw": 0.01,
+  "near_pmax_absolute_threshold_mw": 5.0,
+  "near_pmax_relative_threshold_pct": 1.0,
+  "interpretation": "Balance Type is a load-flow balancing assumption, not corrective redispatch."
+}
