@@ -119,14 +119,24 @@ def create_agent_tools(network, case_path: str | Path = CASE_FILE):
         return run_generator_contingency_screening(case_path=case_path, slack_mode=slack_mode, top_n=top_n)
 
     @tool
-    def generator_risk_response_analysis(slack_mode: Literal["single", "distributed"] = "distributed", screening_top_n: int = 5, response_top_n: int = 3, delta_mw: float = 10.0) -> dict[str, Any]:
+    def generator_risk_response_analysis(slack_mode: Literal["single", "distributed"] = "distributed", screening_top_n: int = 5, response_top_n: int = 3, delta_mw: float = 10.0, search_mode: Literal["fixed", "adaptive"] = "fixed", max_deltas_per_pair: int = 5) -> dict[str, Any]:
         """Find the riskiest generator N-1 outage and analyze its corrective response.
 
         Use this tool when one request asks BOTH to find/rank the riskiest
         generator outage(s) AND to analyze corrective action, mitigation,
         response measures, or Redispatch for the top-ranked outage.
+        Use search_mode='adaptive' only when the user explicitly requests
+        adaptive or variable-sized Redispatch. Otherwise keep 'fixed'.
         """
-        return analyze_generator_risk_response(case_path=case_path, slack_mode=slack_mode, screening_top_n=screening_top_n, response_top_n=response_top_n, delta_mw=delta_mw)
+        if max_deltas_per_pair < 1 or max_deltas_per_pair > 10:
+            raise ValueError("max_deltas_per_pair must be between 1 and 10.")
+        return analyze_generator_risk_response(
+            case_path=case_path, slack_mode=slack_mode,
+            screening_top_n=screening_top_n, response_top_n=response_top_n,
+            delta_mw=delta_mw,
+            **({"search_mode": "adaptive", "max_deltas_per_pair": max_deltas_per_pair}
+               if search_mode == "adaptive" else {}),
+        )
 
     @tool
     def generator_sensitivity(outage_line_id: str, monitored_line_id: str | None = None, top_n: int = 5) -> dict[str, Any]:
@@ -152,11 +162,25 @@ def create_agent_tools(network, case_path: str | Path = CASE_FILE):
         return analyze_contingency_response(case_path=case_path, outage_line_id=outage_line_id, delta_mw=delta_mw, top_n=top_n)
 
     @tool
-    def generator_outage_response_analysis(generator_id: str, slack_mode: Literal["single", "distributed"] = "distributed", balance_type: str | None = None, delta_mw: float = 10.0, top_n: int = 3) -> dict[str, Any]:
-        """Analyze corrective-action candidates after a specific generator outage."""
+    def generator_outage_response_analysis(generator_id: str, slack_mode: Literal["single", "distributed"] = "distributed", balance_type: str | None = None, delta_mw: float = 10.0, top_n: int = 3, search_mode: Literal["fixed", "adaptive"] = "fixed", max_deltas_per_pair: int = 5) -> dict[str, Any]:
+        """Analyze corrective-action candidates after a specific generator outage.
+
+        Choose search_mode='adaptive' for an explicit adaptive/variable-magnitude
+        Redispatch request. The fixed 10-MW search remains the default.
+        Adaptive results are verified with AC Load Flow and Security Analysis;
+        improvement without full violation clearance is NOT a secure end state.
+        """
         if top_n < 1 or top_n > 10:
             raise ValueError("top_n must be between 1 and 10.")
-        return analyze_generator_outage_response(case_path=case_path, outage_generator_id=generator_id, slack_mode=slack_mode, balance_type=balance_type, delta_mw=delta_mw, top_n=top_n)
+        if max_deltas_per_pair < 1 or max_deltas_per_pair > 10:
+            raise ValueError("max_deltas_per_pair must be between 1 and 10.")
+        return analyze_generator_outage_response(
+            case_path=case_path, outage_generator_id=generator_id,
+            slack_mode=slack_mode, balance_type=balance_type,
+            delta_mw=delta_mw, top_n=top_n,
+            **({"search_mode": "adaptive", "max_deltas_per_pair": max_deltas_per_pair}
+               if search_mode == "adaptive" else {}),
+        )
 
     return [
         network_summary,
