@@ -82,6 +82,13 @@ def format_generator_outage_response(
             f"- **분석 대상 선로**: {monitored_line_id} ({selection_text})"
         )
 
+    search_mode = result.get("search_mode", "fixed")
+    if search_mode == "adaptive":
+        lines.append("- **Redispatch 탐색 방식**: Adaptive (가변 제어량)")
+        lines.append(f"- **추천 기준 통과 후보**: {result.get('valid_candidate_count', 0)}개")
+        lines.append("- 추천 기준 통과는 위반 완전 해소나 실제 운전 승인을 의미하지 않습니다.")
+    else:
+        lines.append("- **Redispatch 탐색 방식**: Fixed (고정 제어량)")
     lines.append(f"- **검토한 Redispatch 후보**: {candidate_count}개")
 
     candidates = result.get("candidates", [])
@@ -102,8 +109,8 @@ def format_generator_outage_response(
 
         for item in candidates:
             redispatch = item["redispatch"]
-            prediction = item["prediction"]
-            validation = item["ac_validation"]
+            prediction = item.get("prediction") or {}
+            validation = item.get("ac_validation") or {}
 
             predicted_reduction = prediction.get(
                 "abs_p1_reduction_mw"
@@ -131,6 +138,10 @@ def format_generator_outage_response(
                 else "-"
             )
 
+            if search_mode == "adaptive" and item.get("validation_status") == "FAILED":
+                loading_text = "검증 실패"
+                improvement_text = "-"
+
             action_text = (
                 f"{redispatch['up_generator_id']} +"
                 f"{redispatch['delta_mw']:.1f} MW / "
@@ -148,7 +159,7 @@ def format_generator_outage_response(
                 f"{loading_text} |"
             )
 
-    if best is None:
+    if best is None or not best.get("ac_validation"):
         lines.extend(
             [
                 "",
@@ -161,7 +172,7 @@ def format_generator_outage_response(
 
     redispatch = best["redispatch"]
     validation = best["ac_validation"]
-    after = validation["after_redispatch"]
+    after = validation.get("after_redispatch") or {}
 
     lines.extend(
         [
@@ -177,6 +188,29 @@ def format_generator_outage_response(
             ),
         ]
     )
+
+    if search_mode == "adaptive":
+        assessment = best.get("risk_assessment") or {}
+        eligible = assessment.get("recommendation_eligible") is True
+        estimated = best.get("estimated_delta_mw")
+        method = best.get("estimation_method")
+        bound = best.get("feasible_delta_max_mw")
+        lines.append(f"- **제어량 추정 방식**: {method or '정보 없음'}")
+        if estimated is not None:
+            lines.append(f"- **초기 추정 제어량**: {estimated:.2f} MW (국소 근사값)")
+        if bound is not None:
+            lines.append(f"- **발전기 출력 제약상 최대 제어량**: {bound:.2f} MW")
+        if best.get("estimate_clipped_by_headroom"):
+            lines.append("- 초기 추정 제어량이 발전기 출력 여유로 제한되었습니다.")
+        lines.append("- **추천 기준 통과**: " + ("예" if eligible else "아니오")
+                     + " (과부하 완전 해소 여부와 별도)")
+        if not eligible:
+            reasons = assessment.get("rejection_reasons") or []
+            lines.append("- **추천 제외 사유**: " + (", ".join(map(str, reasons)) if reasons else "검증 기준 미충족"))
+        if result.get("recommended_candidate") is None:
+            lines.append("- **추천 후보**: 없음 (시험 후보와 추천 가능 후보는 구분)")
+        elif result.get("recommended_candidate") is not best:
+            lines.append("- **추천 후보**: 시험 최선 후보와 별도 선정됨")
 
     prediction = best.get("prediction", {})
     predicted_reduction = prediction.get(
@@ -267,6 +301,9 @@ def format_generator_outage_response(
             "- **결과**: 설비 한계 정보가 없어 "
             "위반 해소 여부를 판정할 수 없습니다."
         )
+
+    if search_mode == "adaptive" and status == "NO_RECOMMENDABLE_CANDIDATE":
+        lines.append("- **주의**: 추천 기준을 통과한 후보가 없어 운영상 제어안을 추천할 수 없습니다.")
 
     whole = validation.get("whole_network_validation")
 
