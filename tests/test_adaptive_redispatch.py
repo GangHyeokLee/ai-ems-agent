@@ -5,6 +5,7 @@ from ai_ems.tools.adaptive_redispatch import (
     build_adaptive_redispatch_candidates,
     calculate_feasible_delta_range,
     estimate_redispatch_delta,
+    estimate_two_end_redispatch_delta,
     evaluate_violation_risk,
     generate_delta_candidates,
 )
@@ -111,3 +112,87 @@ def test_rank_prefers_global_reduction():
         }
     assert sorted([result(0.05, 1), result(0.02, 2)],
                   key=adaptive_candidate_sort_key)[0]["rank"] == 2
+
+def test_two_terminal_estimate_handles_p2_dominant_overload():
+    before = {"p1_mw": -95.0, "q1_mvar": 0.0,
+              "p2_mw": 120.0, "q2_mvar": 0.0}
+    probe = {"p1_mw": -92.0, "q1_mvar": 0.0,
+             "p2_mw": 115.0, "q2_mvar": 0.0}
+    estimate = estimate_two_end_redispatch_delta(
+        before, probe, probe_delta_mw=10.0,
+        limit_mva=100.0, max_delta_mw=50.0
+    )
+    assert estimate is not None
+    assert estimate["estimated_delta_mw"] == pytest.approx(40.0)
+    assert not estimate["estimate_clipped_by_headroom"]
+
+
+def test_two_terminal_estimate_records_unreachable_limit():
+    before = {"p1_mw": -95.0, "q1_mvar": 0.0,
+              "p2_mw": 120.0, "q2_mvar": 0.0}
+    probe = {"p1_mw": -92.0, "q1_mvar": 0.0,
+             "p2_mw": 115.0, "q2_mvar": 0.0}
+    estimate = estimate_two_end_redispatch_delta(
+        before, probe, 10.0, 100.0, 25.0
+    )
+    assert estimate is not None
+    assert estimate["estimated_delta_mw"] == pytest.approx(25.0)
+    assert estimate["unclamped_estimated_delta_mw"] == pytest.approx(40.0)
+    assert estimate["estimate_clipped_by_headroom"]
+
+
+def test_two_terminal_estimate_requires_all_overloaded_ends_to_clear():
+    before = {"p1_mw": -120.0, "q1_mvar": 0.0,
+              "p2_mw": 130.0, "q2_mvar": 0.0}
+    probe = {"p1_mw": -115.0, "q1_mvar": 0.0,
+             "p2_mw": 125.0, "q2_mvar": 0.0}
+    estimate = estimate_two_end_redispatch_delta(before, probe, 10, 100, 80)
+    assert estimate is not None
+    assert estimate["estimated_delta_mw"] == pytest.approx(60)
+
+
+def test_two_terminal_estimate_falls_back_if_overload_increases():
+    before = {"p1_mw": -95.0, "q1_mvar": 0.0,
+              "p2_mw": 120.0, "q2_mvar": 0.0}
+    probe = {"p1_mw": -92.0, "q1_mvar": 0.0,
+             "p2_mw": 125.0, "q2_mvar": 0.0}
+    assert estimate_two_end_redispatch_delta(
+        before, probe, 10, 100, 80
+    ) is None
+
+
+def test_candidate_budget_keeps_bound_with_five_points():
+    result = generate_delta_candidates(None, 36.88791733190601, max_candidates=5)
+    assert len(result) == 5
+    assert result[0] == pytest.approx(10.0)
+    assert max(result) == pytest.approx(36.88791733190601)
+
+
+def test_candidate_budget_keeps_125_percent_estimate_if_possible():
+    result = generate_delta_candidates(20, 40, max_candidates=5)
+    assert 25.0 in result
+    assert 40.0 in result
+    assert 20.0 in result
+    assert 10.0 in result
+
+
+def test_two_terminal_probe_is_used_for_p2_dominant_line():
+    generators = {
+        "UP": state(actual=50, target=50, bus="UP-BUS"),
+        "DOWN": state(actual=50, target=50, bus="DOWN-BUS"),
+    }
+    calls = []
+    def probe(up, down, delta):
+        calls.append((up, down, delta))
+        return {"p1_mw": -95 + 0.3 * delta, "q1_mvar": 0,
+                "p2_mw": 120 - 0.5 * delta, "q2_mvar": 0}
+    candidates = build_adaptive_redispatch_candidates(
+        generators, {"UP": -0.7, "DOWN": 0.1},
+        -95, 0, 120, 0, 100,
+        top_n=1, max_deltas_per_pair=5, flow_probe=probe
+    )
+    assert calls
+    assert candidates
+    assert all(c["estimation_method"] == "AC_TWO_END_FINITE_DIFFERENCE"
+               for c in candidates)
+    assert candidates[0]["estimated_delta_mw"] == pytest.approx(40.0)
