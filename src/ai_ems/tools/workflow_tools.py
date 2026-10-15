@@ -336,6 +336,12 @@ def analyze_generator_outage_response(
                     ],
                 },
                 "ac_validation": validation,
+                **({
+                    "estimated_delta_mw": candidate.get("estimated_delta_mw"),
+                    "feasible_delta_max_mw": candidate.get("feasible_delta_max_mw"),
+                    "estimation_method": candidate.get("estimation_method"),
+                    "risk_assessment": _assess_adaptive_candidate(validation),
+                } if search_mode == "adaptive" else {}),
                 "target_selection": target_selection,
             }
         )
@@ -364,6 +370,13 @@ def analyze_generator_outage_response(
         "monitored_line_id": monitored_line_id,
         "target_selection": target_selection,
         "candidate_count": len(validated_candidates),
+        **({
+            "recommended_candidate": recommended,
+            "valid_candidate_count": sum(
+                1 for item in validated_candidates
+                if item.get("risk_assessment", {}).get("recommendation_eligible")
+            ),
+        } if search_mode == "adaptive" else {}),
         "candidates": validated_candidates,
         "best_tested_candidate": (
             validated_candidates[0] if validated_candidates else None
