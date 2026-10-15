@@ -330,6 +330,8 @@ def analyze_generator_outage_response(
                     "estimated_delta_mw": candidate.get("estimated_delta_mw"),
                     "feasible_delta_max_mw": candidate.get("feasible_delta_max_mw"),
                     "estimation_method": candidate.get("estimation_method"),
+                    "estimated_delta_unclamped_mw": candidate.get("estimated_delta_unclamped_mw"),
+                    "estimate_clipped_by_headroom": candidate.get("estimate_clipped_by_headroom"),
                     "risk_assessment": _assess_adaptive_candidate(validation),
                 } if search_mode == "adaptive" else {}),
                 "target_selection": target_selection,
