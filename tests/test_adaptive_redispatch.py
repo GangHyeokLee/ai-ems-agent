@@ -187,7 +187,7 @@ def test_two_terminal_probe_is_used_for_p2_dominant_line():
         return {"p1_mw": -95 + 0.3 * delta, "q1_mvar": 0,
                 "p2_mw": 120 - 0.5 * delta, "q2_mvar": 0}
     candidates = build_adaptive_redispatch_candidates(
-        generators, {"UP": -0.7, "DOWN": 0.1},
+        generators, {"UP": 0.7, "DOWN": -0.1},
         -95, 0, 120, 0, 100,
         top_n=1, max_deltas_per_pair=5, flow_probe=probe
     )
