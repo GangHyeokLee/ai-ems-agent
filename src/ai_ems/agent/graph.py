@@ -93,6 +93,17 @@ Tool selection and scope:
   generator_risk_response_analysis
 - do not satisfy an all-generator screening request by repeatedly calling
   generator_contingency_analysis; use generator_contingency_screening
+- for generator corrective-action requests, keep search_mode='fixed' by
+  default; select search_mode='adaptive' only when the user explicitly asks
+  for adaptive/variable-sized Redispatch or comparison of adaptive versus fixed
+- in a fixed-versus-adaptive comparison run the same outage and slack settings
+  with both search modes; do not invent the result of a mode not called
+- adaptive recommendation_eligible means the tested candidate passed the
+  configured relative-improvement checks, NOT that all thermal/voltage
+  violations are cleared or the control is authorized for real operation
+- when presenting adaptive results, distinguish estimated_delta_mw (local
+  approximation), delta_mw (tested control), residual violations and actual
+  AC/Security validation. Do not call the best tested candidate optimal
 - generator_contingency_screening is a batch Security Analysis workflow, not
   corrective redispatch or dynamic-stability analysis
 - do not satisfy an explicit single-vs-distributed comparison by running only
