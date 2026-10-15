@@ -1,4 +1,5 @@
 from ai_ems.network import load_network
+from ai_ems.tools.adaptive_redispatch import adaptive_candidate_sort_key
 from ai_ems.tools.control_tools import (
     generate_redispatch_candidates,
     validate_balanced_redispatch,
@@ -137,6 +138,11 @@ def analyze_contingency_response(
                     "abs_p1_reduction_mw": candidate["predicted_abs_p1_reduction_mw"],
                 },
                 "ac_validation": validation,
+                **({"estimated_delta_mw": candidate.get("estimated_delta_mw"),
+                    "feasible_delta_max_mw": candidate.get("feasible_delta_max_mw"),
+                    "estimation_method": candidate.get("estimation_method"),
+                    "risk_assessment": _assess_adaptive_candidate(validation)}
+                   if search_mode == "adaptive" else {}),
                 "target_selection": target_selection,
             }
         )
@@ -154,6 +160,11 @@ def analyze_contingency_response(
         "target_selection": target_selection,
         "delta_mw": delta_mw,
         "candidate_count": len(validated_candidates),
+        **({"recommended_candidate": recommended,
+            "valid_candidate_count": sum(
+                1 for item in validated_candidates
+                if item.get("risk_assessment", {}).get("recommendation_eligible")
+            )} if search_mode == "adaptive" else {}),
         "candidates": validated_candidates,
         "best_tested_candidate": (
             validated_candidates[0] if validated_candidates else None
@@ -170,6 +181,8 @@ def analyze_generator_outage_response(
     balance_type: str | None = None,
     delta_mw: float = 10.0,
     top_n: int = 3,
+    search_mode: str = "fixed",
+    max_deltas_per_pair: int = 5,
 ) -> dict:
     """Analyze corrective redispatch candidates after a generator outage.
 
@@ -185,6 +198,10 @@ def analyze_generator_outage_response(
         raise ValueError("delta_mw must be greater than zero.")
     if top_n <= 0:
         raise ValueError("top_n must be greater than zero.")
+    if search_mode not in {"fixed", "adaptive"}:
+        raise ValueError("search_mode must be 'fixed' or 'adaptive'.")
+    if max_deltas_per_pair <= 0:
+        raise ValueError("max_deltas_per_pair must be greater than zero.")
 
     detail = analyze_generator_contingency(
         case_path=case_path,
@@ -215,6 +232,7 @@ def analyze_generator_outage_response(
         "slack_mode": slack_mode,
         "balance_type": detail.get("balance_type"),
         "delta_mw": float(delta_mw),
+        "search_mode": search_mode,
         "initial_security": initial_security,
         "initial_major_overloads": detail.get("major_overloads", []),
     }
@@ -263,21 +281,43 @@ def analyze_generator_outage_response(
         balance_type=balance_type,
         delta_mw=delta_mw,
         top_n=top_n,
+        **(
+            {"search_mode": "adaptive", "max_deltas_per_pair": max_deltas_per_pair}
+            if search_mode == "adaptive" else {}
+        ),
     )
 
     validated_candidates = []
 
     for candidate in candidate_result["candidates"]:
-        validation = validate_generator_outage_balanced_redispatch(
-            case_path=case_path,
-            outage_generator_id=outage_generator_id,
-            monitored_line_id=monitored_line_id,
-            up_generator_id=candidate["up_generator_id"],
-            down_generator_id=candidate["down_generator_id"],
-            delta_mw=candidate["delta_mw"],
-            slack_mode=slack_mode,
-            balance_type=balance_type,
-        )
+        try:
+            validation = validate_generator_outage_balanced_redispatch(
+                case_path=case_path,
+                outage_generator_id=outage_generator_id,
+                monitored_line_id=monitored_line_id,
+                up_generator_id=candidate["up_generator_id"],
+                down_generator_id=candidate["down_generator_id"],
+                delta_mw=candidate["delta_mw"],
+                slack_mode=slack_mode,
+                balance_type=balance_type,
+            )
+        except (RuntimeError, ValueError) as exc:
+            if search_mode != "adaptive":
+                raise
+            validated_candidates.append({
+                "rank": candidate["rank"],
+                "redispatch": {
+                    "up_generator_id": candidate["up_generator_id"],
+                    "down_generator_id": candidate["down_generator_id"],
+                    "delta_mw": candidate["delta_mw"],
+                },
+                "validation_status": "FAILED",
+                "validation_error": str(exc),
+                "risk_assessment": {"recommendation_eligible": False,
+                                    "rejection_reasons": ["VALIDATION_FAILURE"]},
+                "ac_validation": {},
+            })
+            continue
 
         validated_candidates.append(
             {
@@ -300,14 +340,27 @@ def analyze_generator_outage_response(
             }
         )
 
-    validated_candidates.sort(key=_ac_sort_key)
+    if search_mode == "adaptive":
+        validated_candidates.sort(key=adaptive_candidate_sort_key)
+    else:
+        validated_candidates.sort(key=_ac_sort_key)
 
     for rank, item in enumerate(validated_candidates, start=1):
         item["ac_validation_rank"] = rank
 
+    recommended = next(
+        (item for item in validated_candidates
+         if item.get("risk_assessment", {}).get("recommendation_eligible")),
+        None,
+    ) if search_mode == "adaptive" else None
+
     return {
         **common,
-        "analysis_status": "COMPLETED",
+        "analysis_status": (
+            "NO_RECOMMENDABLE_CANDIDATE"
+            if search_mode == "adaptive" and recommended is None
+            else "COMPLETED"
+        ),
         "monitored_line_id": monitored_line_id,
         "target_selection": target_selection,
         "candidate_count": len(validated_candidates),
@@ -316,3 +369,22 @@ def analyze_generator_outage_response(
             validated_candidates[0] if validated_candidates else None
         ),
     }
+
+
+def _assess_adaptive_candidate(validation: dict) -> dict:
+    """Include AC convergence and all-generator physical bounds in eligibility."""
+    whole = validation.get("whole_network_validation") or {}
+    assessment = dict(whole.get("risk_assessment") or {
+        "recommendation_eligible": False,
+        "rejection_reasons": ["MISSING_SECURITY_RISK_METRICS"],
+    })
+    reasons = list(assessment.get("rejection_reasons", []))
+    if not validation.get("after_redispatch", {}).get("converged"):
+        reasons.append("AC_NOT_CONVERGED")
+    if validation.get("generator_limit_violations"):
+        reasons.append("GENERATOR_LIMIT_VIOLATION")
+    assessment["rejection_reasons"] = reasons
+    assessment["recommendation_eligible"] = (
+        bool(assessment.get("recommendation_eligible")) and not reasons
+    )
+    return assessment
