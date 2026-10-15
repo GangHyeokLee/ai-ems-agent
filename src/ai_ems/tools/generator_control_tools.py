@@ -7,6 +7,10 @@ from typing import Any
 import pypowsybl as pp
 
 from ai_ems.network import load_network
+from ai_ems.tools.adaptive_redispatch import (
+    build_adaptive_redispatch_candidates,
+    evaluate_violation_risk,
+)
 from ai_ems.tools.generator_contingency_tools import (
     build_generator_loadflow_parameters,
     generator_snapshot,
@@ -29,6 +33,8 @@ def generate_generator_outage_redispatch_candidates(
     balance_type: str | None = None,
     delta_mw: float = 10.0,
     top_n: int = 3,
+    search_mode: str = "fixed",
+    max_deltas_per_pair: int = 5,
 ) -> dict[str, Any]:
     """Generate balanced redispatch candidates after a generator outage.
 
@@ -47,6 +53,10 @@ def generate_generator_outage_redispatch_candidates(
         raise ValueError("delta_mw must be greater than zero.")
     if top_n <= 0:
         raise ValueError("top_n must be greater than zero.")
+    if search_mode not in {"fixed", "adaptive"}:
+        raise ValueError("search_mode must be 'fixed' or 'adaptive'.")
+    if max_deltas_per_pair <= 0:
+        raise ValueError("max_deltas_per_pair must be greater than zero.")
 
     parameters = build_generator_loadflow_parameters(
         slack_mode=slack_mode,
@@ -116,6 +126,45 @@ def generate_generator_outage_redispatch_candidates(
         item["generator_id"]: float(item["sensitivity"])
         for item in sensitivity_result["candidates"]
     }
+
+    if search_mode == "adaptive":
+        monitored = monitored_branches[0]
+        candidate_list = build_adaptive_redispatch_candidates(
+            post_generators=post_generators,
+            sensitivities=sensitivities,
+            post_p1_mw=post_p1_mw,
+            post_q1_mvar=monitored.get("q1_mvar"),
+            post_p2_mw=monitored.get("p2_mw"),
+            post_q2_mvar=monitored.get("q2_mvar"),
+            limit_mva=_find_apparent_power_limit(
+                security_result, monitored_line_id
+            ),
+            top_n=top_n,
+            max_deltas_per_pair=max_deltas_per_pair,
+            baseline_mw=delta_mw,
+        )
+        return {
+            "analysis_type": (
+                "Generator Outage Sensitivity-based Redispatch Candidate Generation"
+            ),
+            "search_mode": "adaptive",
+            "outage_generator_id": outage_generator_id,
+            "monitored_line_id": monitored_line_id,
+            "slack_mode": slack_mode,
+            "balance_type": (
+                parameters.balance_type.name if parameters.distributed_slack else None
+            ),
+            "delta_mw": float(delta_mw),
+            "post_contingency_p1_mw": post_p1_mw,
+            "candidate_count": len(candidate_list),
+            "candidate_basis": (
+                "Predicted absolute P1 reduction with bounded adaptive magnitudes; "
+                "actual risk requires AC/Security revalidation"
+            ),
+            "prediction_quantity": "ACTIVE_POWER",
+            "prediction_unit": "MW",
+            "candidates": candidate_list,
+        }
 
     feasible_up: list[dict[str, Any]] = []
     feasible_down: list[dict[str, Any]] = []
@@ -442,6 +491,29 @@ def validate_generator_outage_balanced_redispatch(
     response["after_redispatch"]["apparent_power_mva"] = after_mva
     response["after_redispatch"]["up_actual_after_mw"] = up_actual_after
     response["after_redispatch"]["down_actual_after_mw"] = down_actual_after
+    # Validate actual output limits for ALL connected generators after AC solving.
+    # Slack balancing can change generators beyond the explicit Up/Down pair.
+    generator_limit_violations = []
+    for generator_id, state in after_generators.items():
+        if not state["connected"]:
+            continue
+        actual = state.get("actual_generation_mw")
+        lo = state.get("min_p_mw")
+        hi = state.get("max_p_mw")
+        if actual is None or lo is None or hi is None:
+            generator_limit_violations.append({
+                "generator_id": generator_id,
+                "reason": "MISSING_LIMIT_OR_ACTUAL_OUTPUT",
+            })
+        elif not _within_limits(actual, lo, hi):
+            generator_limit_violations.append({
+                "generator_id": generator_id,
+                "reason": "ACTUAL_OUTPUT_OUTSIDE_LIMITS",
+                "actual_generation_mw": actual,
+                "min_p_mw": lo,
+                "max_p_mw": hi,
+            })
+    response["generator_limit_violations"] = generator_limit_violations
     response["apparent_power_change_mva"] = change_mva
     response["improvement_mva"] = before_mva - after_mva
     response["improved"] = after_mva < before_mva
@@ -523,10 +595,18 @@ def _validate_whole_network_generator_outage_redispatch(
     resolved_keys = before_keys - after_keys
     remaining_keys = before_keys & after_keys
 
+    risk_assessment = evaluate_violation_risk(
+        before=before,
+        after=after,
+        post_status=post.status.name,
+        strategy_status=strategy.status.name,
+    )
+
     return {
         "analysis_type": "Generator Outage Whole-network Security Validation",
         "post_contingency_status": post.status.name,
         "operator_strategy_status": strategy.status.name,
+        "risk_assessment": risk_assessment,
         "violated_equipment_count_before": len(before),
         "violated_equipment_count_after": len(after),
         "new_violation_detected": bool(new_keys),
