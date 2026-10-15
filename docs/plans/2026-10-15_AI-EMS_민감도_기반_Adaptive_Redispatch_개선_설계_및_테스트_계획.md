@@ -496,3 +496,45 @@ print("Recommended:", adaptive.get("recommended_candidate"))
 - 실제 계산시간 및 재계산 횟수 측정
 - P2 양단 한계 및 전압/전류 위반의 별도 검토
 - Agent UI/API 노출은 Domain 검증 후 수행
+
+
+---
+
+## 14. 2026-10-16 양단 기준 제어량 추정 및 후보 개수 개선
+
+### 실제 KPG-193 실험에서 발견한 사항
+
+- `GEN-124#1` 사고에서 `LINE-134-193`의 P2 측 피상전력이 P1 측보다 커 기존 P1 중심 초기 제어량 추정이 적용되지 않았음 (`Estimated=None`).
+- 기존 `max_deltas_per_pair=5`에서는 fallback 후보의 100% 허용 제어량이 잘려 `GEN-106 ↑ / GEN-193 ↓`의 36.8879 MW 후보를 시험하지 못했음.
+- `max_deltas_per_pair=6` 실험에서는 36.8879 MW 적용 후 부하율이 104.6517%로 감소했으나, 잔존 위반 1건은 해소되지 않았음.
+
+### 변경 내용
+
+1. Adaptive 모드에서 상위 발전기 조합별 작은 크기의 독립적인 **사고 후 AC 유한차분(probe)** 을 수행함. probe 전후의 P1/Q1/P2/Q2를 이용해 양단의 국소 기울기를 계산함.
+2. 각 단자에서 MVA 정격 이내로 들어가는 첫 교차점(국소 이차 근사)을 계산하고, 두 단자 모두를 만족하는 추정 제어량을 선정함. 필요한 크기가 발전기 출력 허용범위보다 크면 제한된 추정값 및 한계 초과 여부를 함께 기록함.
+3. probe가 비수렴하거나 양단 근사가 성립하지 않으면 `BOUNDED_FALLBACK`으로 전환함. **P2 민감도를 -P1 민감도로 가정하지 않음**.
+4. 후보 수 상한 내에서 기존 10 MW 기준, 발전기 출력 허용 최대값, 추정값, 추정값 ×1.25를 우선 고려하도록 후보 추출 순서를 변경함. 같은 크기의 후보는 중복 제거함.
+5. 최종 제어 후보의 유효성은 기존과 동일하게 실제 AC Load Flow, 발전기 출력 상하한 검사, Operator Strategy Security Analysis 결과로 판단함.
+
+### 주의할 점
+
+- **추정 제어량은 물리해석에 의한 검증 결과가 아님.** 비선형 AC 계산에서 P/Q 변화율이 달라질 수 있음.
+- 양단 근사값이 허용 제어량 범위를 초과하는 경우, 해당 범위 내에서 완전 과부하 해소가 불가능하다고 단정해서는 안 됨. 실제 검증된 후보를 기준으로만 결론을 내림.
+- 조합별 추가 AC probe 때문에 계산 횟수와 실행시간은 기존 대비 증가할 수 있음.
+- 본 문서는 코드 변경 기록이며 **수정 후 pytest 및 실제 KPG 재실험은 미확인** 상태임.
+
+### 로컬 검증
+
+```bash
+git pull origin main
+python -m pytest -q tests/test_adaptive_redispatch.py tests/test_adaptive_workflow.py
+python -m pytest -q
+```
+
+기존과 동일한 `GEN-124#1` 입력으로 `search_mode="adaptive", top_n=3, max_deltas_per_pair=5`를 실행하고 다음 값을 비교한다.
+
+- `estimated_delta_mw` / `estimation_method` / `estimate_clipped_by_headroom`
+- 발전기 조합별 `feasible_delta_max_mw` 및 실제 평가된 최대 `delta_mw`
+- 제어 후 `loading_after_percent`, `improvement_mva`
+- `risk_assessment`의 잔존 위반, 신규 위반 및 추천 가능 여부
+- 후보별 실행시간과 AC probe 증가에 따른 성능 변화
