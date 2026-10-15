@@ -1,7 +1,7 @@
 # AI-EMS 민감도 기반 Adaptive Redispatch 개선 설계 및 테스트 계획
 
 > 작성일: 2026-10-15  
-> 대상: \`GangHyeokLee/ai-ems-agent\` / \`main\`  
+> 대상: `GangHyeokLee/ai-ems-agent` / `main`  
 > 기준 환경: KPG-193 v2.0, PyPowSyBl 1.16.1  
 > 문서 상태: **설계 제안 (미구현·미검증)**  
 > 1차 적용 범위: Generator N-1 Corrective-action Workflow
@@ -25,11 +25,11 @@
 
 | 위치 | 현재 확인된 기능 | 이번 개선 방향 |
 |---|---|---|
-| \`src/ai_ems/tools/generator_control_tools.py\` | 사고 후 단일 선로 민감도, 발전기 조합, 기본 ±10 MW, Min/Max 검사, AC·Security 검증 | 가변 ΔMW 추정·탐색 및 후보별 검증 |
-| \`src/ai_ems/tools/sensitivity_tools.py\` | Generator N-1 후 감시 선로 P 조류 민감도 | 기존 계산 재사용. 필요 시 양단/다중 선로 지원 검토 |
-| \`src/ai_ems/tools/workflow_tools.py\` | 사고 → 후보 → 검증, 수렴·신규 위반·위반 수·개선량 기반 정렬 | 전체 위반 심각도 평가, 추천 가능성 분리, 부분 실패 허용 |
-| \`src/ai_ems/tools/generator_risk_tools.py\` | Generator N-1 전수 Screening → 상위 위험 사고 대응 분석 | 기존 진입 경로 유지 |
-| \`src/ai_ems/agent/tools.py\` 및 formatter | 고수준 Tool과 결정적 결과 설명 | Domain 실험 완료 후 옵션·응답 연결 |
+| `src/ai_ems/tools/generator_control_tools.py` | 사고 후 단일 선로 민감도, 발전기 조합, 기본 ±10 MW, Min/Max 검사, AC·Security 검증 | 가변 ΔMW 추정·탐색 및 후보별 검증 |
+| `src/ai_ems/tools/sensitivity_tools.py` | Generator N-1 후 감시 선로 P 조류 민감도 | 기존 계산 재사용. 필요 시 양단/다중 선로 지원 검토 |
+| `src/ai_ems/tools/workflow_tools.py` | 사고 → 후보 → 검증, 수렴·신규 위반·위반 수·개선량 기반 정렬 | 전체 위반 심각도 평가, 추천 가능성 분리, 부분 실패 허용 |
+| `src/ai_ems/tools/generator_risk_tools.py` | Generator N-1 전수 Screening → 상위 위험 사고 대응 분석 | 기존 진입 경로 유지 |
+| `src/ai_ems/agent/tools.py` 및 formatter | 고수준 Tool과 결정적 결과 설명 | Domain 실험 완료 후 옵션·응답 연결 |
 
 ### 포함
 
@@ -52,7 +52,7 @@ Line N-1 기존 구현은 유지한다. Generator N-1 실험에서 유효성 확
 
 ### 3.1 STEP 1: 초기 Security 상태 확정
 
-입력: \`case_path\`, \`outage_generator_id\`, \`slack_mode\`, \`balance_type\`, 선택적 \`monitored_line_id\`.
+입력: `case_path`, `outage_generator_id`, `slack_mode`, `balance_type`, 선택적 `monitored_line_id`.
 
 1. 동일한 KPG 모델과 Load Flow 파라미터를 사용한다.
 2. 해당 발전기 N-1 사고의 AC Security Analysis를 수행한다.
@@ -62,7 +62,7 @@ Line N-1 기존 구현은 유지한다. Generator N-1 실험에서 유효성 확
 
 ### 3.2 STEP 2: 민감도 기반 발전기 조합
 
-기존 사고 후 민감도 계산을 재사용한다. 생존·연결 발전기 \`g_up\`, \`g_down\`에 대해
+기존 사고 후 민감도 계산을 재사용한다. 생존·연결 발전기 `g_up`, `g_down`에 대해
 
 \[
 k = s_{\mathrm{up}} - s_{\mathrm{down}}
@@ -72,9 +72,9 @@ k = s_{\mathrm{up}} - s_{\mathrm{down}}
 P_1(\Delta P)\approx P_{1,0} + k\Delta P
 \]
 
-- \`s_up\`, \`s_down\`: 발전기 유효전력 주입에 대한 감시 선로 **P1 유효전력 조류 민감도**(MW/MW)
-- \`P1,0\`: 발전기 사고 후 P1 조류(MW)
-- \`ΔP\`: Up 발전기 +ΔMW, Down 발전기 -ΔMW의 요청 제어량
+- `s_up`, `s_down`: 발전기 유효전력 주입에 대한 감시 선로 **P1 유효전력 조류 민감도**(MW/MW)
+- `P1,0`: 발전기 사고 후 P1 조류(MW)
+- `ΔP`: Up 발전기 +ΔMW, Down 발전기 -ΔMW의 요청 제어량
 
 조합 생성 요건: 탈락 발전기 제외, 두 발전기 서로 다름, 연결 상태, 유효한 민감도, **최소 1개 유효 제어량**을 실행할 수 있는 출력 여유. 기존 동일 Up Bus / Down Bus 조합 중복 제거 유지.
 
@@ -95,13 +95,13 @@ P_{actual}^{down}-P_{\min}^{down}
 \]
 
 - 음수 또는 0 이하라면 해당 Up/Down 조합은 양의 제어량에 대해 불가능하다.
-- \`None\`/NaN/비유한 Min/Max/Target/Actual 값의 정책을 명시적으로 정의하며, **미확인 출력 제약을 무제한 출력 여유로 간주하지 않는다.**
+- `None`/NaN/비유한 Min/Max/Target/Actual 값의 정책을 명시적으로 정의하며, **미확인 출력 제약을 무제한 출력 여유로 간주하지 않는다.**
 - 계산된 상한은 초기 스크리닝의 보수적인 값이다. 실제 제어 후 발전기 출력은 **반드시 AC 결과로 재확인**한다.
 - 현재 범위는 발전기 물리적 Min/Max만 고려하므로, 운전가능 예비력·Ramp·AGC 보장은 하지 않는다.
 
 ### 3.4 STEP 4: 민감도 기반 제어량 **초기 추정**
 
-현재 민감도는 **MW** 유효전력 조류 변화에 대한 것이지만, 대표 위반은 **MVA** 피상전력 한계이다. \`MVA 초과량 / MW 민감도\`를 직접 수행하는 식은 사용하지 않는다.
+현재 민감도는 **MW** 유효전력 조류 변화에 대한 것이지만, 대표 위반은 **MVA** 피상전력 한계이다. `MVA 초과량 / MW 민감도`를 직접 수행하는 식은 사용하지 않는다.
 
 안전한 1차 근사(선로 측면 일치, 무효전력 변동이 충분히 작다는 가정이 확인될 때):
 
@@ -114,15 +114,15 @@ P_{\mathrm{allow}}\approx\sqrt{L_S^2-Q_{1,0}^2}
 \frac{P_{1,\mathrm{target}}-P_{1,0}}{k}
 \]
 
-- \`L_S\`: 해당 측면의 피상전력 한계(MVA)
-- \`Q1,0\`: 기준 상태의 무효전력(Mvar)
-- \`P1,target\`: 현재 P1 부호와 목표 조류 감소 방향을 반영한 유효전력 목표(MW)
-- \`k\`: P1 흐름에 대한 국소 민감도
+- `L_S`: 해당 측면의 피상전력 한계(MVA)
+- `Q1,0`: 기준 상태의 무효전력(Mvar)
+- `P1,target`: 현재 P1 부호와 목표 조류 감소 방향을 반영한 유효전력 목표(MW)
+- `k`: P1 흐름에 대한 국소 민감도
 
 추정 사용 전 조건:
 
-1. \`L_S > 0\`, \`L_S^2-Q1,0^2 >= 0\`; 미충족이면 근사 불가능
-2. \`|k|\`가 지나치게 작거나 비유한 값이면 추정 불가능
+1. `L_S > 0`, `L_S^2-Q1,0^2 >= 0`; 미충족이면 근사 불가능
+2. `|k|`가 지나치게 작거나 비유한 값이면 추정 불가능
 3. 요청 ΔMW가 양수이고 허용 범위 내여야 함
 4. 추정된 조류 변화가 해당 **P1 방향**의 절댓값을 감소시켜야 함
 5. 실제 한계가 P2 측/전류/전압 기준이면 동일한 P1 근사로 해결량을 단정하지 않음
@@ -134,7 +134,7 @@ P_{\mathrm{allow}}\approx\sqrt{L_S^2-Q_{1,0}^2}
 제안 초기 실험 설정:
 
 - 상위 Up/Down Bus 조합 **최대 3개**
-- 유효한 추정값 기준 \`[0.25, 0.5, 0.75, 1.0, 1.25] × ΔMW_est\` 탐색
+- 유효한 추정값 기준 `[0.25, 0.5, 0.75, 1.0, 1.25] × ΔMW_est` 탐색
 - 허용 상한에 맞춰 clipping, 중복 값 제거
 - 10 MW fixed 기준 후보도 실행 가능 시 비교용으로 포함
 - 추정 불가 시 허용 범위 내 보수적 단계 샘플링
@@ -166,13 +166,13 @@ P_{\mathrm{allow}}\approx\sqrt{L_S^2-Q_{1,0}^2}
 
 수집 항목:
 
-- \`post_contingency_status\`, \`operator_strategy_status\`
+- `post_contingency_status`, `operator_strategy_status`
 - 신규 위반, 해소 위반, 잔존 위반
 - 기존 위반의 **악화/개선** 정도
 - 위반의 종류·단위·한계·값·초과량
 - 고유 위반 설비 수와 위반 항목 수
 
-**용어 주의:** 이 단계의 \`whole_network_validation\`은 **해당 발전기 N-1 사고와 제어안에 대해 전체 설비 위반을 평가**하는 것이지, 모든 독립 N-1 사고를 전수 실행한다는 의미가 아니다.
+**용어 주의:** 이 단계의 `whole_network_validation`은 **해당 발전기 N-1 사고와 제어안에 대해 전체 설비 위반을 평가**하는 것이지, 모든 독립 N-1 사고를 전수 실행한다는 의미가 아니다.
 
 ## 4. 계통 위험 평가와 추천 기준
 
@@ -180,11 +180,11 @@ P_{\mathrm{allow}}\approx\sqrt{L_S^2-Q_{1,0}^2}
 
 위반 유형과 단위를 섞어서 직접 합하지 않는다.
 
-- \`APPARENT_POWER\`: \`max(0, (S - L) / L)\`
-- \`CURRENT\`: \`max(0, (I - L) / L)\`
-- \`ACTIVE_POWER\`: 양의 한계·방향 정의 확인 후 동일 유형으로 별도 계산
-- \`HIGH_VOLTAGE\`: \`max(0, (V - V_max) / V_max)\`
-- \`LOW_VOLTAGE\`: \`max(0, (V_min - V) / V_min)\`
+- `APPARENT_POWER`: `max(0, (S - L) / L)`
+- `CURRENT`: `max(0, (I - L) / L)`
+- `ACTIVE_POWER`: 양의 한계·방향 정의 확인 후 동일 유형으로 별도 계산
+- `HIGH_VOLTAGE`: `max(0, (V - V_max) / V_max)`
+- `LOW_VOLTAGE`: `max(0, (V_min - V) / V_min)`
 
 한계값이 0/누락/비유한 값이면 정규화 불능으로 명시한다. **위반이 없다는 뜻으로 0 처리하지 않는다.** 양단·중복 위반 기록은 기존 그룹화 규칙을 활용하되, 설비 수와 제한별 위반 항목 수를 구별한다.
 
@@ -194,17 +194,17 @@ P_{\mathrm{allow}}\approx\sqrt{L_S^2-Q_{1,0}^2}
 
 | 필드 | 의미 |
 |---|---|
-| \`ac_converged\` | 제어 후 AC 수렴 |
-| \`security_converged\` | Operator Strategy 수렴 |
-| \`new_violation_count\` | 제어 때문에 생긴 신규 위반 |
-| \`worsened_existing_count\` | 기존 위반 중 허용오차를 넘어 악화한 항목 수 |
-| \`remaining_violation_count\` | 제어 후 잔존 위반 항목 수 |
-| \`remaining_equipment_count\` | 제어 후 고유 위반 설비 수 |
-| \`max_normalized_excess\` | 최대 위반 심각도 |
-| \`total_normalized_excess\` | 위반 심각도 합계(동일 유형별 값도 보존) |
-| \`target_loading_percent\` | 목표 설비의 실제 제어 후 부하율 |
-| \`requested_delta_mw\` | 요청한 제어량 |
-| \`actual_generation_changes\` | 재계산 후 실제 발전기 출력 변화 |
+| `ac_converged` | 제어 후 AC 수렴 |
+| `security_converged` | Operator Strategy 수렴 |
+| `new_violation_count` | 제어 때문에 생긴 신규 위반 |
+| `worsened_existing_count` | 기존 위반 중 허용오차를 넘어 악화한 항목 수 |
+| `remaining_violation_count` | 제어 후 잔존 위반 항목 수 |
+| `remaining_equipment_count` | 제어 후 고유 위반 설비 수 |
+| `max_normalized_excess` | 최대 위반 심각도 |
+| `total_normalized_excess` | 위반 심각도 합계(동일 유형별 값도 보존) |
+| `target_loading_percent` | 목표 설비의 실제 제어 후 부하율 |
+| `requested_delta_mw` | 요청한 제어량 |
+| `actual_generation_changes` | 재계산 후 실제 발전기 출력 변화 |
 
 ### 4.3 추천 가능성 판정
 
@@ -218,7 +218,7 @@ P_{\mathrm{allow}}\approx\sqrt{L_S^2-Q_{1,0}^2}
 
 수치 허용 오차는 테스트 결과를 보고 명시적으로 확정한다. 불확실/검증 실패 결과를 안전한 결과처럼 반환하지 않는다.
 
-검증된 후보가 하나도 없다면 \`recommended_candidate = null\`과 함께 실패/미해소 이유를 반환한다. 비교에 의미가 있다면 \`best_tested_candidate\`는 **검증 결과를 보유한 시험 후보**로만 제공하되, 운영 추천과 명확히 구분한다.
+검증된 후보가 하나도 없다면 `recommended_candidate = null`과 함께 실패/미해소 이유를 반환한다. 비교에 의미가 있다면 `best_tested_candidate`는 **검증 결과를 보유한 시험 후보**로만 제공하되, 운영 추천과 명확히 구분한다.
 
 ### 4.4 정렬 정책 (검토안)
 
@@ -238,7 +238,7 @@ P_{\mathrm{allow}}\approx\sqrt{L_S^2-Q_{1,0}^2}
 
 상위 레벨:
 
-\`\`\`text
+```text
 analysis_type
 analysis_status
 outage_generator_id
@@ -251,11 +251,11 @@ valid_candidate_count
 best_tested_candidate
 recommended_candidate
 candidates
-\`\`\`
+```
 
 각 후보:
 
-\`\`\`text
+```text
 up_generator_id / down_generator_id
 estimated_delta_mw
 requested_delta_mw
@@ -267,17 +267,17 @@ risk_metrics
 recommendation_eligible
 rejection_reasons
 evaluation_status
-\`\`\`
+```
 
 상태 구분(제안):
 
-- \`COMPLETED\`
-- \`NO_OVERLOADED_LINE\`
-- \`SECURITY_NOT_CONVERGED\`
-- \`NO_FEASIBLE_GENERATOR_PAIR\`
-- \`NO_VALID_DELTA\`
-- \`NO_RECOMMENDABLE_CANDIDATE\`
-- \`PARTIAL_VALIDATION_FAILURE\`
+- `COMPLETED`
+- `NO_OVERLOADED_LINE`
+- `SECURITY_NOT_CONVERGED`
+- `NO_FEASIBLE_GENERATOR_PAIR`
+- `NO_VALID_DELTA`
+- `NO_RECOMMENDABLE_CANDIDATE`
+- `PARTIAL_VALIDATION_FAILURE`
 
 전체 Workflow 상태와 개별 후보 상태는 분리한다.
 
@@ -285,34 +285,34 @@ evaluation_status
 
 | 우선순위 | 파일 | 계획 |
 |---|---|---|
-| P0 | \`generator_control_tools.py\` | 제어 가능 Δ 계산·초기 Δ 추정·후보 생성 분리 |
-| P0 | \`workflow_tools.py\` | 독립 후보 검증 반복·부분 실패 처리·계통 위험도 기반 후보 정렬 |
-| P0 | 신규/기존 \`tests/\` | 순수 함수 단위 테스트·기존 회귀 검증 |
-| P1 | \`sensitivity_tools.py\` | P2/다중 선로 민감도 필요 여부 실험 후 결정 |
-| P1 | \`generator_risk_tools.py\` | 고수준 연계에서 신규 탐색 모드 선택 지원 검토 |
-| P2 | \`agent/tools.py\` / \`agent/formatters/\` | Domain 실험 종료 후 Adaptive Tool 옵션·설명 연결 |
-| P2 | \`docs/experiments/\` | 실제 KPG 결과·실행 비용 기록 |
-| 후속 | \`api/\` | 기존 Public API 계약 검토 후 필요 시 확장 |
+| P0 | `generator_control_tools.py` | 제어 가능 Δ 계산·초기 Δ 추정·후보 생성 분리 |
+| P0 | `workflow_tools.py` | 독립 후보 검증 반복·부분 실패 처리·계통 위험도 기반 후보 정렬 |
+| P0 | 신규/기존 `tests/` | 순수 함수 단위 테스트·기존 회귀 검증 |
+| P1 | `sensitivity_tools.py` | P2/다중 선로 민감도 필요 여부 실험 후 결정 |
+| P1 | `generator_risk_tools.py` | 고수준 연계에서 신규 탐색 모드 선택 지원 검토 |
+| P2 | `agent/tools.py` / `agent/formatters/` | Domain 실험 종료 후 Adaptive Tool 옵션·설명 연결 |
+| P2 | `docs/experiments/` | 실제 KPG 결과·실행 비용 기록 |
+| 후속 | `api/` | 기존 Public API 계약 검토 후 필요 시 확장 |
 
-**기존 호환성:** \`delta_mw=10.0\` fixed 동작 유지. 신규 모드는 \`search_mode="adaptive"\` 같은 별도 옵션(명칭 미확정)으로 시작. API/Agent/UI 변경은 Domain 검증 이후에 수행한다.
+**기존 호환성:** `delta_mw=10.0` fixed 동작 유지. 신규 모드는 `search_mode="adaptive"` 같은 별도 옵션(명칭 미확정)으로 시작. API/Agent/UI 변경은 Domain 검증 이후에 수행한다.
 
 ### 구현 전에 확정할 결정
 
-- [ ] 순수 함수 경계: \`calculate_feasible_delta\`, \`estimate_initial_delta\`, \`generate_delta_samples\`, \`score_validation\` 등
+- [ ] 순수 함수 경계: `calculate_feasible_delta`, `estimate_initial_delta`, `generate_delta_samples`, `score_validation` 등
 - [ ] 제어량 추정 실패 시 fallback 탐색 정책 및 최소 단계
 - [ ] 최대 조합 수·제어량 수·AC/Security 호출 예산
 - [ ] 동일 Bus pair 중복 제거 적용 시점
 - [ ] P1/P2 감시·Limit 비교 정책
 - [ ] 유형별 정규화 및 순위 정책, 수치 허용오차
-- [ ] \`best_tested_candidate\`와 \`recommended_candidate\` 의미/계약
+- [ ] `best_tested_candidate`와 `recommended_candidate` 의미/계약
 
 ## 7. 단위 테스트 계획
 
 | ID | 대상 | 기대 결과 |
 |---|---|---|
 | UT-01 | 양·음 민감도 조합 | 올바른 조류 감소 방향 판정 |
-| UT-02 | \`k≈0\` | 초기 추정 불가, 0 나눗셈 방지 |
-| UT-03 | \`Q²>L²\` 또는 Limit 없음 | MVA→P 근사 금지 |
+| UT-02 | `k≈0` | 초기 추정 불가, 0 나눗셈 방지 |
+| UT-03 | `Q²>L²` 또는 Limit 없음 | MVA→P 근사 금지 |
 | UT-04 | 추정 Δ가 출력 한계 초과 | 유효 범위 제한 |
 | UT-05 | Min/Max/Target/Actual 누락·NaN | 안전한 실패/스킵 처리 |
 | UT-06 | 동일 Up/Down 발전기 | 후보 배제 |
@@ -337,13 +337,13 @@ evaluation_status
 
 | 지표 | 기록값 |
 |---|---|
-| 발전기 사고 | \`GEN-124#1\` |
-| Load Flow balancing | Distributed / \`PROPORTIONAL_TO_GENERATION_P_MAX\` |
-| 주요 과부하 | \`LINE-134-193\` |
+| 발전기 사고 | `GEN-124#1` |
+| Load Flow balancing | Distributed / `PROPORTIONAL_TO_GENERATION_P_MAX` |
+| 주요 과부하 | `LINE-134-193` |
 | 한계 | RateC = 2172 MVA |
 | 사고 후 피상전력 | 2293.71 MVA |
 | 사고 후 부하율 | 105.60% |
-| 기존 최선 시험 후보 | \`GEN-106 +10 MW / GEN-193 -10 MW\` |
+| 기존 최선 시험 후보 | `GEN-106 +10 MW / GEN-193 -10 MW` |
 | 제어 후 피상전력 | 2288.11 MVA |
 | 제어 후 부하율 | 105.35% |
 | 과부하 해소 | 미해소 |
@@ -443,26 +443,26 @@ LLM/Agent는 자연어 이해와 도구 선택·결과 설명을 맡고, 실제 
 
 ## 13. 2026-10-15 초기 구현 현황 및 로컬 검증 명령
 
-> **구현 상태:** Domain Layer 및 Generator N-1 workflow에 선택형 \`adaptive\` 모드 추가. **실제 KPG-193 통합 실행과 pytest 통과 여부는 아직 확인하지 않음.** 기존 Agent Tool은 기본 \`fixed\` 경로를 그대로 사용하며 Adaptive 방식은 현재 Python Domain 함수로 직접 실행한다.
+> **구현 상태:** Domain Layer 및 Generator N-1 workflow에 선택형 `adaptive` 모드 추가. **실제 KPG-193 통합 실행과 pytest 통과 여부는 아직 확인하지 않음.** 기존 Agent Tool은 기본 `fixed` 경로를 그대로 사용하며 Adaptive 방식은 현재 Python Domain 함수로 직접 실행한다.
 
 ### 구현된 주요 파일
 
-- \`src/ai_ems/tools/adaptive_redispatch.py\`: 출력 여유량, 민감도 추정, 복수 제어량, 위반 심각도, 정렬
-- \`src/ai_ems/tools/generator_control_tools.py\`: adaptive 후보 생성 분기, 제어 후 연결 발전기 Actual P 검증, Security 위반 심각도 연결
-- \`src/ai_ems/tools/workflow_tools.py\`: 선택형 adaptive workflow, 개별 후보 오류 격리, 추천 후보 분리
-- \`tests/test_adaptive_redispatch.py\`, \`tests/test_adaptive_workflow.py\`: 신규 계산 및 모의 workflow 테스트
+- `src/ai_ems/tools/adaptive_redispatch.py`: 출력 여유량, 민감도 추정, 복수 제어량, 위반 심각도, 정렬
+- `src/ai_ems/tools/generator_control_tools.py`: adaptive 후보 생성 분기, 제어 후 연결 발전기 Actual P 검증, Security 위반 심각도 연결
+- `src/ai_ems/tools/workflow_tools.py`: 선택형 adaptive workflow, 개별 후보 오류 격리, 추천 후보 분리
+- `tests/test_adaptive_redispatch.py`, `tests/test_adaptive_workflow.py`: 신규 계산 및 모의 workflow 테스트
 
 ### 로컬 검증
 
-\`\`\`bash
+```bash
 git pull origin main
 python -m pytest -q tests/test_adaptive_redispatch.py tests/test_adaptive_workflow.py
 python -m pytest -q
-\`\`\`
+```
 
 KPG case와 Python 의존성이 준비된 로컬 환경에서 실행:
 
-\`\`\`python
+```python
 from ai_ems.config import CASE_FILE
 from ai_ems.tools.workflow_tools import analyze_generator_outage_response
 
@@ -485,9 +485,9 @@ adaptive = analyze_generator_outage_response(
 print("Fixed:", fixed["analysis_status"], fixed["candidate_count"])
 print("Adaptive:", adaptive["analysis_status"], adaptive["candidate_count"])
 print("Recommended:", adaptive.get("recommended_candidate"))
-\`\`\`
+```
 
-**판정:** \`NO_RECOMMENDABLE_CANDIDATE\`는 계산 실패와 다르며, 평가한 후보 중 안전 추천 조건을 모두 만족한 후보가 없음을 의미한다. \`best_tested_candidate\`는 어디까지나 시험 후보 중 평가 순위가 가장 높은 항목이다.
+**판정:** `NO_RECOMMENDABLE_CANDIDATE`는 계산 실패와 다르며, 평가한 후보 중 안전 추천 조건을 모두 만족한 후보가 없음을 의미한다. `best_tested_candidate`는 어디까지나 시험 후보 중 평가 순위가 가장 높은 항목이다.
 
 ### 미완료 후속 검증
 
