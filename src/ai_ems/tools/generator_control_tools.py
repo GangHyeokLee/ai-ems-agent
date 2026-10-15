@@ -142,6 +142,17 @@ def generate_generator_outage_redispatch_candidates(
             top_n=top_n,
             max_deltas_per_pair=max_deltas_per_pair,
             baseline_mw=delta_mw,
+            flow_probe=lambda up_id, down_id, probe_mw: (
+                _probe_post_outage_line_flows(
+                    case_path=case_path,
+                    outage_generator_id=outage_generator_id,
+                    monitored_line_id=monitored_line_id,
+                    up_generator_id=up_id,
+                    down_generator_id=down_id,
+                    delta_mw=probe_mw,
+                    parameters=parameters,
+                )
+            ),
         )
         return {
             "analysis_type": (
@@ -298,6 +309,46 @@ def generate_generator_outage_redispatch_candidates(
             "separate explicit corrective-action requests."
         ),
         "candidates": candidates,
+    }
+
+
+
+def _probe_post_outage_line_flows(
+    case_path: str | Path,
+    outage_generator_id: str,
+    monitored_line_id: str,
+    up_generator_id: str,
+    down_generator_id: str,
+    delta_mw: float,
+    parameters: pp.loadflow.Parameters,
+) -> dict[str, float] | None:
+    """Independent small post-outage AC probe for both line terminals.
+
+    Uses exactly the candidate's Up/Down target changes and balancing settings.
+    A failed probe only disables local magnitude estimation for that pair;
+    final candidate acceptance still requires separate AC/Security validation.
+    """
+    network = load_network(case_path)
+    network.update_generators(id=outage_generator_id, connected=False)
+    if not loadflow_balance_snapshot(network, parameters)["converged"]:
+        return None
+
+    generators = network.get_generators()
+    up_target = float(generators.loc[up_generator_id, "target_p"])
+    down_target = float(generators.loc[down_generator_id, "target_p"])
+    network.update_generators(
+        id=[up_generator_id, down_generator_id],
+        target_p=[up_target + delta_mw, down_target - delta_mw],
+    )
+    if not loadflow_balance_snapshot(network, parameters)["converged"]:
+        return None
+
+    line = network.get_lines().loc[monitored_line_id]
+    return {
+        "p1_mw": float(line["p1"]),
+        "q1_mvar": float(line["q1"]),
+        "p2_mw": float(line["p2"]),
+        "q2_mvar": float(line["q2"]),
     }
 
 
