@@ -10,6 +10,8 @@ def analyze_generator_risk_response(
     screening_top_n: int = 5,
     response_top_n: int = 3,
     delta_mw: float = 10.0,
+    search_mode: str = "fixed",
+    max_deltas_per_pair: int = 5,
 ) -> dict:
     """Screen generator N-1 contingencies and analyze the top-ranked response.
 
@@ -33,6 +35,11 @@ def analyze_generator_risk_response(
     if delta_mw <= 0:
         raise ValueError("delta_mw must be greater than zero.")
 
+    if search_mode not in {"fixed", "adaptive"}:
+        raise ValueError("search_mode must be fixed or adaptive.")
+    if max_deltas_per_pair < 1 or max_deltas_per_pair > 10:
+        raise ValueError("max_deltas_per_pair must be between 1 and 10.")
+
     screening = run_generator_contingency_screening(
         case_path=case_path,
         slack_mode=slack_mode,
@@ -48,6 +55,7 @@ def analyze_generator_risk_response(
         "screening_top_n": screening_top_n,
         "response_top_n": response_top_n,
         "delta_mw": float(delta_mw),
+        "search_mode": search_mode,
     }
 
     if not top_contingencies:
@@ -79,6 +87,8 @@ def analyze_generator_risk_response(
         slack_mode=slack_mode,
         delta_mw=delta_mw,
         top_n=response_top_n,
+        **({"search_mode": "adaptive", "max_deltas_per_pair": max_deltas_per_pair}
+           if search_mode == "adaptive" else {}),
     )
 
     return {
