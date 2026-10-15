@@ -6,7 +6,7 @@ Every candidate must subsequently pass AC and Security validation.
 from __future__ import annotations
 
 from math import copysign, hypot, isfinite, sqrt
-from typing import Any
+from typing import Any, Callable
 
 
 def _finite(value: Any) -> float | None:
@@ -70,13 +70,77 @@ def estimate_redispatch_delta(
     return min(estimated, bound)
 
 
+
+def estimate_two_end_redispatch_delta(
+    before_flows: dict[str, float],
+    probe_flows: dict[str, float],
+    probe_delta_mw: float,
+    limit_mva: float | None,
+    max_delta_mw: float,
+) -> dict[str, float] | None:
+    """Local AC finite-difference estimate for clearing BOTH line terminals.
+
+    Approximate P and Q independently at each end using a small, feasible
+    balanced redispatch. Find the first positive delta where S <= RateC.
+    Neither the local slopes nor this estimate replace final AC/Security checks.
+    """
+    step = _finite(probe_delta_mw)
+    limit = _finite(limit_mva)
+    bound = _finite(max_delta_mw)
+    if (
+        step is None or step <= 1e-6 or limit is None or limit <= 0
+        or bound is None or bound <= 0
+    ):
+        return None
+
+    crossing_deltas: list[float] = []
+    for side in (1, 2):
+        p = _finite(before_flows.get(f"p{side}_mw"))
+        q = _finite(before_flows.get(f"q{side}_mvar"))
+        p_probe = _finite(probe_flows.get(f"p{side}_mw"))
+        q_probe = _finite(probe_flows.get(f"q{side}_mvar"))
+        if None in (p, q, p_probe, q_probe):
+            return None
+        if hypot(p, q) <= limit:
+            continue
+
+        dp = (p_probe - p) / step
+        dq = (q_probe - q) / step
+        a = dp * dp + dq * dq
+        b = 2.0 * (p * dp + q * dq)
+        c = p * p + q * q - limit * limit
+        if a < 1e-12 or b >= 0:
+            return None
+        discriminant = b * b - 4.0 * a * c
+        if discriminant < 0:
+            return None
+        earliest = (-b - sqrt(max(discriminant, 0.0))) / (2.0 * a)
+        if not isfinite(earliest) or earliest <= 0:
+            return None
+        crossing_deltas.append(earliest)
+
+    if not crossing_deltas:
+        return None
+    required = max(crossing_deltas)
+    return {
+        "estimated_delta_mw": min(required, bound),
+        "unclamped_estimated_delta_mw": required,
+        "estimate_clipped_by_headroom": required > bound,
+    }
+
+
 def generate_delta_candidates(
     estimate_mw: float | None,
     max_delta_mw: float,
     baseline_mw: float = 10.0,
     max_candidates: int = 5,
 ) -> list[float]:
-    """Bounded, deterministic search points near a linear estimate."""
+    """Include the feasible maximum while respecting the evaluation budget.
+
+    The previous baseline-first truncation could omit both the 1.25x estimate
+    and the maximum. Priority is baseline, maximum, estimate, then additional
+    nearby points. Duplicate/clipped magnitudes are removed.
+    """
     bound = _finite(max_delta_mw)
     if bound is None or bound <= 0 or max_candidates < 1:
         return []
@@ -84,13 +148,18 @@ def generate_delta_candidates(
     baseline = _finite(baseline_mw)
     if baseline is None or baseline <= 0:
         baseline = min(10.0, bound)
-    points = (
-        [estimate * factor for factor in (0.25, 0.5, 0.75, 1.0, 1.25)]
-        if estimate is not None and estimate > 0
-        else [bound * factor for factor in (0.2, 0.4, 0.6, 0.8, 1.0)]
-    )
-    # Keep the established fixed-step baseline for comparison when feasible.
-    points = [min(baseline, bound)] + points
+
+    if estimate is not None and estimate > 0:
+        points = [
+            baseline, bound, estimate, 1.25 * estimate,
+            0.5 * estimate, 0.75 * estimate, 0.25 * estimate,
+        ]
+    else:
+        points = [
+            baseline, bound, 0.2 * bound, 0.4 * bound,
+            0.6 * bound, 0.8 * bound,
+        ]
+
     distinct: list[float] = []
     for raw in points:
         delta = min(bound, raw)
@@ -112,11 +181,13 @@ def build_adaptive_redispatch_candidates(
     top_n: int = 3,
     max_deltas_per_pair: int = 5,
     baseline_mw: float = 10.0,
+    flow_probe: Callable[[str, str, float], dict[str, float] | None] | None = None,
 ) -> list[dict[str, Any]]:
     """Select diversified generator pairs, then propose bounded MW magnitudes.
 
-    If the second end has higher apparent power, P1 sensitivity cannot safely
-    determine an MVA-clearing delta. In this case use bounded fallback points.
+    P1 sensitivity ranks generator pairs. An optional small AC probe supplies
+    local P/Q slopes at both ends for magnitude estimation. If that probe fails,
+    use conservative bounded fallback points without claiming an estimate.
     """
     if top_n < 1 or max_deltas_per_pair < 1:
         raise ValueError("top_n and max_deltas_per_pair must be positive.")
@@ -176,12 +247,46 @@ def build_adaptive_redispatch_candidates(
             continue
         used_bus_pairs.add(pair_key)
         selected_pair_count += 1
-        estimate = (
-            estimate_redispatch_delta(p1, q1, limit_mva, k, bound)
-            if estimate_supported else None
+        estimate_details = None
+        estimation_method = "BOUNDED_FALLBACK"
+        if flow_probe is not None:
+            probe_delta = min(float(baseline_mw), bound * 0.25)
+            if probe_delta > 1e-4:
+                try:
+                    probe_flows = flow_probe(up_id, down_id, probe_delta)
+                except (RuntimeError, ValueError, ArithmeticError):
+                    probe_flows = None
+                if probe_flows is not None:
+                    estimate_details = estimate_two_end_redispatch_delta(
+                        before_flows={
+                            "p1_mw": p1,
+                            "q1_mvar": q1,
+                            "p2_mw": p2,
+                            "q2_mvar": q2,
+                        },
+                        probe_flows=probe_flows,
+                        probe_delta_mw=probe_delta,
+                        limit_mva=limit_mva,
+                        max_delta_mw=bound,
+                    )
+                    if estimate_details is not None:
+                        estimation_method = "AC_TWO_END_FINITE_DIFFERENCE"
+        elif estimate_supported:
+            estimate = estimate_redispatch_delta(p1, q1, limit_mva, k, bound)
+            if estimate is not None:
+                estimate_details = {
+                    "estimated_delta_mw": estimate,
+                    "unclamped_estimated_delta_mw": None,
+                    "estimate_clipped_by_headroom": None,
+                }
+                estimation_method = "CONSTANT_Q_P1_APPROXIMATION"
+
+        estimated_delta = (
+            estimate_details["estimated_delta_mw"]
+            if estimate_details is not None else None
         )
         for delta in generate_delta_candidates(
-            estimate, bound, baseline_mw, max_deltas_per_pair
+            estimated_delta, bound, baseline_mw, max_deltas_per_pair
         ):
             predicted_p1 = p1 + k * delta
             predicted_relief = abs(p1) - abs(predicted_p1)
@@ -195,11 +300,16 @@ def build_adaptive_redispatch_candidates(
                 "down_bus_id": down_bus,
                 "delta_mw": delta,
                 "feasible_delta_max_mw": bound,
-                "estimated_delta_mw": estimate,
-                "estimation_method": (
-                    "CONSTANT_Q_P1_APPROXIMATION"
-                    if estimate is not None else "BOUNDED_FALLBACK"
+                "estimated_delta_mw": estimated_delta,
+                "estimated_delta_unclamped_mw": (
+                    estimate_details.get("unclamped_estimated_delta_mw")
+                    if estimate_details else None
                 ),
+                "estimate_clipped_by_headroom": (
+                    estimate_details.get("estimate_clipped_by_headroom")
+                    if estimate_details else None
+                ),
+                "estimation_method": estimation_method,
                 "net_requested_change_mw": 0.0,
                 "up_sensitivity_mw_per_mw": sensitivities[up_id],
                 "down_sensitivity_mw_per_mw": sensitivities[down_id],
