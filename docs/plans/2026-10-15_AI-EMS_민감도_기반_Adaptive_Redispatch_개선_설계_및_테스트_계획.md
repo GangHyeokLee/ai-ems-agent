@@ -437,3 +437,62 @@ LLM/Agent는 자연어 이해와 도구 선택·결과 설명을 맡고, 실제 
 - [Generator Risk Workflow](../../src/ai_ems/tools/generator_risk_tools.py)
 - [Agent Tool](../../src/ai_ems/agent/tools.py)
 - [KPG-193 발전기 사고 후 민감도 기반 Redispatch 후보 생성 및 재검증](../experiments/KPG-193%20발전기%20사고%20후%20민감도%20기반%20Redispatch%20후보%20생성%20및%20재검증.md)
+
+
+---
+
+## 13. 2026-10-15 초기 구현 현황 및 로컬 검증 명령
+
+> **구현 상태:** Domain Layer 및 Generator N-1 workflow에 선택형 \`adaptive\` 모드 추가. **실제 KPG-193 통합 실행과 pytest 통과 여부는 아직 확인하지 않음.** 기존 Agent Tool은 기본 \`fixed\` 경로를 그대로 사용하며 Adaptive 방식은 현재 Python Domain 함수로 직접 실행한다.
+
+### 구현된 주요 파일
+
+- \`src/ai_ems/tools/adaptive_redispatch.py\`: 출력 여유량, 민감도 추정, 복수 제어량, 위반 심각도, 정렬
+- \`src/ai_ems/tools/generator_control_tools.py\`: adaptive 후보 생성 분기, 제어 후 연결 발전기 Actual P 검증, Security 위반 심각도 연결
+- \`src/ai_ems/tools/workflow_tools.py\`: 선택형 adaptive workflow, 개별 후보 오류 격리, 추천 후보 분리
+- \`tests/test_adaptive_redispatch.py\`, \`tests/test_adaptive_workflow.py\`: 신규 계산 및 모의 workflow 테스트
+
+### 로컬 검증
+
+\`\`\`bash
+git pull origin main
+python -m pytest -q tests/test_adaptive_redispatch.py tests/test_adaptive_workflow.py
+python -m pytest -q
+\`\`\`
+
+KPG case와 Python 의존성이 준비된 로컬 환경에서 실행:
+
+\`\`\`python
+from ai_ems.config import CASE_FILE
+from ai_ems.tools.workflow_tools import analyze_generator_outage_response
+
+fixed = analyze_generator_outage_response(
+    CASE_FILE,
+    outage_generator_id="GEN-124#1",
+    slack_mode="distributed",
+    balance_type="PROPORTIONAL_TO_GENERATION_P_MAX",
+    search_mode="fixed",
+)
+adaptive = analyze_generator_outage_response(
+    CASE_FILE,
+    outage_generator_id="GEN-124#1",
+    slack_mode="distributed",
+    balance_type="PROPORTIONAL_TO_GENERATION_P_MAX",
+    search_mode="adaptive",
+    top_n=3,
+    max_deltas_per_pair=5,
+)
+print("Fixed:", fixed["analysis_status"], fixed["candidate_count"])
+print("Adaptive:", adaptive["analysis_status"], adaptive["candidate_count"])
+print("Recommended:", adaptive.get("recommended_candidate"))
+\`\`\`
+
+**판정:** \`NO_RECOMMENDABLE_CANDIDATE\`는 계산 실패와 다르며, 평가한 후보 중 안전 추천 조건을 모두 만족한 후보가 없음을 의미한다. \`best_tested_candidate\`는 어디까지나 시험 후보 중 평가 순위가 가장 높은 항목이다.
+
+### 미완료 후속 검증
+
+- 실제 KPG 사례에서 후보별 AC·Security 계산 일치 여부
+- 제어량과 MVA 위반 감소 관계 검증
+- 실제 계산시간 및 재계산 횟수 측정
+- P2 양단 한계 및 전압/전류 위반의 별도 검토
+- Agent UI/API 노출은 Domain 검증 후 수행
