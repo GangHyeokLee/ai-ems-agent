@@ -86,3 +86,8 @@ data/bus_location.csv
 
 # Generated study artifacts
 outputs/
+
+# K-EMS generated geographic grid files (keep sources outside Git)
+data/grids/
+*.nc
+*.raw
