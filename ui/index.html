@@ -36,6 +36,21 @@
     .network-bus { fill: #2563eb; stroke: white; stroke-width: .6; cursor: pointer; }
     .network-bus:hover, .network-bus.selected-bus { r: 5; }
     .network-bus.selected-bus { fill: #0f172a; }
+    .network-transformer { stroke:#b45309; stroke-width:3; stroke-dasharray:3 2; cursor:pointer; }
+    .grid-compare { padding:8px 14px; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-size:12px; color:#334155; }
+    .grid-compare[hidden] { display:none; }
+    .grid-compare-title { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; font-weight:700; }
+    .grid-compare button { padding:4px 8px; border-radius:5px; border:1px solid #94a3b8; background:white; cursor:pointer; }
+    .grid-compare table { width:100%; margin-top:6px; border-collapse:collapse; text-align:center; font-size:12px; }
+    .grid-compare th, .grid-compare td { border:1px solid #dbe2eb; padding:4px 6px; }
+    .grid-compare th:first-child, .grid-compare td:first-child { text-align:left; }
+    .grid-compare th { background:#e2e8f0; }
+    .grid-compare small { display:block; margin-top:5px; color:#64748b; }
+    .voltage-filters { margin-top:9px; padding-top:7px; border-top:1px solid #dbe2eb; }
+    .voltage-filters[hidden] { display:none; }
+    .voltage-filters label { display:flex; gap:5px; align-items:center; margin-top:5px; }
+    .voltage-dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+
 
     .network-generator { cursor: pointer; }
     .network-generator.selected-generator circle { stroke:#111827; stroke-width:3px; }
@@ -145,12 +160,28 @@
         <span id="grid-status" class="grid-status">계통 정보를 확인 중...</span>
       </div>
       <div id="grid-capability-note" hidden></div>
+      <section id="grid-compare" class="grid-compare" hidden aria-label="몽골 기존 확장 모델 비교">
+        <div class="grid-compare-title">
+          <span>몽골 계통 모델 비교 · 공개 데이터</span>
+          <button id="grid-compare-switch" type="button">다른 몽골 모델 보기</button>
+        </div>
+        <table aria-label="몽골 모델별 설비 비교">
+          <thead><tr><th>항목</th><th>MN · 기존</th><th>MN_35k · 확장</th></tr></thead>
+          <tbody id="grid-compare-rows"></tbody>
+        </table>
+        <small id="grid-compare-note">수치는 지도 JSON에서 직접 계산합니다. 실제 설비 검증·PF 수렴을 의미하지 않습니다.</small>
+      </section>
       <div id="map">
         <svg id="network-map" viewBox="0 0 700 900" preserveAspectRatio="xMidYMid meet"></svg>
         <div class="map-layer-control">
           <strong>지도 표시</strong>
           <label class="map-layer-option"><input id="layer-regions" type="checkbox" checked /><span>행정구역 경계</span></label>
           <label class="map-layer-option"><input id="layer-lines" type="checkbox" checked /><span>선로</span></label>
+          <label class="map-layer-option"><input id="layer-transformers" type="checkbox" checked /><span>변압기 (추정)</span></label>
+          <div id="voltage-filters" class="voltage-filters" hidden>
+            <strong>표시 전압</strong>
+            <div id="voltage-filter-options"></div>
+          </div>
           <label class="map-layer-option"><input id="layer-buses" type="checkbox" checked /><span>버스</span></label>
           <label class="map-layer-option"><input id="layer-generators" type="checkbox" checked /><span>발전기 / 발전소</span></label>
           <label class="map-layer-option"><input id="layer-analysis" type="checkbox" checked /><span>분석 결과</span></label>
@@ -221,6 +252,10 @@
     let mapProjection = null;
     let selectedGridId = "kr-kpg193";
     let gridEntries = [];
+    const MN_GRID_IDS = ["mn-osm", "mn-osm-35k"];
+    const VOLTAGE_COLORS = {"35":"#0891b2","110":"#2563eb","220":"#b45309"};
+    let gridSwitchToken = 0;
+    let enabledVoltages = new Set();
     let chatBusy = false;
     let latestSecurityResult = null;
     let generatorStateMap = new Map();
@@ -315,6 +350,78 @@
       return sessionId;
     }
 
+    function isMongoliaGrid() { return MN_GRID_IDS.includes(selectedGridId); }
+
+    function voltageLabel(voltage) {
+      return voltage == null ? "미확인" : String(Number(voltage));
+    }
+
+    function voltageColor(voltage) {
+      return VOLTAGE_COLORS[voltageLabel(voltage)] || "#64748b";
+    }
+
+    function configureVoltageFilters(data) {
+      const filter = document.getElementById("voltage-filters");
+      const options = document.getElementById("voltage-filter-options");
+      options.replaceChildren();
+      filter.hidden = !isMongoliaGrid();
+      if (filter.hidden) return;
+      const levels = [...new Set([...data.buses, ...data.lines].map(x => voltageLabel(x.voltage_kv)))].sort((a,b) => Number(a)-Number(b));
+      enabledVoltages = new Set(levels);
+      for (const level of levels) {
+        const label = document.createElement("label");
+        const input = document.createElement("input");
+        input.type = "checkbox"; input.checked = true; input.value = level;
+        input.addEventListener("change", () => {
+          if (input.checked) enabledVoltages.add(level);
+          else enabledVoltages.delete(level);
+          applyLayerVisibility();
+        });
+        const dot = document.createElement("span");
+        dot.className = "voltage-dot";
+        dot.style.backgroundColor = voltageColor(level === "미확인" ? null : level);
+        label.append(input, dot, document.createTextNode(level + (level === "미확인" ? "" : " kV")));
+        options.appendChild(label);
+      }
+    }
+
+    async function showMongoliaComparison() {
+      const panel = document.getElementById("grid-compare");
+      panel.hidden = !isMongoliaGrid();
+      if (panel.hidden) return;
+      const rows = document.getElementById("grid-compare-rows");
+      rows.replaceChildren();
+      try {
+        const response = await fetch("/api/grids/mongolia/compare");
+        if (!response.ok) throw new Error("비교 API 요청 실패");
+        const data = await response.json();
+        const [baseline, extended] = data.models || [];
+        if (!baseline || !extended) throw new Error("비교 모델 정보가 부족합니다.");
+        const fmt = value => value == null ? "지도 미준비" : Number(value).toLocaleString("ko-KR");
+        for (const [label, key] of [["모선","buses"],["선로","lines"],["변압기(추정)","transformers"],["발전소 데이터 행","powerplant_records"]]) {
+          const tr = document.createElement("tr");
+          const title = document.createElement("td"); title.textContent = label;
+          const first = document.createElement("td"); first.textContent = fmt(baseline[key]);
+          const second = document.createElement("td"); second.textContent = fmt(extended[key]);
+          tr.append(title, first, second);
+          rows.appendChild(tr);
+        }
+        for (const [label, key] of [["모선 전압","bus_voltages"],["선로 전압","line_voltages"]]) {
+          const tr = document.createElement("tr");
+          const title = document.createElement("td"); title.textContent = label;
+          const summary = m => Object.entries(m[key] || {}).sort((a,b) => Number(a[0])-Number(b[0])).map(([kv,count]) => kv+"kV "+count).join(" / ") || "전압 정보 미제공";
+          const first = document.createElement("td"); first.textContent = summary(baseline);
+          const second = document.createElement("td"); second.textContent = summary(extended);
+          tr.append(title, first, second); rows.appendChild(tr);
+        }
+        document.getElementById("grid-compare-note").textContent =
+          (baseline.error || extended.error) ? "지도 검증 오류: " + [baseline.error, extended.error].filter(Boolean).join("; ") :
+          "실제 지도 JSON에서 계산한 개수 · 발전소 접속과 변압기 정수 미검증 · 두 모델 모두 계통해석 비활성화";
+      } catch (error) {
+        document.getElementById("grid-compare-note").textContent = "비교 정보 오류: " + error.message;
+      }
+    }
+
     function gridSupportsAnalysis() {
       return gridEntries.find((item) => item.id === selectedGridId)?.analysis_available === true;
     }
@@ -365,15 +472,18 @@
           hideMapTooltip();
           updateGridCapabilities();
           await loadNetworkMap();
+          await showMongoliaComparison();
         });
         updateGridCapabilities();
         await loadNetworkMap();
+        await showMongoliaComparison();
       } catch (error) {
         document.getElementById("grid-status").textContent = "계통 목록 오류: " + error.message;
       }
     }
 
     async function loadNetworkMap() {
+      const token = ++gridSwitchToken;
       const svg = document.getElementById("network-map");
       svg.replaceChildren();
       document.getElementById("plant-legend").hidden = true;
@@ -385,13 +495,16 @@
       try {
         const response = await fetch("/api/grids/" + encodeURIComponent(selectedGridId) + "/map");
         const data = await response.json();
+        if (token !== gridSwitchToken) return;
         if (!response.ok) throw new Error(data.detail || "지도를 불러오지 못했습니다.");
+        configureVoltageFilters(data);
         generatorStateMap = new Map((data.generators || []).map((item) => [item.generator_id, item]));
         if (!Array.isArray(data.buses) || data.buses.length === 0) throw new Error("좌표가 있는 모선이 없습니다.");
         drawNetwork(data);
         applyLayerVisibility();
         if (gridSupportsAnalysis()) updateGeneratorAnalyzeAvailability();
       } catch (error) {
+        if (token !== gridSwitchToken) return;
         mapProjection = null;
         document.getElementById("grid-status").textContent = "지도 오류: " + error.message;
       }
@@ -417,7 +530,7 @@
 
     function drawNetwork(data) {
       const svg = document.getElementById("network-map");
-      const isMongolia = selectedGridId === "mn-osm";
+      const isMongolia = isMongoliaGrid();
       const hasGeography = (data.country_polygons || []).length > 0;
       const width = hasGeography ? 1200 : 700;
       const height = hasGeography ? 650 : 900;
@@ -491,6 +604,8 @@
         element.setAttribute("x2", p2.x); element.setAttribute("y2", p2.y);
         element.setAttribute("class", "network-line layer-line");
         element.dataset.lineId = line.line_id;
+        element.dataset.voltage = voltageLabel(line.voltage_kv);
+        if (isMongolia) element.style.stroke = voltageColor(line.voltage_kv);
         svg.appendChild(element);
 
         const hit = document.createElementNS(SVG_NS, "line");
@@ -498,6 +613,7 @@
         hit.setAttribute("x2", p2.x); hit.setAttribute("y2", p2.y);
         hit.setAttribute("class", "network-line-hit layer-line");
         hit.dataset.lineId = line.line_id;
+        hit.dataset.voltage = voltageLabel(line.voltage_kv);
         hit.addEventListener("mouseenter", () => element.classList.add("hover-line"));
         hit.addEventListener("mouseleave", () => element.classList.remove("hover-line"));
         hit.addEventListener("click", (event) => {
@@ -512,12 +628,38 @@
         svg.appendChild(hit);
       }
 
+      for (const transformer of data.transformers || []) {
+        const bus1 = busMap.get(transformer.bus1_id);
+        const bus2 = busMap.get(transformer.bus2_id);
+        if (!bus1 || !bus2) continue;
+        const p1 = mapProjection(bus1), p2 = mapProjection(bus2);
+        const element = document.createElementNS(SVG_NS, "line");
+        element.setAttribute("x1", p1.x); element.setAttribute("y1", p1.y);
+        element.setAttribute("x2", p2.x); element.setAttribute("y2", p2.y);
+        element.setAttribute("class", "network-transformer layer-transformer");
+        element.setAttribute("tabindex", "0");
+        element.dataset.bus1Voltage = voltageLabel(bus1.voltage_kv);
+        element.dataset.bus2Voltage = voltageLabel(bus2.voltage_kv);
+        const onSelect = event => {
+          event.stopPropagation();
+          showMapTooltip(event, '<div class="map-tooltip-title">변압기 '+escapeHtml(transformer.transformer_id)+'</div>' +
+            '<div class="map-tooltip-row">Bus '+escapeHtml(transformer.bus1_id)+' ('+escapeHtml(voltageLabel(bus1.voltage_kv))+'kV) ↔ Bus '+
+            escapeHtml(transformer.bus2_id)+' ('+escapeHtml(voltageLabel(bus2.voltage_kv))+'kV)</div>' +
+            '<div class="map-tooltip-row">자동 추론된 연결 · 실제 설비 및 정수 미검증</div>');
+        };
+        element.addEventListener("click", onSelect);
+        element.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") onSelect(event); });
+        svg.appendChild(element);
+      }
+
       for (const bus of data.buses) {
         const p = mapProjection(bus);
         const element = document.createElementNS(SVG_NS, "circle");
         element.setAttribute("cx", p.x); element.setAttribute("cy", p.y); element.setAttribute("r", 3);
         element.setAttribute("class", "network-bus layer-bus");
         element.dataset.busId = bus.bus_id;
+        element.dataset.voltage = voltageLabel(bus.voltage_kv);
+        if (isMongolia) element.style.fill = voltageColor(bus.voltage_kv);
         element.addEventListener("click", (event) => {
           event.stopPropagation();
           clearMapSelection();
@@ -663,6 +805,16 @@
       setLayerHidden(".layer-region", !document.getElementById("layer-regions").checked);
       setLayerHidden(".layer-line", !document.getElementById("layer-lines").checked);
       setLayerHidden(".layer-bus", !document.getElementById("layer-buses").checked);
+      const transformersOn = document.getElementById("layer-transformers").checked;
+      for (const node of document.querySelectorAll(".layer-line, .layer-bus")) {
+        if (isMongoliaGrid() && node.dataset.voltage && !enabledVoltages.has(node.dataset.voltage))
+          node.classList.add("layer-hidden");
+      }
+      for (const node of document.querySelectorAll(".layer-transformer")) {
+        const visible = transformersOn && (!isMongoliaGrid() ||
+          (enabledVoltages.has(node.dataset.bus1Voltage) && enabledVoltages.has(node.dataset.bus2Voltage)));
+        node.classList.toggle("layer-hidden", !visible);
+      }
       const hidePlants = !document.getElementById("layer-generators").checked;
       setLayerHidden(".layer-generator", hidePlants);
       setLayerHidden(".layer-powerplant", hidePlants);
@@ -1151,7 +1303,7 @@
     });
     document.getElementById("chat-send").addEventListener("click", sendChatMessage);
     document.getElementById("chat-message").addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendChatMessage(); } });
-    for (const id of ["layer-regions", "layer-lines", "layer-buses", "layer-generators", "layer-analysis"]) document.getElementById(id).addEventListener("change", applyLayerVisibility);
+    for (const id of ["layer-regions", "layer-lines", "layer-transformers", "layer-buses", "layer-generators", "layer-analysis"]) document.getElementById(id).addEventListener("change", applyLayerVisibility);
     document.querySelectorAll(".analysis-box-header").forEach((header) => {
       header.addEventListener("click", (event) => {
         event.preventDefault();
@@ -1165,6 +1317,12 @@
       if (tooltip.style.display !== "none" && !tooltip.contains(event.target)) hideMapTooltip();
     });
 
+    document.getElementById("grid-compare-switch").addEventListener("click", () => {
+      if (!isMongoliaGrid()) return;
+      document.getElementById("grid-select").value =
+        selectedGridId === "mn-osm" ? "mn-osm-35k" : "mn-osm";
+      document.getElementById("grid-select").dispatchEvent(new Event("change"));
+    });
     initializeWorkspaceSplit();
     initializeGridCatalog();
   </script>
