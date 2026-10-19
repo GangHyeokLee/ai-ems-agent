@@ -31,6 +31,7 @@ from ai_ems.config import (
 
 UI_DIR = Path("ui")
 MONGOLIA_MAP_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-map.json"
+KPG_GEOGRAPHY_FILE = PROJECT_ROOT / "data" / "grids" / "kr-geography.json"
 
 network = load_network(CASE_FILE)
 agent_graph = create_agent_graph(network)
@@ -162,11 +163,25 @@ def network_map():
             }
         )
 
-    return {
+    result = {
         "buses": buses,
         "lines": lines,
         "generators": generators,
     }
+    if KPG_GEOGRAPHY_FILE.is_file():
+        try:
+            geography = json.loads(KPG_GEOGRAPHY_FILE.read_text(encoding="utf-8"))
+            if (
+                isinstance(geography, dict)
+                and isinstance(geography.get("country_polygons"), list)
+                and isinstance(geography.get("admin_regions"), list)
+            ):
+                result["country_polygons"] = geography["country_polygons"]
+                result["admin_regions"] = geography["admin_regions"]
+                result["geography_attribution"] = geography.get("attribution", "")
+        except (OSError, ValueError):
+            pass  # Missing/invalid optional basemap must not break KPG analysis.
+    return result
 
 
 @app.get("/api/security-analysis")
