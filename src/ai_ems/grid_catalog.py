@@ -13,14 +13,22 @@ from typing import Any
 
 KPG_GRID_ID = "kr-kpg193"
 MONGOLIA_GRID_ID = "mn-osm"
+MONGOLIA_EXPANDED_GRID_ID = "mn-osm-35k"
 MAX_PREVIEW_BUSES = 50000
 MAX_PREVIEW_LINES = 100000
 MAX_PREVIEW_PLANTS = 100000
+MAX_PREVIEW_TRANSFORMERS = 100000
 
 
-def list_grids(mongolia_map_file: Path) -> list[dict[str, Any]]:
-    """Return registered cases without loading an optional PyPSA dependency."""
+def expanded_map_path(mongolia_map_file: Path) -> Path:
+    """Keep generated previews separate; never overwrite the baseline map."""
+    return mongolia_map_file.with_name("mn-osm-35k-map.json")
+
+
+def list_grids(mongolia_map_file: Path, expanded_map_file: Path | None = None) -> list[dict[str, Any]]:
+    """Register KPG and both Mongolia versions without importing PyPSA."""
     map_ready = mongolia_map_file.is_file()
+    expanded_ready = (expanded_map_file or expanded_map_path(mongolia_map_file)).is_file()
     return [
         {
             "id": KPG_GRID_ID,
@@ -47,7 +55,33 @@ def list_grids(mongolia_map_file: Path) -> list[dict[str, Any]]:
                 "전력조류 수렴 검증 전에는 계통해석을 제공하지 않습니다."
             ),
         },
+        {
+            "id": MONGOLIA_EXPANDED_GRID_ID,
+            "country": "MN",
+            "name": "몽골 OSM 확장망 (35/110/220 kV)",
+            "source": "OpenStreetMap / PyPSA-Earth MN_35k",
+            "format": "PyPSA NetCDF → JSON map preview",
+            "map_available": expanded_ready,
+            "analysis_available": False,
+            "status": "map_ready" if expanded_ready else "preparing",
+            "note": (
+                "35kV 전용 LineType·합성 변압기·발전소 접속 미검증. "
+                "지도 비교 전용이며 전력조류계산을 지원하지 않습니다."
+            ),
+        },
     ]
+
+
+def _optional_nonnegative_number(raw: Any, name: str, *, strictly_positive: bool = False) -> float | None:
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(f"{name} 값이 올바르지 않습니다.") from exc
+    if not math.isfinite(value) or value < 0 or (strictly_positive and value == 0):
+        raise ValueError(f"{name} 범위가 올바르지 않습니다.")
+    return value
 
 
 def load_mongolia_map(map_file: Path) -> dict[str, Any]:
@@ -95,6 +129,7 @@ def load_mongolia_map(map_file: Path) -> dict[str, Any]:
             "longitude": lon,
             "name_korean": name,
             "name_english": name,
+            "voltage_kv": _optional_nonnegative_number(bus.get("voltage_kv"), "모선 전압", strictly_positive=True),
         })
 
     lines = []
@@ -110,6 +145,29 @@ def load_mongolia_map(map_file: Path) -> dict[str, Any]:
             "line_id": identifier,
             "bus1_id": bus0,
             "bus2_id": bus1,
+            "voltage_kv": _optional_nonnegative_number(line.get("voltage_kv"), "선로 전압", strictly_positive=True),
+            "length_km": _optional_nonnegative_number(line.get("length_km"), "선로 길이"),
+        })
+
+    raw_transformers = payload.get("transformers", [])
+    if not isinstance(raw_transformers, list) or len(raw_transformers) > MAX_PREVIEW_TRANSFORMERS:
+        raise ValueError("변압기 목록 형식이 잘못되었습니다.")
+    transformers = []
+    transformer_ids: set[str] = set()
+    for record in raw_transformers:
+        if not isinstance(record, dict):
+            raise ValueError("변압기 항목 형식이 잘못되었습니다.")
+        identifier = str(record.get("transformer_id", "")).strip()
+        bus0 = str(record.get("bus1_id", "")).strip()
+        bus1 = str(record.get("bus2_id", "")).strip()
+        if not identifier or identifier in transformer_ids or bus0 not in known_buses or bus1 not in known_buses or bus0 == bus1:
+            raise ValueError("변압기 ID 또는 연결 모선이 올바르지 않습니다.")
+        transformer_ids.add(identifier)
+        transformers.append({
+            "transformer_id": identifier,
+            "bus1_id": bus0,
+            "bus2_id": bus1,
+            "inferred": True,
         })
 
     raw_plants = payload.get("powerplants", [])
@@ -224,6 +282,39 @@ def load_mongolia_map(map_file: Path) -> dict[str, Any]:
             cleaned.append(rings)
         regions.append({"name": name, "polygons": cleaned})
 
-    return {"buses": buses, "lines": lines, "generators": [],
-            "powerplants": plants, "country_polygons": polygons,
+    return {"buses": buses, "lines": lines, "transformers": transformers,
+            "generators": [], "powerplants": plants, "country_polygons": polygons,
             "admin_regions": regions}
+
+
+def summarize_mongolia_maps(mongolia_map_file: Path, expanded_map_file: Path | None = None) -> dict[str, Any]:
+    """Return measured map counts, never expected or assumed topology counts."""
+    expanded_file = expanded_map_file or expanded_map_path(mongolia_map_file)
+    models: list[dict[str, Any]] = []
+    for grid_id, name, path in (
+        (MONGOLIA_GRID_ID, "MN · 기존 110/220kV", mongolia_map_file),
+        (MONGOLIA_EXPANDED_GRID_ID, "MN_35k · 확장 35/110/220kV", expanded_file),
+    ):
+        summary: dict[str, Any] = {"id": grid_id, "name": name, "map_available": path.is_file(),
+                                   "buses": None, "lines": None, "transformers": None,
+                                   "powerplant_records": None, "bus_voltages": {}, "line_voltages": {},
+                                   "error": None}
+        if path.is_file():
+            try:
+                data = load_mongolia_map(path)
+                summary.update({
+                    "buses": len(data["buses"]), "lines": len(data["lines"]),
+                    "transformers": len(data["transformers"]), "powerplant_records": len(data["powerplants"]),
+                })
+                for kind, field in (("buses", "bus_voltages"), ("lines", "line_voltages")):
+                    for item in data[kind]:
+                        voltage = item["voltage_kv"]
+                        if voltage is not None:
+                            key = str(int(voltage)) if voltage.is_integer() else str(voltage)
+                            summary[field][key] = summary[field].get(key, 0) + 1
+            except (FileNotFoundError, ValueError) as exc:
+                summary["error"] = str(exc)
+        models.append(summary)
+    return {"models": models, "analysis_available": False,
+            "note": "OSM 지도 구조 비교입니다. 발전소 레코드는 운전 발전기 수가 아니며 계통해석 결과가 아닙니다."}
+

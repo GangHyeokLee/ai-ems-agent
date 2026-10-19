@@ -32,7 +32,15 @@ def _capacity(value) -> float | None:
     return capacity if math.isfinite(capacity) and capacity >= 0 else None
 
 
-def read_powerplant_records(csv_path: Path, bus_ids: set[str]) -> list[dict]:
+def _positive_number(value) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
+
+def read_powerplant_records(csv_path: Path, bus_ids: set[str], *, include_bus_mapping: bool = True) -> list[dict]:
     """Keep one marker record per CSV row, including potential duplicate units.
 
     source_record_id identifies a source row, NOT a unique physical power plant.
@@ -64,7 +72,7 @@ def read_powerplant_records(csv_path: Path, bus_ids: set[str]) -> list[dict]:
                     "latitude": latitude,
                     "longitude": longitude,
                     # The bus number is an *inferred mapping*, not a validated connection.
-                    "mapped_bus_id": raw_bus if raw_bus in bus_ids else None,
+                    "mapped_bus_id": raw_bus if include_bus_mapping and raw_bus in bus_ids else None,
                 }
             )
     return records
@@ -230,6 +238,8 @@ def build_preview(
     powerplants_csv: Path | None = None,
     country_shapes: Path | None = None,
     admin_shapes: Path | None = None,
+    *,
+    include_plant_bus_mapping: bool = True,
 ) -> dict:
     buses = []
     available: set[str] = set()
@@ -246,6 +256,7 @@ def build_preview(
                 "latitude": lat,
                 "longitude": lon,
                 "name": str(row.get("name", identifier) or identifier),
+                "voltage_kv": _positive_number(row.get("v_nom")),
             }
         )
 
@@ -258,14 +269,28 @@ def build_preview(
                     "line_id": str(line_id),
                     "bus1_id": start,
                     "bus2_id": end,
+                    "voltage_kv": _positive_number(row.get("v_nom")),
+                    "length_km": _positive_number(row.get("length")),
                 }
             )
 
     if not buses:
         raise ValueError("좌표가 있는 모선이 없습니다. 원본 base.nc를 확인하세요.")
 
+    transformers = []
+    transformer_frame = getattr(network, "transformers", None)
+    if transformer_frame is not None:
+        for transformer_id, row in transformer_frame.iterrows():
+            start, end = str(row["bus0"]), str(row["bus1"])
+            if start in available and end in available:
+                transformers.append({
+                    "transformer_id": str(transformer_id),
+                    "bus1_id": start,
+                    "bus2_id": end,
+                    "inferred": True,
+                })
     powerplants = (
-        read_powerplant_records(powerplants_csv, available)
+        read_powerplant_records(powerplants_csv, available, include_bus_mapping=include_plant_bus_mapping)
         if powerplants_csv is not None
         else []
     )
@@ -274,6 +299,7 @@ def build_preview(
     return {
         "buses": buses,
         "lines": lines,
+        "transformers": transformers,
         "powerplants": powerplants,
         "country_polygons": country_polygons,
         "admin_regions": admin_regions,
@@ -299,12 +325,19 @@ def main() -> None:
         type=Path,
         help="PyPSA-Earth resources/MN/shapes/gadm_shapes.geojson (aimag regions)",
     )
+    parser.add_argument(
+        "--no-plant-bus-mapping", action="store_true",
+        help="For MN_35k, show plant locations but do not reuse incompatible old numeric bus IDs",
+    )
     args = parser.parse_args()
 
     import pypsa  # import from PyPSA-Earth's Pixi environment
 
     network = pypsa.Network(args.network)
-    payload = build_preview(network, args.powerplants, args.country_shapes, args.admin_shapes)
+    payload = build_preview(
+        network, args.powerplants, args.country_shapes, args.admin_shapes,
+        include_plant_bus_mapping=not args.no_plant_bus_mapping,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False),
@@ -313,6 +346,7 @@ def main() -> None:
     print(
         f"Map preview: {len(payload['buses'])} buses, "
         f"{len(payload['lines'])} lines, "
+        f"{len(payload['transformers'])} transformers, "
         f"{len(payload['powerplants'])} plant data rows (not unique plants), "
         f"{len(payload['country_polygons'])} country polygons, "
         f"{len(payload['admin_regions'])} administrative regions"

@@ -130,3 +130,29 @@ def test_admin_regions_geojson(tmp_path):
     regions = module.read_admin_regions(source)
     assert [r["name"] for r in regions] == ["Arkhangai", "Dornod"]
     assert len(regions[0]["polygons"][0][0]) >= 4
+
+
+def test_expanded_preview_has_voltage_transformers_without_fake_plant_bus(tmp_path):
+    plant_file = tmp_path / "powerplants.csv"
+    plant_file.write_text("Name,Fueltype,Capacity,lat,lon,bus\\nSolar,Solar,5,47.0,106.0,35\\n".replace("\\n", "\n"),
+                          encoding="utf-8")
+    network = SimpleNamespace(
+        buses=pd.DataFrame([
+            {"x": 106.0, "y": 47.0, "v_nom": 35},
+            {"x": 106.2, "y": 47.2, "v_nom": 110},
+        ], index=["35", "110"]),
+        lines=pd.DataFrame([
+            {"bus0": "35", "bus1": "110", "v_nom": 35, "length": 8.5},
+        ], index=["line-A"]),
+        transformers=pd.DataFrame([
+            {"bus0": "35", "bus1": "110", "s_nom": 2000},
+        ], index=["trafo-A"]),
+    )
+    preview = module.build_preview(network, plant_file, include_plant_bus_mapping=False)
+    assert preview["buses"][0]["voltage_kv"] == 35
+    assert preview["lines"][0]["voltage_kv"] == 35
+    assert preview["lines"][0]["length_km"] == 8.5
+    assert preview["transformers"] == [{
+        "transformer_id": "trafo-A", "bus1_id": "35", "bus2_id": "110", "inferred": True,
+    }]
+    assert preview["powerplants"][0]["mapped_bus_id"] is None
