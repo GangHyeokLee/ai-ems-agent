@@ -272,6 +272,8 @@ def test_exports_only_the_approved_scenario_and_marks_excluded_topology():
     assert result["metadata"]["excluded_line_ids"] == [f"line-{i:03}" for i in range(156, 159)]
     assert len(result["transformers"]) == 27
     assert all(row["analysis_status"] == "ANALYZED" for row in result["lines"])
+    assert all(row["rating_mva"] == 100.0 for row in result["lines"])
+    assert all(row["rating_mva"] == 100.0 for row in result["transformers"])
     assert result["summary"]["screening_violations"]["generator_q"] == 0
     assert result["summary"]["model_reliability_status"] == "MODEL_DATA_REQUIRES_REVIEW"
 

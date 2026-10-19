@@ -90,6 +90,39 @@ uses 45 synthetic generators, 25.6 MW / 8.414 MVAr synthetic load, and one
 a measurement date. Model data reliability remains
 `MODEL_DATA_REQUIRES_REVIEW`.
 
+## Shared EMS PF map view
+
+KPG-193 and Mongolia use the same read-only map modes and equipment tooltips:
+nominal-voltage map, bus voltage (pu), and absolute MVA line loading bands.
+The loading colors are a PoC display policy (0–50%, >50–80%, >80–100%, and
+>100%), not an operator's alarm standard. Bus voltage colors use each solved
+bus's own low/high voltage limits, with a 0.02 pu caution margin; those limits
+are not assumed to be common operating criteria across the two systems.
+
+`GET /api/grids/kr-kpg193/pf-preview` lazily loads the configured KPG MATPOWER
+case into a separate PyPowSyBl network instance, runs the existing AC load-flow
+parameters once, validates its equipment IDs/endpoints against the KPG map,
+and caches the converted result for the process lifetime. The existing shared
+network object used by Security, Sensitivity, generator-contingency, and Agent
+operations is not used or modified by the PF request. A non-converged or
+invalid KPG result returns an explicit error; the default map remains usable.
+
+The KPG result is a synthetic test-case base-state calculation, not Korean
+operating data. Its model timestamp is not asserted as a measurement time.
+PyPowSyBl's solved bus kV/angle and branch terminal P/Q are converted directly;
+MVA loading uses selected permanent apparent-power limits. Missing ratings or
+unsolved elements remain unknown. The KPG MATPOWER case contains no modeled
+two-winding transformers, so the KPG PF response does not create any. The
+model has two separately represented HVDC links; their setpoints are not
+misrepresented as AC line terminal P/Q and they are excluded from the AC-line
+coloring/loading modes. The result and map are checked for matching
+bus/line/transformer IDs and endpoints.
+
+Both grids retain separate analysis capabilities: KPG's existing
+PyPowSyBl-based analysis remains enabled, while Mongolia stays map/PF-preview
+only. Security/Sensitivity event overlays take visual priority over PF line
+colors; the analysis layer can hide them without changing the selected PF mode.
+
 ## Verify
 
 ```bash

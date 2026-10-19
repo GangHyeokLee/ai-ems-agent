@@ -35,8 +35,12 @@ def list_grids(
             "format": "MATPOWER",
             "map_available": True,
             "analysis_available": True,
+            "pf_preview_available": True,
             "status": "analysis_ready",
-            "note": "기존 KPG 시험계통입니다. 실제 한국 운영계통을 의미하지 않습니다.",
+            "note": (
+                "KPG-193 합성 시험계통의 정상상태 PF 미리보기입니다. "
+                "실제 한국 운영계통 결과가 아니며, 기존 KPG 분석 기능은 유지됩니다."
+            ),
         },
         {
             "id": MONGOLIA_GRID_ID,
@@ -270,4 +274,3 @@ def load_mongolia_map(map_file: Path) -> dict[str, Any]:
     return {"buses": buses, "lines": lines, "transformers": transformers,
             "generators": [], "powerplants": plants, "country_polygons": polygons,
             "admin_regions": regions}
-

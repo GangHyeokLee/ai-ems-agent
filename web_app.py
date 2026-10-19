@@ -17,6 +17,11 @@ from ai_ems.grid_catalog import (
     KPG_GRID_ID, MONGOLIA_GRID_ID, list_grids, load_mongolia_map,
 )
 from ai_ems.pf_preview import load_mongolia_pf_preview
+from ai_ems.kpg_pf_preview import (
+    KpgPreviewUnavailable,
+    get_kpg_pf_preview,
+    validate_kpg_pf_preview,
+)
 from ai_ems import load_network
 from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph
 from ai_ems.agent.tools import create_agent_tools
@@ -119,6 +124,19 @@ def mongolia_pf_preview():
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@app.get("/api/grids/kr-kpg193/pf-preview")
+def kpg_pf_preview():
+    try:
+        return validate_kpg_pf_preview(get_kpg_pf_preview(), network_map())
+    except KpgPreviewUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"KPG 기본 PF 미리보기를 사용할 수 없습니다: {exc}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @app.get("/api/network-summary")
 def network_summary():
     return {
@@ -132,11 +150,17 @@ def network_summary():
 @app.get("/api/network-map")
 def network_map():
     buses = []
+    voltage_levels = network.get_voltage_levels()
+    nominal_voltage_by_bus = {
+        _bus_number(voltage_level_id): _optional_float(row["nominal_v"])
+        for voltage_level_id, row in voltage_levels.iterrows()
+    }
 
     for bus_id, location in bus_location_map.items():
         buses.append(
             {
                 "bus_id": bus_id,
+                "voltage_kv": nominal_voltage_by_bus.get(bus_id),
                 **location,
             }
         )
@@ -159,8 +183,26 @@ def network_map():
                 "line_id": line_id,
                 "bus1_id": bus1_id,
                 "bus2_id": bus2_id,
+                "voltage_kv": nominal_voltage_by_bus.get(
+                    _bus_number(voltage_level1_id)
+                ),
             }
         )
+
+    transformers_df = network.get_2_windings_transformers()
+    transformers = []
+    for transformer_id, row in transformers_df.iterrows():
+        bus1_id = _bus_number(row["voltage_level1_id"])
+        bus2_id = _bus_number(row["voltage_level2_id"])
+        if bus1_id not in bus_location_map or bus2_id not in bus_location_map:
+            continue
+        transformers.append({
+            "transformer_id": transformer_id,
+            "bus1_id": bus1_id,
+            "bus2_id": bus2_id,
+            "bus1_voltage_kv": nominal_voltage_by_bus.get(bus1_id),
+            "bus2_voltage_kv": nominal_voltage_by_bus.get(bus2_id),
+        })
 
     generators_df = network.get_generators(all_attributes=True)
     generators = []
@@ -186,6 +228,7 @@ def network_map():
     result = {
         "buses": buses,
         "lines": lines,
+        "transformers": transformers,
         "generators": generators,
     }
     if KPG_GEOGRAPHY_FILE.is_file():

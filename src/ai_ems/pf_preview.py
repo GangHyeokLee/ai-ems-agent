@@ -160,12 +160,13 @@ def validate_pf_preview(
         },
         "lines": {
             "line_id", "bus1_id", "bus2_id", "p0_mw", "q0_mvar", "p1_mw",
-            "q1_mvar", "loading_percent", "thermal_violation", "analysis_status",
+            "q1_mvar", "rating_mva", "loading_percent", "thermal_violation",
+            "analysis_status",
         },
         "transformers": {
             "transformer_id", "bus1_id", "bus2_id", "bus1_voltage_kv",
             "bus2_voltage_kv", "p0_mw", "q0_mvar", "p1_mw", "q1_mvar",
-            "loading_percent", "thermal_violation", "analysis_status",
+            "rating_mva", "loading_percent", "thermal_violation", "analysis_status",
         },
     }
     for label, records in (("buses", buses), ("lines", lines), ("transformers", transformers)):
@@ -230,6 +231,8 @@ def validate_pf_preview(
             raise ValueError(f"선로 {line_id}가 해석 대상 외 모선에 연결됩니다.")
         if result.get("analysis_status") != "ANALYZED":
             raise ValueError(f"선로 {line_id}의 분석 상태가 올바르지 않습니다.")
+        if _finite_number(result["rating_mva"], f"선로 {line_id} 정격") <= 0:
+            raise ValueError(f"선로 {line_id}의 MVA 정격이 올바르지 않습니다.")
         if not isinstance(result.get("thermal_violation"), bool):
             raise ValueError(f"선로 {line_id}의 열적 위반 상태가 올바르지 않습니다.")
 
@@ -244,6 +247,8 @@ def validate_pf_preview(
             raise ValueError(f"변압기 {transformer_id}가 해석 대상 외 모선에 연결됩니다.")
         if result.get("analysis_status") != "ANALYZED":
             raise ValueError(f"변압기 {transformer_id}의 분석 상태가 올바르지 않습니다.")
+        if _finite_number(result["rating_mva"], f"변압기 {transformer_id} 정격") <= 0:
+            raise ValueError(f"변압기 {transformer_id}의 MVA 정격이 올바르지 않습니다.")
         if not isinstance(result.get("thermal_violation"), bool):
             raise ValueError(f"변압기 {transformer_id}의 열적 위반 상태가 올바르지 않습니다.")
     actual_violations = {

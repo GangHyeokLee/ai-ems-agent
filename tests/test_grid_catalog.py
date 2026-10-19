@@ -14,6 +14,7 @@ def test_grid_catalog_does_not_claim_mongolia_analysis(tmp_path):
     entries = {item["id"]: item for item in list_grids(tmp_path / "mn-osm-35k-map.json")}
 
     assert entries[KPG_GRID_ID]["analysis_available"] is True
+    assert entries[KPG_GRID_ID]["pf_preview_available"] is True
     assert entries[MONGOLIA_GRID_ID]["map_available"] is False
     assert entries[MONGOLIA_GRID_ID]["analysis_available"] is False
     assert entries[MONGOLIA_GRID_ID]["status"] == "preparing"
