@@ -60,3 +60,36 @@ def test_reject_invalid_map_data(tmp_path, payload):
 def test_missing_preview(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_mongolia_map(tmp_path / "missing.json")
+
+
+def test_mongolia_map_with_powerplants(tmp_path):
+    target = tmp_path / "mn.json"
+    target.write_text(json.dumps({
+        "buses": [{"bus_id": "27", "latitude": 47.9, "longitude": 106.9}],
+        "lines": [],
+        "powerplants": [
+            {"record_id": "row-1", "name": "CHP", "fueltype": "Oil",
+             "capacity_mw": 92.6, "latitude": 47.8938, "longitude": 106.8036,
+             "mapped_bus_id": "27"},
+            {"record_id": "row-2", "name": "CHP", "fueltype": "Oil",
+             "capacity_mw": 92.6, "latitude": 47.8938, "longitude": 106.8036,
+             "mapped_bus_id": "27"},
+        ],
+    }), encoding="utf-8")
+    result = load_mongolia_map(target)
+    assert len(result["powerplants"]) == 2
+    assert result["generators"] == []
+
+
+def test_reject_invalid_powerplant_references(tmp_path):
+    target = tmp_path / "mn.json"
+    target.write_text(json.dumps({
+        "buses": [{"bus_id": "27", "latitude": 47.9, "longitude": 106.9}],
+        "lines": [],
+        "powerplants": [
+            {"record_id": "row-1", "latitude": 47, "longitude": 106,
+             "capacity_mw": 20, "mapped_bus_id": "unknown"}
+        ],
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="추정 모선"):
+        load_mongolia_map(target)
