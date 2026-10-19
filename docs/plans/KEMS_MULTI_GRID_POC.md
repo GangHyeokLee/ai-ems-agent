@@ -23,7 +23,8 @@ pixi run python ~/Projects/ai-ems-agent/scripts/export_pypsa_map.py \
   networks/MN/base.nc \
   ~/Projects/ai-ems-agent/data/grids/mn-osm-map.json \
   --powerplants resources/MN/powerplants.csv \
-  --country-shapes resources/MN/shapes/country_shapes.geojson
+  --country-shapes resources/MN/shapes/country_shapes.geojson \
+  --admin-shapes resources/MN/shapes/gadm_shapes.geojson
 ```
 
 이 명령은 `base.nc`가 실제 생성된 뒤에만 실행할 수 있다. `mn-osm-map.json`은 몽골 국경 GeoJSON 윤곽선, 모선 좌표·선로 연결과 공개 발전소 **데이터 행**(이름, 발전원, 용량, 좌표, 추정 매핑 모선)을 담는다. 27개 행은 물리적인 발전소 27곳을 의미하지 않는다. 동일 좌표/이름이 반복되면 지도 마커 하나에서 레코드를 모두 보여준다. 전기적 파라미터, 실제 발전기·부하 운전 상태, 지리적 선로 곡선은 포함하지 않는다. 공개 데이터 총 설비용량 합계를 실제 국가 총용량이라고 주장하면 안 된다.
@@ -57,3 +58,11 @@ python -m uvicorn web_app:app --host 127.0.0.1 --port 8000
 2. PyPSA 또는 PyPowSyBl에서 AC Power Flow 수렴 확인
 3. 모델 ID로 격리된 서버측 실행 컨텍스트와 Tool Binding
 4. 분석 가능 여부 판정 후 몽골 Power Flow 및 결과 화면 활성화
+
+## 지도 표시 (몽골)
+
+- 국경 및 GADM 행정구역 폴리곤을 같은 좌표계로 시각화하고, 경계 레이어를 끌 수 있다.
+- 몽골은 가로형 지도(1200×650)를 사용하고, 기존 KPG 화면은 변경하지 않는다.
+- 공개 발전소 점을 선택하면 마커 테두리가 강조되고 레코드 세부정보가 툴팁으로 표시된다. 이것은 운전용 발전기 선택/제어가 아니다.
+- GADM 파일은 해당 배포본의 실제 속성/행정단위를 확인해야 한다. 개발 코드는 하위 행정구역 FeatureCollection을 기대하고, 1개 국가 전체 폴리곤이면 오류를 낸다.
+- `base.nc` 및 `powerplants.csv`는 다시 다운로드하거나 Snakemake 실행할 필요 없이 JSON 변환만 재실행한다.
