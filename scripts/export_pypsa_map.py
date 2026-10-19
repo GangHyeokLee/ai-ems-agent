@@ -70,7 +70,117 @@ def read_powerplant_records(csv_path: Path, bus_ids: set[str]) -> list[dict]:
     return records
 
 
-def build_preview(network, powerplants_csv: Path | None = None) -> dict:
+
+
+def _simplify_line(points: list[list[float]], tolerance: float) -> list[list[float]]:
+    """Iterative Douglas-Peucker simplification, using lon/lat degree tolerance."""
+    if len(points) < 3:
+        return points
+    keep = {0, len(points) - 1}
+    stack = [(0, len(points) - 1)]
+    tolerance_squared = tolerance * tolerance
+
+    while stack:
+        start, end = stack.pop()
+        ax, ay = points[start]
+        bx, by = points[end]
+        length_squared = (bx - ax) ** 2 + (by - ay) ** 2
+        best_distance = 0.0
+        best_index = None
+
+        for index in range(start + 1, end):
+            px, py = points[index]
+            if length_squared == 0:
+                distance = (px - ax) ** 2 + (py - ay) ** 2
+            else:
+                t = max(0, min(1, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / length_squared))
+                distance = (px - (ax + t * (bx - ax))) ** 2 + (py - (ay + t * (by - ay))) ** 2
+            if distance > best_distance:
+                best_distance, best_index = distance, index
+
+        if best_index is not None and best_distance > tolerance_squared:
+            keep.add(best_index)
+            stack.extend([(start, best_index), (best_index, end)])
+
+    return [points[index] for index in sorted(keep)]
+
+
+def _simplify_ring(raw_points, tolerance: float) -> list[list[float]]:
+    """Simplify a closed border without degenerating it to the same endpoints."""
+    points = []
+    for raw in raw_points:
+        if not isinstance(raw, (list, tuple)) or len(raw) < 2:
+            raise ValueError("Invalid country polygon coordinate")
+        lon = _coordinate(raw[0], limit=180)
+        lat = _coordinate(raw[1], limit=90)
+        if lon is None or lat is None:
+            raise ValueError("Invalid country polygon coordinate")
+        point = [round(lon, 5), round(lat, 5)]
+        if not points or points[-1] != point:
+            points.append(point)
+    if len(points) < 4:
+        raise ValueError("Country polygon has too few coordinates")
+    if points[0] == points[-1]:
+        points.pop()
+    if len(points) < 3:
+        raise ValueError("Country polygon has too few unique vertices")
+
+    # Split the ring opposite its first vertex so both edges survive RDP.
+    ax, ay = points[0]
+    split = max(
+        range(1, len(points)),
+        key=lambda i: (points[i][0] - ax) ** 2 + (points[i][1] - ay) ** 2,
+    )
+    left = _simplify_line(points[:split + 1], tolerance)
+    right = _simplify_line(points[split:] + [points[0]], tolerance)
+    simplified = left[:-1] + right
+    if len(simplified) < 4:
+        simplified = points + [points[0]]
+    return simplified
+
+
+def read_country_polygons(country_shapes: Path, tolerance: float = 0.025) -> list:
+    """Read actual geographic boundaries from PyPSA-Earth GeoJSON.
+
+    Return list[polygon][ring][[lon, lat]], retaining interior holes.
+    Simplification reduces payload size for SVG while keeping country geography.
+    """
+    try:
+        geojson = json.loads(country_shapes.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Unable to read country GeoJSON: {country_shapes}") from exc
+
+    def geometries(item):
+        if not isinstance(item, dict):
+            raise ValueError("Invalid country GeoJSON")
+        kind = item.get("type")
+        if kind == "FeatureCollection":
+            for feature in item.get("features", []):
+                yield from geometries(feature)
+        elif kind == "Feature":
+            yield from geometries(item.get("geometry"))
+        elif kind == "GeometryCollection":
+            for geometry in item.get("geometries", []):
+                yield from geometries(geometry)
+        elif kind == "Polygon":
+            yield item.get("coordinates", [])
+        elif kind == "MultiPolygon":
+            for polygon in item.get("coordinates", []):
+                yield polygon
+        else:
+            raise ValueError(f"Unsupported country geometry type: {kind}")
+
+    polygons = []
+    for polygon in geometries(geojson):
+        if not isinstance(polygon, list) or not polygon:
+            raise ValueError("Invalid country polygon")
+        rings = [_simplify_ring(ring, tolerance) for ring in polygon]
+        polygons.append(rings)
+    if not polygons:
+        raise ValueError("No polygon geometry in country GeoJSON")
+    return polygons
+
+def build_preview(network, powerplants_csv: Path | None = None, country_shapes: Path | None = None) -> dict:
     buses = []
     available: set[str] = set()
     for bus_id, row in network.buses.iterrows():
@@ -109,7 +219,13 @@ def build_preview(network, powerplants_csv: Path | None = None) -> dict:
         if powerplants_csv is not None
         else []
     )
-    return {"buses": buses, "lines": lines, "powerplants": powerplants}
+    country_polygons = read_country_polygons(country_shapes) if country_shapes else []
+    return {
+        "buses": buses,
+        "lines": lines,
+        "powerplants": powerplants,
+        "country_polygons": country_polygons,
+    }
 
 
 def main() -> None:
@@ -121,12 +237,17 @@ def main() -> None:
         type=Path,
         help="Optional PyPSA-Earth resources/MN/powerplants.csv; records only",
     )
+    parser.add_argument(
+        "--country-shapes",
+        type=Path,
+        help="PyPSA-Earth resources/MN/shapes/country_shapes.geojson",
+    )
     args = parser.parse_args()
 
     import pypsa  # import from PyPSA-Earth's Pixi environment
 
     network = pypsa.Network(args.network)
-    payload = build_preview(network, args.powerplants)
+    payload = build_preview(network, args.powerplants, args.country_shapes)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False),
@@ -135,7 +256,8 @@ def main() -> None:
     print(
         f"Map preview: {len(payload['buses'])} buses, "
         f"{len(payload['lines'])} lines, "
-        f"{len(payload['powerplants'])} plant data rows (not unique plants)"
+        f"{len(payload['powerplants'])} plant data rows (not unique plants), "
+        f"{len(payload['country_polygons'])} country polygons"
     )
     print(f"Saved: {args.output.resolve()}")
 
