@@ -66,3 +66,26 @@ python -m uvicorn web_app:app --host 127.0.0.1 --port 8000
 - 공개 발전소 점을 선택하면 마커 테두리가 강조되고 레코드 세부정보가 툴팁으로 표시된다. 이것은 운전용 발전기 선택/제어가 아니다.
 - GADM 파일은 해당 배포본의 실제 속성/행정단위를 확인해야 한다. 개발 코드는 하위 행정구역 FeatureCollection을 기대하고, 1개 국가 전체 폴리곤이면 오류를 낸다.
 - `base.nc` 및 `powerplants.csv`는 다시 다운로드하거나 Snakemake 실행할 필요 없이 JSON 변환만 재실행한다.
+
+## KPG-193 한국 지도 배경 및 공통 마커
+
+KPG-193은 **합성 한국 시험계통**이며 실제 계통 설비의 지리적 좌표를 보증하지 않는다.
+한국 배경은 geoBoundaries gbOpen KOR ADM0(국경), ADM1(시도 경계)를 기반으로 생성하고,
+출처 및 CC BY 4.0 라이선스 표기를 유지한다.
+
+```bash
+cd ~/Projects/ai-ems-agent
+source .venv/bin/activate
+python scripts/prepare_kpg_geography.py
+```
+
+생성 결과: `data/grids/kr-geography.json` (Git에 커밋하지 않음).
+외부 geoBoundaries 서버의 연결 또는 데이터 변경에 따라 오류가 나면
+경계를 표시하지 않고 기존 KPG 계통 지도를 그대로 유지한다.
+
+공통 레이어 체크박스 **발전기 / 발전소**는 KPG에서는 실제 PyPowSyBl
+Generator 레코드의 녹색 원형 마커, 몽골에서는 공개 발전소 자료의
+발전원별 색상 원형 마커를 제어한다. 몽골 마커는 계통 운전용 발전기와 다르며
+분석 기능을 활성화하지 않는다.
+
+개발 및 배포에서는 geoBoundaries의 자료 출처 및 라이선스 조건을 확인하고 표기해야 한다.
