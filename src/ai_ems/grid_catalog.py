@@ -15,6 +15,7 @@ KPG_GRID_ID = "kr-kpg193"
 MONGOLIA_GRID_ID = "mn-osm"
 MAX_PREVIEW_BUSES = 50000
 MAX_PREVIEW_LINES = 100000
+MAX_PREVIEW_PLANTS = 100000
 
 
 def list_grids(mongolia_map_file: Path) -> list[dict[str, Any]]:
@@ -111,4 +112,48 @@ def load_mongolia_map(map_file: Path) -> dict[str, Any]:
             "bus2_id": bus1,
         })
 
-    return {"buses": buses, "lines": lines, "generators": []}
+    raw_plants = payload.get("powerplants", [])
+    if not isinstance(raw_plants, list) or len(raw_plants) > MAX_PREVIEW_PLANTS:
+        raise ValueError("발전소 데이터 개수가 허용 범위를 벗어났습니다.")
+    plants = []
+    for record in raw_plants:
+        if not isinstance(record, dict):
+            raise ValueError("발전소 레코드 형식이 잘못되었습니다.")
+        record_id = str(record.get("record_id", "")).strip()
+        if not record_id:
+            raise ValueError("발전소 레코드 ID가 없습니다.")
+        try:
+            latitude = float(record["latitude"])
+            longitude = float(record["longitude"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(f"발전소 {record_id}의 좌표가 올바르지 않습니다.") from exc
+        if not (math.isfinite(latitude) and math.isfinite(longitude)
+                and -90 <= latitude <= 90 and -180 <= longitude <= 180):
+            raise ValueError(f"발전소 {record_id}의 좌표 범위가 올바르지 않습니다.")
+        raw_capacity = record.get("capacity_mw")
+        if raw_capacity is None:
+            capacity = None
+        else:
+            try:
+                capacity = float(raw_capacity)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"발전소 {record_id}의 용량이 잘못되었습니다.") from exc
+            if not math.isfinite(capacity) or capacity < 0:
+                raise ValueError(f"발전소 {record_id}의 용량 범위가 올바르지 않습니다.")
+        mapped_bus = record.get("mapped_bus_id")
+        if mapped_bus is not None:
+            mapped_bus = str(mapped_bus)
+            if mapped_bus not in known_buses:
+                raise ValueError(f"발전소 {record_id}의 추정 모선이 없습니다.")
+        plants.append({
+            "record_id": record_id,
+            "name": str(record.get("name") or "Unknown"),
+            "fueltype": str(record.get("fueltype") or "Unknown"),
+            "technology": str(record["technology"]) if record.get("technology") else None,
+            "capacity_mw": capacity,
+            "latitude": latitude,
+            "longitude": longitude,
+            "mapped_bus_id": mapped_bus,
+        })
+
+    return {"buses": buses, "lines": lines, "generators": [], "powerplants": plants}
