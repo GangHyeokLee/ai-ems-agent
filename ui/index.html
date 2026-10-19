@@ -38,6 +38,7 @@
     .network-bus.selected-bus { fill: #0f172a; }
 
     .network-generator { cursor: pointer; }
+    .network-generator.selected-generator circle { stroke:#111827; stroke-width:3px; }
     .network-generator path { fill: #16a34a; stroke: white; stroke-width: 1.4; }
     .network-generator text { fill: white; font-size: 8px; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
     .network-generator.selected-generator path { fill: #0f172a; stroke-width: 2.5; }
@@ -148,11 +149,10 @@
         <svg id="network-map" viewBox="0 0 700 900" preserveAspectRatio="xMidYMid meet"></svg>
         <div class="map-layer-control">
           <strong>지도 표시</strong>
-          <label class="map-layer-option"><input id="layer-regions" type="checkbox" checked /><span>행정구역 경계 (몽골)</span></label>
+          <label class="map-layer-option"><input id="layer-regions" type="checkbox" checked /><span>행정구역 경계</span></label>
           <label class="map-layer-option"><input id="layer-lines" type="checkbox" checked /><span>선로</span></label>
           <label class="map-layer-option"><input id="layer-buses" type="checkbox" checked /><span>버스</span></label>
-          <label class="map-layer-option"><input id="layer-generators" type="checkbox" /><span>발전기 (KPG)</span></label>
-          <label class="map-layer-option"><input id="layer-powerplants" type="checkbox" checked /><span>발전소 데이터 (몽골)</span></label>
+          <label class="map-layer-option"><input id="layer-generators" type="checkbox" checked /><span>발전기 / 발전소</span></label>
           <label class="map-layer-option"><input id="layer-analysis" type="checkbox" checked /><span>분석 결과</span></label>
         </div>
         <div id="plant-legend" class="plant-legend" hidden></div>
@@ -418,10 +418,11 @@
     function drawNetwork(data) {
       const svg = document.getElementById("network-map");
       const isMongolia = selectedGridId === "mn-osm";
-      const width = isMongolia ? 1200 : 700;
-      const height = isMongolia ? 650 : 900;
+      const hasGeography = (data.country_polygons || []).length > 0;
+      const width = hasGeography ? 1200 : 700;
+      const height = hasGeography ? 650 : 900;
       svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-      const padding = isMongolia ? 22 : 40;
+      const padding = hasGeography ? 22 : 40;
       const geography = (data.country_polygons || []).flat(2);
       const extents = geography.length
         ? geography.map((point) => ({ longitude: point[0], latitude: point[1] }))
@@ -550,15 +551,29 @@
         const group = document.createElementNS(SVG_NS, "g");
         group.setAttribute("class", "network-generator layer-generator");
         group.dataset.busId = busId;
-
-        const path = document.createElementNS(SVG_NS, "path");
-        path.setAttribute("d", `M ${p.x} ${p.y - 8} L ${p.x - 7} ${p.y + 6} L ${p.x + 7} ${p.y + 6} Z`);
-        const text = document.createElementNS(SVG_NS, "text");
-        text.setAttribute("x", p.x); text.setAttribute("y", p.y + 1); text.textContent = items.length;
-        group.appendChild(path); group.appendChild(text);
-        group.addEventListener("click", (event) => {
+        group.setAttribute("tabindex", "0");
+        group.setAttribute("role", "button");
+        group.setAttribute("aria-label", "Bus " + busId + " 발전기 " + items.length + "개");
+        const circle = document.createElementNS(SVG_NS, "circle");
+        circle.setAttribute("cx", p.x);
+        circle.setAttribute("cy", p.y);
+        circle.setAttribute("r", items.length > 1 ? 9 : 6.5);
+        circle.setAttribute("fill", "#16a34a");
+        circle.setAttribute("stroke", "white");
+        circle.setAttribute("stroke-width", "1.5");
+        group.appendChild(circle);
+        const onSelect = (event) => {
           event.stopPropagation();
+          document.querySelectorAll(".selected-generator").forEach((node) => node.classList.remove("selected-generator"));
+          group.classList.add("selected-generator");
           showGeneratorTooltip(event, busId, items);
+        };
+        group.addEventListener("click", onSelect);
+        group.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect(event);
+          }
         });
         svg.appendChild(group);
       }
@@ -648,8 +663,9 @@
       setLayerHidden(".layer-region", !document.getElementById("layer-regions").checked);
       setLayerHidden(".layer-line", !document.getElementById("layer-lines").checked);
       setLayerHidden(".layer-bus", !document.getElementById("layer-buses").checked);
-      setLayerHidden(".layer-generator", !document.getElementById("layer-generators").checked);
-      setLayerHidden(".layer-powerplant", !document.getElementById("layer-powerplants").checked);
+      const hidePlants = !document.getElementById("layer-generators").checked;
+      setLayerHidden(".layer-generator", hidePlants);
+      setLayerHidden(".layer-powerplant", hidePlants);
       document.getElementById("map").classList.toggle("analysis-hidden", !document.getElementById("layer-analysis").checked);
     }
 
@@ -1135,7 +1151,7 @@
     });
     document.getElementById("chat-send").addEventListener("click", sendChatMessage);
     document.getElementById("chat-message").addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendChatMessage(); } });
-    for (const id of ["layer-regions", "layer-lines", "layer-buses", "layer-generators", "layer-powerplants", "layer-analysis"]) document.getElementById(id).addEventListener("change", applyLayerVisibility);
+    for (const id of ["layer-regions", "layer-lines", "layer-buses", "layer-generators", "layer-analysis"]) document.getElementById(id).addEventListener("change", applyLayerVisibility);
     document.querySelectorAll(".analysis-box-header").forEach((header) => {
       header.addEventListener("click", (event) => {
         event.preventDefault();
