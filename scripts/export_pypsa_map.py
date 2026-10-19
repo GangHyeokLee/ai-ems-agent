@@ -139,20 +139,11 @@ def _simplify_ring(raw_points, tolerance: float) -> list[list[float]]:
     return simplified
 
 
-def read_country_polygons(country_shapes: Path, tolerance: float = 0.025) -> list:
-    """Read actual geographic boundaries from PyPSA-Earth GeoJSON.
-
-    Return list[polygon][ring][[lon, lat]], retaining interior holes.
-    Simplification reduces payload size for SVG while keeping country geography.
-    """
-    try:
-        geojson = json.loads(country_shapes.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"Unable to read country GeoJSON: {country_shapes}") from exc
-
+def _polygons_from_geojson(geojson, tolerance: float) -> list:
+    """Parse GeoJSON Polygon, MultiPolygon and collections to simplified rings."""
     def geometries(item):
         if not isinstance(item, dict):
-            raise ValueError("Invalid country GeoJSON")
+            raise ValueError("Invalid geographic GeoJSON")
         kind = item.get("type")
         if kind == "FeatureCollection":
             for feature in item.get("features", []):
@@ -168,19 +159,78 @@ def read_country_polygons(country_shapes: Path, tolerance: float = 0.025) -> lis
             for polygon in item.get("coordinates", []):
                 yield polygon
         else:
-            raise ValueError(f"Unsupported country geometry type: {kind}")
+            raise ValueError(f"Unsupported geographic geometry type: {kind}")
 
     polygons = []
     for polygon in geometries(geojson):
         if not isinstance(polygon, list) or not polygon:
-            raise ValueError("Invalid country polygon")
-        rings = [_simplify_ring(ring, tolerance) for ring in polygon]
-        polygons.append(rings)
+            raise ValueError("Invalid geographic polygon")
+        polygons.append([_simplify_ring(ring, tolerance) for ring in polygon])
+    return polygons
+
+
+def _read_geojson(path: Path) -> dict:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Unable to read geographic GeoJSON: {path}") from exc
+    if not isinstance(value, dict):
+        raise ValueError("GeoJSON document must be an object")
+    return value
+
+
+def read_country_polygons(country_shapes: Path, tolerance: float = 0.025) -> list:
+    """Read actual geographic national boundary from PyPSA-Earth GeoJSON."""
+    polygons = _polygons_from_geojson(_read_geojson(country_shapes), tolerance)
     if not polygons:
         raise ValueError("No polygon geometry in country GeoJSON")
     return polygons
 
-def build_preview(network, powerplants_csv: Path | None = None, country_shapes: Path | None = None) -> dict:
+
+def read_admin_regions(admin_shapes: Path, tolerance: float = 0.035) -> list[dict]:
+    """Read GADM subnational region boundaries, preserving the source names.
+
+    This only displays regional shapes; it does not assign equipment to regions
+    or assert any relationship between mapped plants and grid topology.
+    """
+    geojson = _read_geojson(admin_shapes)
+    if geojson.get("type") != "FeatureCollection":
+        raise ValueError("Expected FeatureCollection for regional GADM geometry")
+    regions = []
+    features = geojson.get("features", [])
+    if not isinstance(features, list):
+        raise ValueError("Invalid regional GeoJSON feature collection")
+    for idx, feature in enumerate(features):
+        properties = feature.get("properties") or {}
+        if not isinstance(properties, dict):
+            properties = {}
+        # GADM NAME_1 is the usual province/aimag name; other sources may
+        # use name or shapeName. Never silently call country-level shapes aimags.
+        name = next(
+            (str(properties[key]).strip() for key in
+             ("NAME_1", "name_1", "shapeName", "name", "NAME_EN", "NAME")
+             if properties.get(key) is not None and str(properties[key]).strip()),
+            f"행정구역 {idx + 1}",
+        )
+        regions.append({
+            "name": name,
+            "polygons": _polygons_from_geojson(feature, tolerance),
+        })
+    regions = [region for region in regions if region["polygons"]]
+    if len(regions) < 2:
+        raise ValueError(
+            "GADM GeoJSON has fewer than 2 regional features; "
+            "verify that it contains Mongolia's subnational boundaries"
+        )
+    return regions
+
+
+def build_preview(
+    network,
+    powerplants_csv: Path | None = None,
+    country_shapes: Path | None = None,
+    admin_shapes: Path | None = None,
+) -> dict:
     buses = []
     available: set[str] = set()
     for bus_id, row in network.buses.iterrows():
@@ -220,11 +270,13 @@ def build_preview(network, powerplants_csv: Path | None = None, country_shapes: 
         else []
     )
     country_polygons = read_country_polygons(country_shapes) if country_shapes else []
+    admin_regions = read_admin_regions(admin_shapes) if admin_shapes else []
     return {
         "buses": buses,
         "lines": lines,
         "powerplants": powerplants,
         "country_polygons": country_polygons,
+        "admin_regions": admin_regions,
     }
 
 
@@ -242,12 +294,17 @@ def main() -> None:
         type=Path,
         help="PyPSA-Earth resources/MN/shapes/country_shapes.geojson",
     )
+    parser.add_argument(
+        "--admin-shapes",
+        type=Path,
+        help="PyPSA-Earth resources/MN/shapes/gadm_shapes.geojson (aimag regions)",
+    )
     args = parser.parse_args()
 
     import pypsa  # import from PyPSA-Earth's Pixi environment
 
     network = pypsa.Network(args.network)
-    payload = build_preview(network, args.powerplants, args.country_shapes)
+    payload = build_preview(network, args.powerplants, args.country_shapes, args.admin_shapes)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False),
@@ -257,7 +314,8 @@ def main() -> None:
         f"Map preview: {len(payload['buses'])} buses, "
         f"{len(payload['lines'])} lines, "
         f"{len(payload['powerplants'])} plant data rows (not unique plants), "
-        f"{len(payload['country_polygons'])} country polygons"
+        f"{len(payload['country_polygons'])} country polygons, "
+        f"{len(payload['admin_regions'])} administrative regions"
     )
     print(f"Saved: {args.output.resolve()}")
 
