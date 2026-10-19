@@ -1,24 +1,23 @@
-# Mongolia MN / MN_35k browser comparison
+# Mongolia 35 kV grid: active web map
 
-## Scope and safety
+The AI-EMS Agent grid selector intentionally contains **two** grids:
+- KR — KPG-193 test network (existing analysis enabled)
+- MN — Mongolia OSM grid (MN_35k, 35/110/220 kV; **map only**)
 
-This workflow keeps `MN` (110/220 kV) and `MN_35k` (35/110/220 kV)
-as **separate map previews**. The browser grid picker exposes both alongside
-KPG-193, and the "몽골 계통 모델 비교" table reads counts from exported JSON.
-The map legend allows independent voltage-level visibility for Mongolia, and
-shows inferred transformer connections separately.
+The old MN (110/220 kV) is **retired from the web UI and API**. Its
+`networks/MN/base.nc` and old `mn-osm-map.json` may remain on disk for
+reproducibility; neither is used by this application. Do not delete the
+source model, history, or validation reports as part of this change.
 
-**Neither Mongolia preview enables AC power-flow, dispatch, security analysis,
-or chat-based grid computation.** The 27 power-plant CSV rows are geographic
-records, not validated generators. `MN_35k` has unverified 35 kV line types,
-synthetic transformers, two isolated buses and uncertain plant-to-bus mapping.
-Keep the original NetCDF inputs unchanged.
+## Required local map data
 
-## Generate both map JSON files on your WSL desktop
+The active map file is:
 
-The `ai-ems-agent` repository intentionally ignores `data/grids/` and `*.nc`.
-The NetCDFs are local to PyPSA-Earth and are **not stored in this GitHub repository**.
-After pulling the updated feature branch, run:
+`~/Projects/ai-ems-agent/data/grids/mn-osm-35k-map.json`
+
+This is a generated, gitignored artifact. **Pulling the code does not create
+it.** If you generated this JSON in the previous comparison task, simply
+reuse it. Otherwise export it on your WSL desktop:
 
 ```bash
 cd ~/Projects/ai-ems-agent
@@ -26,58 +25,45 @@ git switch feature/kems-multi-grid
 git pull origin feature/kems-multi-grid
 
 cd ~/Projects/mongolia-grid-poc/pypsa-earth
-
-# Legacy preview. Keep existing source records and their *unverified* inferred bus mapping.
-pixi run python ~/Projects/ai-ems-agent/scripts/export_pypsa_map.py \
-  networks/MN/base.nc \
-  ~/Projects/ai-ems-agent/data/grids/mn-osm-map.json \
-  --powerplants resources/MN/powerplants.csv \
-  --country-shapes resources/MN/shapes/country_shapes.geojson \
-  --admin-shapes resources/MN/shapes/gadm_shapes.geojson
-
-# Expanded preview. Reuse plant COORDINATES only; never reuse numeric MN bus IDs.
 pixi run python ~/Projects/ai-ems-agent/scripts/export_pypsa_map.py \
   networks/MN_35k/base.nc \
   ~/Projects/ai-ems-agent/data/grids/mn-osm-35k-map.json \
   --powerplants resources/MN/powerplants.csv \
   --country-shapes resources/MN/shapes/country_shapes.geojson \
-  --admin-shapes resources/MN/shapes/gadm_shapes.geojson \
   --no-plant-bus-mapping
 ```
 
-If the GADM file is absent, locate the actual regional shape file in the
-PyPSA-Earth resources directory or omit `--admin-shapes` for **both** commands.
-Country polygons and province overlays are presentation only.
+If the province shapes are available, add
+`--admin-shapes resources/MN/shapes/gadm_shapes.geojson`.
+If the NetCDF or geographic input is absent, verify the path instead of
+regenerating or silently substituting the old network.
 
-## Run the web app and check the UI
+The `--no-plant-bus-mapping` flag is essential: the old MN CSV bus numbers
+do **not** represent the same physical bus IDs in MN_35k. Geographic plant
+markers can appear, but their electrical connection is unverified.
+
+## Verify
 
 ```bash
 cd ~/Projects/ai-ems-agent
 source .venv/bin/activate
 python -m pytest -q tests/test_grid_catalog.py tests/test_export_pypsa_map.py
-# Start the existing FastAPI server using your usual project launch command.
 ```
 
-Verify:
-1. Grid selector shows KR · KPG-193, Mongolia MN (legacy), Mongolia MN_35k.
-2. Both Mongolia selections show the comparison table. Expected local models
-   before further edits: MN 110 buses / 111 lines / 10 transformers;
-   MN_35k 173 / 159 / 27. Treat these as cross-checks, not hardcoded UI values.
-3. In MN_35k, 35/110/220 kV filters show and hide corresponding buses,
-   lines and inferred transformer links. Two isolated 35 kV buses remain.
-4. Power plant markers use their source longitude/latitude in both maps.
-   **Expanded model plant-to-bus mappings are intentionally blank.**
-5. KPG-193 map and analysis workflows remain available; both Mongolia
-   analysis controls remain disabled.
-6. If either JSON is missing, that model appears as "지도 준비 중" and its
-   comparison numbers appear as unavailable rather than faked.
-7. `GET /api/grids/mongolia/compare` reports parsed map counts; verify the
-   same numbers visually.
+Restart your existing FastAPI service and hard-refresh the browser.
+Expected grid IDs from `GET /api/grids`: `kr-kpg193`,
+`mn-osm-35k` only. `GET /api/grids/mn-osm/map` returns 404;
+`GET /api/grids/mn-osm-35k/map` serves the expanded JSON when present.
+The retired `GET /api/grids/mongolia/compare` endpoint is also removed.
 
-The map renders connections as straight bus-to-bus SVG segments, not full
-OSM line geometries. A transformer is a topology edge from PyPSA-Earth,
-**not** a physically verified transformer asset. Do not compare its symbol or
-line lengths with field survey drawings.
+Expected topology inventory for this particular MN_35k snapshot:
+173 buses, 159 lines, 27 inferred transformers, 27 geographic plant
+records. These counts are not field-validated and are not hardcoded in
+the UI. Voltage colors and transformer connections are **structural
+preview information only**, not a solved operating grid.
 
-Once model verification succeeds, remove the legacy option in a separate
-reviewed change, after preserving the source data and reproduction instructions.
+**AC PF, security analysis and chat operations remain disabled for MN.**
+Known data limits: unvalidated 35 kV line types; synthetic transformers
+with default ratings/impedances; unverified plant ties; two isolated buses
+(118 and 124); line-length discrepancy. Keep this warning until independent
+model and load-flow validation has been performed.

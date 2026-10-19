@@ -37,15 +37,6 @@
     .network-bus:hover, .network-bus.selected-bus { r: 5; }
     .network-bus.selected-bus { fill: #0f172a; }
     .network-transformer { stroke:#b45309; stroke-width:3; stroke-dasharray:3 2; cursor:pointer; }
-    .grid-compare { padding:8px 14px; border-bottom:1px solid #e2e8f0; background:#f8fafc; font-size:12px; color:#334155; }
-    .grid-compare[hidden] { display:none; }
-    .grid-compare-title { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; font-weight:700; }
-    .grid-compare button { padding:4px 8px; border-radius:5px; border:1px solid #94a3b8; background:white; cursor:pointer; }
-    .grid-compare table { width:100%; margin-top:6px; border-collapse:collapse; text-align:center; font-size:12px; }
-    .grid-compare th, .grid-compare td { border:1px solid #dbe2eb; padding:4px 6px; }
-    .grid-compare th:first-child, .grid-compare td:first-child { text-align:left; }
-    .grid-compare th { background:#e2e8f0; }
-    .grid-compare small { display:block; margin-top:5px; color:#64748b; }
     .voltage-filters { margin-top:9px; padding-top:7px; border-top:1px solid #dbe2eb; }
     .voltage-filters[hidden] { display:none; }
     .voltage-filters label { display:flex; gap:5px; align-items:center; margin-top:5px; }
@@ -160,17 +151,6 @@
         <span id="grid-status" class="grid-status">계통 정보를 확인 중...</span>
       </div>
       <div id="grid-capability-note" hidden></div>
-      <section id="grid-compare" class="grid-compare" hidden aria-label="몽골 기존 확장 모델 비교">
-        <div class="grid-compare-title">
-          <span>몽골 계통 모델 비교 · 공개 데이터</span>
-          <button id="grid-compare-switch" type="button">다른 몽골 모델 보기</button>
-        </div>
-        <table aria-label="몽골 모델별 설비 비교">
-          <thead><tr><th>항목</th><th>MN · 기존</th><th>MN_35k · 확장</th></tr></thead>
-          <tbody id="grid-compare-rows"></tbody>
-        </table>
-        <small id="grid-compare-note">수치는 지도 JSON에서 직접 계산합니다. 실제 설비 검증·PF 수렴을 의미하지 않습니다.</small>
-      </section>
       <div id="map">
         <svg id="network-map" viewBox="0 0 700 900" preserveAspectRatio="xMidYMid meet"></svg>
         <div class="map-layer-control">
@@ -252,7 +232,6 @@
     let mapProjection = null;
     let selectedGridId = "kr-kpg193";
     let gridEntries = [];
-    const MN_GRID_IDS = ["mn-osm", "mn-osm-35k"];
     const VOLTAGE_COLORS = {"35":"#0891b2","110":"#2563eb","220":"#b45309"};
     let gridSwitchToken = 0;
     let enabledVoltages = new Set();
@@ -350,7 +329,7 @@
       return sessionId;
     }
 
-    function isMongoliaGrid() { return MN_GRID_IDS.includes(selectedGridId); }
+    function isMongoliaGrid() { return selectedGridId === "mn-osm-35k"; }
 
     function voltageLabel(voltage) {
       return voltage == null ? "미확인" : String(Number(voltage));
@@ -382,43 +361,6 @@
         dot.style.backgroundColor = voltageColor(level === "미확인" ? null : level);
         label.append(input, dot, document.createTextNode(level + (level === "미확인" ? "" : " kV")));
         options.appendChild(label);
-      }
-    }
-
-    async function showMongoliaComparison() {
-      const panel = document.getElementById("grid-compare");
-      panel.hidden = !isMongoliaGrid();
-      if (panel.hidden) return;
-      const rows = document.getElementById("grid-compare-rows");
-      rows.replaceChildren();
-      try {
-        const response = await fetch("/api/grids/mongolia/compare");
-        if (!response.ok) throw new Error("비교 API 요청 실패");
-        const data = await response.json();
-        const [baseline, extended] = data.models || [];
-        if (!baseline || !extended) throw new Error("비교 모델 정보가 부족합니다.");
-        const fmt = value => value == null ? "지도 미준비" : Number(value).toLocaleString("ko-KR");
-        for (const [label, key] of [["모선","buses"],["선로","lines"],["변압기(추정)","transformers"],["발전소 데이터 행","powerplant_records"]]) {
-          const tr = document.createElement("tr");
-          const title = document.createElement("td"); title.textContent = label;
-          const first = document.createElement("td"); first.textContent = fmt(baseline[key]);
-          const second = document.createElement("td"); second.textContent = fmt(extended[key]);
-          tr.append(title, first, second);
-          rows.appendChild(tr);
-        }
-        for (const [label, key] of [["모선 전압","bus_voltages"],["선로 전압","line_voltages"]]) {
-          const tr = document.createElement("tr");
-          const title = document.createElement("td"); title.textContent = label;
-          const summary = m => Object.entries(m[key] || {}).sort((a,b) => Number(a[0])-Number(b[0])).map(([kv,count]) => kv+"kV "+count).join(" / ") || "전압 정보 미제공";
-          const first = document.createElement("td"); first.textContent = summary(baseline);
-          const second = document.createElement("td"); second.textContent = summary(extended);
-          tr.append(title, first, second); rows.appendChild(tr);
-        }
-        document.getElementById("grid-compare-note").textContent =
-          (baseline.error || extended.error) ? "지도 검증 오류: " + [baseline.error, extended.error].filter(Boolean).join("; ") :
-          "실제 지도 JSON에서 계산한 개수 · 발전소 접속과 변압기 정수 미검증 · 두 모델 모두 계통해석 비활성화";
-      } catch (error) {
-        document.getElementById("grid-compare-note").textContent = "비교 정보 오류: " + error.message;
       }
     }
 
@@ -472,11 +414,9 @@
           hideMapTooltip();
           updateGridCapabilities();
           await loadNetworkMap();
-          await showMongoliaComparison();
         });
         updateGridCapabilities();
         await loadNetworkMap();
-        await showMongoliaComparison();
       } catch (error) {
         document.getElementById("grid-status").textContent = "계통 목록 오류: " + error.message;
       }
@@ -1317,12 +1257,6 @@
       if (tooltip.style.display !== "none" && !tooltip.contains(event.target)) hideMapTooltip();
     });
 
-    document.getElementById("grid-compare-switch").addEventListener("click", () => {
-      if (!isMongoliaGrid()) return;
-      document.getElementById("grid-select").value =
-        selectedGridId === "mn-osm" ? "mn-osm-35k" : "mn-osm";
-      document.getElementById("grid-select").dispatchEvent(new Event("change"));
-    });
     initializeWorkspaceSplit();
     initializeGridCatalog();
   </script>

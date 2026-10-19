@@ -12,23 +12,16 @@ from pathlib import Path
 from typing import Any
 
 KPG_GRID_ID = "kr-kpg193"
-MONGOLIA_GRID_ID = "mn-osm"
-MONGOLIA_EXPANDED_GRID_ID = "mn-osm-35k"
+MONGOLIA_GRID_ID = "mn-osm-35k"
 MAX_PREVIEW_BUSES = 50000
 MAX_PREVIEW_LINES = 100000
 MAX_PREVIEW_PLANTS = 100000
 MAX_PREVIEW_TRANSFORMERS = 100000
 
 
-def expanded_map_path(mongolia_map_file: Path) -> Path:
-    """Keep generated previews separate; never overwrite the baseline map."""
-    return mongolia_map_file.with_name("mn-osm-35k-map.json")
-
-
-def list_grids(mongolia_map_file: Path, expanded_map_file: Path | None = None) -> list[dict[str, Any]]:
-    """Register KPG and both Mongolia versions without importing PyPSA."""
+def list_grids(mongolia_map_file: Path) -> list[dict[str, Any]]:
+    """Return the KPG test case and the active Mongolia 35 kV map preview."""
     map_ready = mongolia_map_file.is_file()
-    expanded_ready = (expanded_map_file or expanded_map_path(mongolia_map_file)).is_file()
     return [
         {
             "id": KPG_GRID_ID,
@@ -44,29 +37,15 @@ def list_grids(mongolia_map_file: Path, expanded_map_file: Path | None = None) -
         {
             "id": MONGOLIA_GRID_ID,
             "country": "MN",
-            "name": "몽골 OSM 기반 송전망",
-            "source": "OpenStreetMap / PyPSA-Earth",
+            "name": "몽골 OSM 송전망 (35/110/220 kV)",
+            "source": "OpenStreetMap / PyPSA-Earth MN_35k",
             "format": "PyPSA NetCDF → JSON map preview",
             "map_available": map_ready,
             "analysis_available": False,
             "status": "map_ready" if map_ready else "preparing",
             "note": (
-                "OSM 기반 기초 송전망입니다. 발전기·부하 및 운전조건 보완과 "
-                "전력조류 수렴 검증 전에는 계통해석을 제공하지 않습니다."
-            ),
-        },
-        {
-            "id": MONGOLIA_EXPANDED_GRID_ID,
-            "country": "MN",
-            "name": "몽골 OSM 확장망 (35/110/220 kV)",
-            "source": "OpenStreetMap / PyPSA-Earth MN_35k",
-            "format": "PyPSA NetCDF → JSON map preview",
-            "map_available": expanded_ready,
-            "analysis_available": False,
-            "status": "map_ready" if expanded_ready else "preparing",
-            "note": (
                 "35kV 전용 LineType·합성 변압기·발전소 접속 미검증. "
-                "지도 비교 전용이며 전력조류계산을 지원하지 않습니다."
+                "지도 조회 전용이며 전력조류계산을 지원하지 않습니다."
             ),
         },
     ]
@@ -286,35 +265,4 @@ def load_mongolia_map(map_file: Path) -> dict[str, Any]:
             "generators": [], "powerplants": plants, "country_polygons": polygons,
             "admin_regions": regions}
 
-
-def summarize_mongolia_maps(mongolia_map_file: Path, expanded_map_file: Path | None = None) -> dict[str, Any]:
-    """Return measured map counts, never expected or assumed topology counts."""
-    expanded_file = expanded_map_file or expanded_map_path(mongolia_map_file)
-    models: list[dict[str, Any]] = []
-    for grid_id, name, path in (
-        (MONGOLIA_GRID_ID, "MN · 기존 110/220kV", mongolia_map_file),
-        (MONGOLIA_EXPANDED_GRID_ID, "MN_35k · 확장 35/110/220kV", expanded_file),
-    ):
-        summary: dict[str, Any] = {"id": grid_id, "name": name, "map_available": path.is_file(),
-                                   "buses": None, "lines": None, "transformers": None,
-                                   "powerplant_records": None, "bus_voltages": {}, "line_voltages": {},
-                                   "error": None}
-        if path.is_file():
-            try:
-                data = load_mongolia_map(path)
-                summary.update({
-                    "buses": len(data["buses"]), "lines": len(data["lines"]),
-                    "transformers": len(data["transformers"]), "powerplant_records": len(data["powerplants"]),
-                })
-                for kind, field in (("buses", "bus_voltages"), ("lines", "line_voltages")):
-                    for item in data[kind]:
-                        voltage = item["voltage_kv"]
-                        if voltage is not None:
-                            key = str(int(voltage)) if voltage.is_integer() else str(voltage)
-                            summary[field][key] = summary[field].get(key, 0) + 1
-            except (FileNotFoundError, ValueError) as exc:
-                summary["error"] = str(exc)
-        models.append(summary)
-    return {"models": models, "analysis_available": False,
-            "note": "OSM 지도 구조 비교입니다. 발전소 레코드는 운전 발전기 수가 아니며 계통해석 결과가 아닙니다."}
 

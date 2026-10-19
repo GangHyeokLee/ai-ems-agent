@@ -14,8 +14,7 @@ from langchain_core.messages import (
 from pydantic import BaseModel
 
 from ai_ems.grid_catalog import (
-    KPG_GRID_ID, MONGOLIA_GRID_ID, MONGOLIA_EXPANDED_GRID_ID,
-    list_grids, load_mongolia_map, summarize_mongolia_maps,
+    KPG_GRID_ID, MONGOLIA_GRID_ID, list_grids, load_mongolia_map,
 )
 from ai_ems import load_network
 from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph
@@ -33,8 +32,7 @@ from ai_ems.config import (
 )
 
 UI_DIR = Path("ui")
-MONGOLIA_MAP_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-map.json"
-MONGOLIA_EXPANDED_MAP_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-map.json"
+MONGOLIA_MAP_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-map.json"
 KPG_GEOGRAPHY_FILE = PROJECT_ROOT / "data" / "grids" / "kr-geography.json"
 
 network = load_network(CASE_FILE)
@@ -86,22 +84,16 @@ def health():
 
 @app.get("/api/grids")
 def grid_catalog():
-    return {"grids": list_grids(MONGOLIA_MAP_FILE, MONGOLIA_EXPANDED_MAP_FILE), "default_grid_id": KPG_GRID_ID}
-
-
-@app.get("/api/grids/mongolia/compare")
-def mongolia_comparison():
-    return summarize_mongolia_maps(MONGOLIA_MAP_FILE, MONGOLIA_EXPANDED_MAP_FILE)
+    return {"grids": list_grids(MONGOLIA_MAP_FILE), "default_grid_id": KPG_GRID_ID}
 
 
 @app.get("/api/grids/{grid_id}/map")
 def grid_map(grid_id: str):
     if grid_id == KPG_GRID_ID:
         return network_map()
-    if grid_id in (MONGOLIA_GRID_ID, MONGOLIA_EXPANDED_GRID_ID):
-        map_path = MONGOLIA_MAP_FILE if grid_id == MONGOLIA_GRID_ID else MONGOLIA_EXPANDED_MAP_FILE
+    if grid_id == MONGOLIA_GRID_ID:
         try:
-            return load_mongolia_map(map_path)
+            return load_mongolia_map(MONGOLIA_MAP_FILE)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
