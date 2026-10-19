@@ -49,7 +49,7 @@
     .generator-change-marker circle, .sensitivity-marker circle { fill: #7c3aed; stroke: white; stroke-width: 2; }
     .sensitivity-marker text { fill: white; font-size: 9px; font-weight: bold; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
 
-    .powerplant-marker { cursor:pointer; stroke:white; stroke-width:1.5px; }
+    .powerplant-marker { cursor:pointer; stroke:white; stroke-width:1.2px; }
     .plant-legend { position:absolute; left:12px; bottom:12px; padding:9px 12px; background:rgba(255,255,255,.96); border:1px solid #cbd5e1; border-radius:7px; color:#334155; font-size:11px; z-index:10; max-width:245px; }
     .plant-legend[hidden] { display:none; }
     .plant-legend-item { display:inline-flex; align-items:center; gap:5px; margin-right:8px; margin-top:5px; }
@@ -557,10 +557,10 @@
         const circle = document.createElementNS(SVG_NS, "circle");
         circle.setAttribute("cx", p.x);
         circle.setAttribute("cy", p.y);
-        circle.setAttribute("r", items.length > 1 ? 9 : 6.5);
+        circle.setAttribute("r", items.length > 1 ? 6 : 4.5);
         circle.setAttribute("fill", "#16a34a");
         circle.setAttribute("stroke", "white");
-        circle.setAttribute("stroke-width", "1.5");
+        circle.setAttribute("stroke-width", "1.2");
         group.appendChild(circle);
         const onSelect = (event) => {
           event.stopPropagation();
@@ -607,7 +607,7 @@
         const circle = document.createElementNS(SVG_NS, "circle");
         circle.setAttribute("cx", position.x);
         circle.setAttribute("cy", position.y);
-        circle.setAttribute("r", items.length > 1 ? 9 : 6.5);
+        circle.setAttribute("r", items.length > 1 ? 6 : 4.5);
         circle.setAttribute("fill", powerplantColor(plant.fueltype));
         circle.setAttribute("class", "powerplant-marker layer-powerplant");
         circle.setAttribute("tabindex", "0");
