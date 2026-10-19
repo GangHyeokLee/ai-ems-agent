@@ -186,5 +186,44 @@ def load_mongolia_map(map_file: Path) -> dict[str, Any]:
             cleaned_rings.append(cleaned_points)
         polygons.append(cleaned_rings)
 
+    raw_regions = payload.get("admin_regions", [])
+    if not isinstance(raw_regions, list) or len(raw_regions) > 200:
+        raise ValueError("행정구역 목록이 올바르지 않습니다.")
+    regions = []
+    for region in raw_regions:
+        if not isinstance(region, dict):
+            raise ValueError("행정구역 항목이 올바르지 않습니다.")
+        name = str(region.get("name") or "Unknown")
+        raw_region_polygons = region.get("polygons")
+        if not isinstance(raw_region_polygons, list):
+            raise ValueError("행정구역 경계 데이터가 올바르지 않습니다.")
+        cleaned = []
+        for polygon in raw_region_polygons:
+            if not isinstance(polygon, list) or not polygon:
+                raise ValueError("행정구역 폴리곤이 올바르지 않습니다.")
+            rings = []
+            for ring in polygon:
+                if not isinstance(ring, list) or len(ring) < 4:
+                    raise ValueError("행정구역 경계선이 올바르지 않습니다.")
+                points = []
+                for point in ring:
+                    if not isinstance(point, list) or len(point) != 2:
+                        raise ValueError("행정구역 좌표가 올바르지 않습니다.")
+                    try:
+                        lon, lat = float(point[0]), float(point[1])
+                    except (TypeError, ValueError) as exc:
+                        raise ValueError("행정구역 좌표가 올바르지 않습니다.") from exc
+                    if not (math.isfinite(lon) and math.isfinite(lat)
+                            and -180 <= lon <= 180 and -90 <= lat <= 90):
+                        raise ValueError("행정구역 좌표 범위가 올바르지 않습니다.")
+                    total_vertices += 1
+                    if total_vertices > 120000:
+                        raise ValueError("행정구역 경계 좌표가 너무 많습니다.")
+                    points.append([lon, lat])
+                rings.append(points)
+            cleaned.append(rings)
+        regions.append({"name": name, "polygons": cleaned})
+
     return {"buses": buses, "lines": lines, "generators": [],
-            "powerplants": plants, "country_polygons": polygons}
+            "powerplants": plants, "country_polygons": polygons,
+            "admin_regions": regions}
