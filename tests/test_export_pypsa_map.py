@@ -66,3 +66,45 @@ def test_preview_with_powerplants(tmp_path):
     assert len(output["lines"]) == 1
     assert output["powerplants"][0]["name"] == "Solar A"
     assert output["powerplants"][0]["mapped_bus_id"] == "27"
+
+
+
+def test_country_geojson_multipolygon_and_holes(tmp_path):
+    import json
+
+    data = {
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature", "properties": {"name": "Mongolia"},
+            "geometry": {
+                "type": "MultiPolygon",
+                "coordinates": [
+                    [[
+                        [90, 42], [120, 42], [120, 50], [90, 50], [90, 42]
+                    ]],
+                    [[
+                        [100, 44], [101, 44], [101, 45], [100, 45], [100, 44]
+                    ]],
+                ],
+            },
+        }],
+    }
+    path = tmp_path / "country_shapes.geojson"
+    path.write_text(json.dumps(data), encoding="utf-8")
+    polygons = module.read_country_polygons(path)
+    assert len(polygons) == 2
+    assert all(len(polygon[0]) >= 4 for polygon in polygons)
+    assert polygons[0][0][0] == polygons[0][0][-1]
+
+
+def test_country_geojson_rejects_invalid_coordinates(tmp_path):
+    import json
+    import pytest
+
+    path = tmp_path / "bad.geojson"
+    path.write_text(json.dumps({
+        "type": "Polygon",
+        "coordinates": [[[90, 42], [200, 42], [120, 50], [90, 42]]]
+    }), encoding="utf-8")
+    with pytest.raises(ValueError, match="Invalid country polygon coordinate"):
+        module.read_country_polygons(path)
