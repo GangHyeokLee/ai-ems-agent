@@ -24,6 +24,7 @@
     .map-layer-option { display: flex; align-items: center; gap: 7px; margin-top: 5px; cursor: pointer; user-select: none; }
     .map-layer-option input { margin: 0; }
 
+    .country-outline { fill:#f1f5f9; stroke:#94a3b8; stroke-width:1.4; stroke-linejoin:round; pointer-events:none; }
     .network-line { stroke: #94a3b8; stroke-width: 1; opacity: .65; pointer-events: none; }
     .network-line.hover-line, .network-line.selected-line { stroke: #475569; stroke-width: 3; opacity: 1; }
     .network-line.outage-line { stroke: #dc2626; stroke-width: 5; opacity: 1; }
@@ -415,16 +416,43 @@
       const width = 700;
       const height = 900;
       const padding = 40;
-      const minLat = Math.min(...data.buses.map((b) => b.latitude));
-      const maxLat = Math.max(...data.buses.map((b) => b.latitude));
-      const minLon = Math.min(...data.buses.map((b) => b.longitude));
-      const maxLon = Math.max(...data.buses.map((b) => b.longitude));
+      const geography = (data.country_polygons || []).flat(2);
+      const extents = geography.length
+        ? geography.map((point) => ({ longitude: point[0], latitude: point[1] }))
+        : [...data.buses, ...(data.powerplants || [])];
+      const minLat = Math.min(...extents.map((b) => b.latitude));
+      const maxLat = Math.max(...extents.map((b) => b.latitude));
+      const minLon = Math.min(...extents.map((b) => b.longitude));
+      const maxLon = Math.max(...extents.map((b) => b.longitude));
       const busMap = new Map(data.buses.map((bus) => [bus.bus_id, bus]));
 
-      mapProjection = (bus) => ({
-        x: padding + ((bus.longitude - minLon) / (maxLon - minLon || 1)) * (width - padding * 2),
-        y: padding + ((maxLat - bus.latitude) / (maxLat - minLat || 1)) * (height - padding * 2),
+      // Use the same lon/lat projection for country outline and equipment.
+      // Scale longitude by cos(latitude) to avoid stretching Mongolia north-south.
+      const meanLat = (maxLat + minLat) / 2;
+      const lonCorrection = Math.cos(meanLat * Math.PI / 180);
+      const geoWidth = (maxLon - minLon) * lonCorrection || 1;
+      const geoHeight = (maxLat - minLat) || 1;
+      const scale = Math.min((width - 2 * padding) / geoWidth, (height - 2 * padding) / geoHeight);
+      const offsetX = (width - geoWidth * scale) / 2;
+      const offsetY = (height - geoHeight * scale) / 2;
+      mapProjection = (point) => ({
+        x: offsetX + (point.longitude - minLon) * lonCorrection * scale,
+        y: offsetY + (maxLat - point.latitude) * scale,
       });
+
+      for (const polygon of data.country_polygons || []) {
+        const pathData = polygon.map((ring) =>
+          ring.map(([longitude, latitude], index) => {
+            const p = mapProjection({longitude, latitude});
+            return (index === 0 ? "M" : "L") + p.x.toFixed(2) + " " + p.y.toFixed(2);
+          }).join(" ") + " Z"
+        ).join(" ");
+        const outline = document.createElementNS(SVG_NS, "path");
+        outline.setAttribute("d", pathData);
+        outline.setAttribute("fill-rule", "evenodd");
+        outline.setAttribute("class", "country-outline");
+        svg.appendChild(outline);
+      }
 
       for (const line of data.lines) {
         const bus1 = busMap.get(line.bus1_id);
