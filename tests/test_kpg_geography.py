@@ -1,11 +1,13 @@
 """Korean geographic background is separate from synthetic KPG network."""
 
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "prepare_kpg_geography.py"
+sys.path.insert(0, str(SCRIPT.parent))
 spec = importlib.util.spec_from_file_location("prepare_kpg_geography", SCRIPT)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
