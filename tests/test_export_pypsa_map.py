@@ -108,3 +108,25 @@ def test_country_geojson_rejects_invalid_coordinates(tmp_path):
     }), encoding="utf-8")
     with pytest.raises(ValueError, match="Invalid country polygon coordinate"):
         module.read_country_polygons(path)
+
+
+
+def test_admin_regions_geojson(tmp_path):
+    import json
+
+    polygon = [[[90, 42], [100, 42], [100, 50], [90, 50], [90, 42]]]
+    features = [
+        {
+            "type": "Feature",
+            "properties": {"NAME_1": name},
+            "geometry": {"type": "Polygon", "coordinates": polygon},
+        }
+        for name in ["Arkhangai", "Dornod"]
+    ]
+    source = tmp_path / "gadm_shapes.geojson"
+    source.write_text(json.dumps({
+        "type": "FeatureCollection", "features": features,
+    }), encoding="utf-8")
+    regions = module.read_admin_regions(source)
+    assert [r["name"] for r in regions] == ["Arkhangai", "Dornod"]
+    assert len(regions[0]["polygons"][0][0]) >= 4
