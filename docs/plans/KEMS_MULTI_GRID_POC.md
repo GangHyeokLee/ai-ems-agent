@@ -22,10 +22,11 @@ cd ~/Projects/mongolia-grid-poc/pypsa-earth
 pixi run python ~/Projects/ai-ems-agent/scripts/export_pypsa_map.py \
   networks/MN/base.nc \
   ~/Projects/ai-ems-agent/data/grids/mn-osm-map.json \
-  --powerplants resources/MN/powerplants.csv
+  --powerplants resources/MN/powerplants.csv \
+  --country-shapes resources/MN/shapes/country_shapes.geojson
 ```
 
-이 명령은 `base.nc`가 실제 생성된 뒤에만 실행할 수 있다. `mn-osm-map.json`은 모선 좌표·선로 연결과 공개 발전소 **데이터 행**(이름, 발전원, 용량, 좌표, 추정 매핑 모선)을 담는다. 27개 행은 물리적인 발전소 27곳을 의미하지 않는다. 동일 좌표/이름이 반복되면 지도 마커 하나에서 레코드를 모두 보여준다. 전기적 파라미터, 실제 발전기·부하 운전 상태, 지리적 선로 곡선은 포함하지 않는다. 공개 데이터 총 설비용량 합계를 실제 국가 총용량이라고 주장하면 안 된다.
+이 명령은 `base.nc`가 실제 생성된 뒤에만 실행할 수 있다. `mn-osm-map.json`은 몽골 국경 GeoJSON 윤곽선, 모선 좌표·선로 연결과 공개 발전소 **데이터 행**(이름, 발전원, 용량, 좌표, 추정 매핑 모선)을 담는다. 27개 행은 물리적인 발전소 27곳을 의미하지 않는다. 동일 좌표/이름이 반복되면 지도 마커 하나에서 레코드를 모두 보여준다. 전기적 파라미터, 실제 발전기·부하 운전 상태, 지리적 선로 곡선은 포함하지 않는다. 공개 데이터 총 설비용량 합계를 실제 국가 총용량이라고 주장하면 안 된다.
 
 `ai-ems-agent` 서버 재시작 후 국가 선택에서 **몽골 OSM 기반 송전망**을 선택하면 지도 조회 가능 상태로 바뀐다.
 
