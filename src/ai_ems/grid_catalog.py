@@ -156,4 +156,35 @@ def load_mongolia_map(map_file: Path) -> dict[str, Any]:
             "mapped_bus_id": mapped_bus,
         })
 
-    return {"buses": buses, "lines": lines, "generators": [], "powerplants": plants}
+    raw_polygons = payload.get("country_polygons", [])
+    if not isinstance(raw_polygons, list) or len(raw_polygons) > 100:
+        raise ValueError("국경 GeoJSON 폴리곤 개수가 올바르지 않습니다.")
+    polygons = []
+    total_vertices = 0
+    for polygon in raw_polygons:
+        if not isinstance(polygon, list) or not polygon:
+            raise ValueError("국경 GeoJSON 폴리곤이 올바르지 않습니다.")
+        cleaned_rings = []
+        for ring in polygon:
+            if not isinstance(ring, list) or len(ring) < 4:
+                raise ValueError("국경 GeoJSON 경계선이 올바르지 않습니다.")
+            cleaned_points = []
+            for point in ring:
+                if not isinstance(point, list) or len(point) != 2:
+                    raise ValueError("국경 GeoJSON 좌표가 올바르지 않습니다.")
+                try:
+                    lon, lat = float(point[0]), float(point[1])
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("국경 GeoJSON 좌표가 올바르지 않습니다.") from exc
+                if not (math.isfinite(lon) and math.isfinite(lat)
+                        and -180 <= lon <= 180 and -90 <= lat <= 90):
+                    raise ValueError("국경 GeoJSON 좌표 범위가 올바르지 않습니다.")
+                cleaned_points.append([lon, lat])
+                total_vertices += 1
+                if total_vertices > 50000:
+                    raise ValueError("국경 GeoJSON 좌표 개수가 너무 많습니다.")
+            cleaned_rings.append(cleaned_points)
+        polygons.append(cleaned_rings)
+
+    return {"buses": buses, "lines": lines, "generators": [],
+            "powerplants": plants, "country_polygons": polygons}
