@@ -24,6 +24,13 @@ from ai_ems.kpg_pf_preview import (
 )
 from ai_ems import load_network
 from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph
+from ai_ems.agent.mongolia_graph import (
+    MONGOLIA_SYSTEM_PROMPT,
+    create_mongolia_agent_graph,
+    detect_unsupported_request,
+    unsupported_request_answer,
+)
+from ai_ems.agent.mongolia_tools import MONGOLIA_TOOL_NAMES
 from ai_ems.agent.tools import create_agent_tools
 from ai_ems.tools.security_tools import (
     get_limit_unit,
@@ -49,6 +56,16 @@ direct_agent_tools = {
     for tool in create_agent_tools(network)
 }
 agent_sessions: dict[str, list[Any]] = {}
+
+
+def _load_validated_mongolia_pf() -> dict[str, Any]:
+    # Resolve module paths at call time so the configured assets are always re-validated.
+    return load_mongolia_pf_preview(MONGOLIA_PF_PREVIEW_FILE, MONGOLIA_MAP_FILE)
+
+
+# Separate read-only agent and session store: Mongolia never reaches KPG tools/history.
+mongolia_agent_graph = create_mongolia_agent_graph(_load_validated_mongolia_pf)
+mongolia_agent_sessions: dict[str, list[Any]] = {}
 
 bus_locations = pd.read_csv(BUS_LOCATION_FILE)
 
@@ -398,6 +415,93 @@ def chat(request: ChatRequest):
         "session_id": session_id,
         "answer": answer,
         "ui_updates": ui_updates,
+    }
+
+
+@app.post("/api/grids/{grid_id}/chat")
+def grid_chat(grid_id: str, request: ChatRequest):
+    if grid_id == KPG_GRID_ID:
+        return {**chat(request), "grid_id": KPG_GRID_ID}
+    if grid_id != MONGOLIA_GRID_ID:
+        raise HTTPException(status_code=404, detail="Unknown grid ID")
+    return mongolia_chat(request)
+
+
+def mongolia_chat(request: ChatRequest) -> dict[str, Any]:
+    session_id = request.session_id.strip()
+    user_message = request.message.strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required.")
+    if not user_message:
+        raise HTTPException(status_code=400, detail="message is required.")
+
+    # Refuse to start a conversation when the validated PF data is unavailable,
+    # so the LLM is never asked to answer without verified numbers.
+    try:
+        _load_validated_mongolia_pf()
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"몽골 합성 PF 데이터를 사용할 수 없습니다: {exc}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"몽골 합성 PF 데이터 검증에 실패했습니다: {exc}",
+        ) from exc
+
+    messages = mongolia_agent_sessions.get(session_id) or [
+        SystemMessage(content=MONGOLIA_SYSTEM_PROMPT),
+    ]
+    input_messages = [*messages, HumanMessage(content=user_message)]
+
+    unsupported = detect_unsupported_request(user_message)
+    if unsupported:
+        answer = unsupported_request_answer(unsupported)
+        mongolia_agent_sessions[session_id] = [*input_messages, AIMessage(content=answer)]
+        return {
+            "session_id": session_id,
+            "grid_id": MONGOLIA_GRID_ID,
+            "answer": answer,
+            "ui_updates": [],
+            "tools_used": [],
+            "unsupported_requests": unsupported,
+        }
+
+    try:
+        result = mongolia_agent_graph.invoke({"messages": input_messages})
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"몽골 AI Agent 실행 실패(LLM 연결 또는 응답 오류): {exc}",
+        ) from exc
+
+    output_messages = result["messages"]
+    generated_messages = output_messages[len(input_messages):]
+    tools_used = [
+        call["name"]
+        for message in generated_messages
+        if isinstance(message, AIMessage)
+        for call in message.tool_calls
+    ]
+    disallowed = sorted(set(tools_used) - MONGOLIA_TOOL_NAMES)
+    if disallowed:
+        raise HTTPException(
+            status_code=502,
+            detail=f"몽골 Agent가 허용되지 않은 Tool 호출을 시도했습니다: {', '.join(disallowed)}",
+        )
+    answer = _final_ai_answer(output_messages)
+    if not answer.strip():
+        raise HTTPException(status_code=502, detail="몽골 AI Agent가 빈 응답을 반환했습니다.")
+
+    mongolia_agent_sessions[session_id] = output_messages
+    return {
+        "session_id": session_id,
+        "grid_id": MONGOLIA_GRID_ID,
+        "answer": answer,
+        "ui_updates": [],
+        "tools_used": tools_used,
+        "unsupported_requests": [],
     }
 
 

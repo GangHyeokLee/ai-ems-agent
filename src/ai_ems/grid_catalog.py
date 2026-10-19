@@ -2,6 +2,13 @@
 
 A geographic base network is NOT an operational AC load-flow model.
 Keep map availability separate from power-flow capability.
+
+Capabilities:
+- analysis_available: physics analysis (N-1, sensitivity, generator contingency) can run.
+- pf_preview_available: a PF preview asset exists for the map (validated on every request).
+- chat_available: the AI Assistant may be used. For KPG this is the existing analysis
+  agent; for Mongolia it is a read-only agent over the validated synthetic PF preview,
+  so it requires the PF preview asset and never enables physics analysis.
 """
 
 from __future__ import annotations
@@ -36,6 +43,8 @@ def list_grids(
             "map_available": True,
             "analysis_available": True,
             "pf_preview_available": True,
+            "chat_available": True,
+            "chat_mode": "analysis",
             "status": "analysis_ready",
             "note": (
                 "KPG-193 합성 시험계통의 정상상태 PF 미리보기입니다. "
@@ -51,11 +60,13 @@ def list_grids(
             "map_available": map_ready,
             "analysis_available": False,
             "pf_preview_available": map_ready and pf_preview_ready,
+            "chat_available": map_ready and pf_preview_ready,
+            "chat_mode": "pf_read_only",
             "status": "map_ready" if map_ready else "preparing",
             "note": (
                 "합성 AC Power Flow 미리보기는 조회 전용이며 웹 요청 시 재계산하지 않습니다. "
                 "실제 몽골 운영 데이터가 아니며, 선로·변압기 정수와 발전소 접속은 일부 미검증입니다. "
-                "N-1·Redispatch·AI 분석은 지원하지 않습니다."
+                "N-1·Redispatch는 지원하지 않으며, AI Assistant는 합성 PF 결과 조회·설명만 지원합니다."
             ),
         },
     ]

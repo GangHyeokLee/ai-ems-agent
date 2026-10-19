@@ -612,20 +612,42 @@
       return gridEntries.find((item) => item.id === selectedGridId)?.analysis_available === true;
     }
 
+    // Chat capability is separate from physics analysis: Mongolia allows read-only PF Q&A only.
+    function gridSupportsChat() {
+      return gridEntries.find((item) => item.id === selectedGridId)?.chat_available === true;
+    }
+
+    function chatEndpoint(gridId) {
+      return gridId === "kr-kpg193" ? "/api/chat" : `/api/grids/${encodeURIComponent(gridId)}/chat`;
+    }
+
+    function resetChatForGrid() {
+      sessionStorage.removeItem(SESSION_STORAGE_KEY);
+      document.getElementById("chat-log").replaceChildren();
+      const entry = gridEntries.find((item) => item.id === selectedGridId);
+      if (entry?.chat_mode === "pf_read_only" && entry.chat_available) {
+        appendChatMessage("system", "합성 PF 조회 전용 AI Assistant입니다. 사전 계산된 합성 AC PF 결과만 조회하며 N-1·Redispatch 등 계산은 지원하지 않습니다.\n예: “Bus 137 전압은?” · “부하율이 가장 높은 선로 5개 알려줘.” · “몽골 합성 PF 결과에서 전압 위반 모선이 있나?”");
+      }
+    }
+
     function updateGridCapabilities() {
       const entry = gridEntries.find((item) => item.id === selectedGridId);
       const available = entry?.analysis_available === true;
-      for (const id of ["analyze-button", "generator-analyze-button", "chat-send"]) {
+      for (const id of ["analyze-button", "generator-analyze-button"]) {
         document.getElementById(id).disabled = !available;
       }
-      document.getElementById("chat-send").disabled = !available || chatBusy;
+      const chatAvailable = entry?.chat_available === true;
+      document.getElementById("chat-send").disabled = !chatAvailable || chatBusy;
       for (const id of ["outage-line", "outage-generator"]) {
         document.getElementById(id).disabled = !available;
       }
       document.querySelectorAll('input[name="generator-slack-mode"]').forEach((input) => {
         input.disabled = !available;
       });
-      document.getElementById("chat-message").disabled = !available;
+      document.getElementById("chat-message").disabled = !chatAvailable;
+      document.getElementById("chat-message").placeholder = entry?.chat_mode === "pf_read_only"
+        ? "합성 PF 결과를 질문하세요. (예: Bus 137 전압은?)"
+        : "계통 분석을 요청하세요.";
       document.getElementById("sensitivity-button").disabled = true;
       const warning = document.getElementById("grid-capability-note");
       warning.hidden = available;
@@ -633,7 +655,8 @@
       document.getElementById("grid-map-title").textContent = entry?.name || selectedGridId;
       document.getElementById("grid-status").textContent = !entry ? "미등록" :
         !entry.map_available ? "지도 데이터 준비 중" :
-        available ? "계통해석 가능" : "지도 조회 전용 · 계통해석 미검증";
+        available ? "계통해석 가능" :
+        chatAvailable ? "합성 PF 조회 전용 · 계통해석 미지원" : "지도 조회 전용 · 계통해석 미검증";
       document.getElementById("grid-status").classList.toggle("grid-warning", !available);
       document.getElementById("pf-display-mode").disabled = !(
         entry?.pf_preview_available === true && pfPreview !== null
@@ -671,6 +694,7 @@
           generatorStateMap.clear();
           document.getElementById("network-map").replaceChildren();
           hideMapTooltip();
+          resetChatForGrid();
           updateGridCapabilities();
           await loadNetworkMap();
         });
@@ -1604,17 +1628,24 @@
     }
 
     async function sendChatMessage() {
-      if (!gridSupportsAnalysis()) return;
+      if (!gridSupportsChat()) return;
       if (chatBusy) return;
       const token = gridSwitchToken;
+      const requestGridId = selectedGridId;
       const input = document.getElementById("chat-message"); const button = document.getElementById("chat-send"); const message = input.value.trim();
       if (!message) return;
       appendChatMessage("user", message); input.value = ""; chatBusy = true; button.disabled = true; input.disabled = true;
       try {
-        const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: getSessionId(), message }) });
+        const response = await fetch(chatEndpoint(requestGridId), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: getSessionId(), message }) });
         const payload = await response.json(); if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
-        if (token !== gridSwitchToken || !gridSupportsAnalysis()) return;
+        // Ignore late answers from a grid the user has already left.
+        if (token !== gridSwitchToken || selectedGridId !== requestGridId) return;
         appendChatMessage("agent", payload.answer || "응답이 없습니다.");
+        if (Array.isArray(payload.tools_used) && payload.tools_used.length && requestGridId !== "kr-kpg193") {
+          appendChatMessage("system", `근거: 검증된 합성 PF 조회 Tool (${[...new Set(payload.tools_used)].join(", ")})`);
+        }
+        // Analysis overlays exist only for KPG; Mongolia answers never touch the map.
+        if (requestGridId !== "kr-kpg193" || !gridSupportsAnalysis()) return;
         for (const update of payload.ui_updates || []) {
           if (update.type === "security") applySecurityResult(update.result);
           else if (update.type === "sensitivity") applySensitivityResult(update.result);

@@ -41,6 +41,7 @@ Local LLM + LangGraph + PyPowSyBl 기반 **AI-EMS Agent PoC** 프로젝트.
 - 고위험 계통 결과의 deterministic formatter
 - Tool error의 자연어 설명
 - 멀티턴 분석 요청
+- 몽골 합성 AC PF 결과 읽기 전용 질의응답 (별도 Agent·Tool, [사양](docs/specs/MONGOLIA_PF_CHAT_SPEC.md))
 
 ### Web UI
 
@@ -452,6 +453,7 @@ python tests/smoke_test.py
 - [Physics API Specification](docs/specs/API_SPEC.md)
 - [Physics Module Specification](docs/specs/MODULE_SPEC.md)
 - [KPG-193 PyPowSyBl Adapter Specification](docs/specs/KPG_POWSYBL_ADAPTER_SPEC.md)
+- [몽골 합성 AC PF 읽기 전용 AI 질의응답](docs/specs/MONGOLIA_PF_CHAT_SPEC.md)
 
 ### Experiment Records
 
