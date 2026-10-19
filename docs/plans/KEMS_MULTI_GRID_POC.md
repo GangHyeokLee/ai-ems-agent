@@ -21,10 +21,11 @@ cd ~/Projects/mongolia-grid-poc/pypsa-earth
 # PyPSA-Earth Pixi 환경을 이용해 NetCDF에서 지도 좌표/연결정보만 추출
 pixi run python ~/Projects/ai-ems-agent/scripts/export_pypsa_map.py \
   networks/MN/base.nc \
-  ~/Projects/ai-ems-agent/data/grids/mn-osm-map.json
+  ~/Projects/ai-ems-agent/data/grids/mn-osm-map.json \
+  --powerplants resources/MN/powerplants.csv
 ```
 
-이 명령은 `base.nc`가 실제 생성된 뒤에만 실행할 수 있다. `mn-osm-map.json`은 모선 좌표와 선로 연결 정보만 담는다. 전기적 파라미터, 발전기·부하, 운전 상태, 지리적 선로 곡선은 포함하지 않는다.
+이 명령은 `base.nc`가 실제 생성된 뒤에만 실행할 수 있다. `mn-osm-map.json`은 모선 좌표·선로 연결과 공개 발전소 **데이터 행**(이름, 발전원, 용량, 좌표, 추정 매핑 모선)을 담는다. 27개 행은 물리적인 발전소 27곳을 의미하지 않는다. 동일 좌표/이름이 반복되면 지도 마커 하나에서 레코드를 모두 보여준다. 전기적 파라미터, 실제 발전기·부하 운전 상태, 지리적 선로 곡선은 포함하지 않는다. 공개 데이터 총 설비용량 합계를 실제 국가 총용량이라고 주장하면 안 된다.
 
 `ai-ems-agent` 서버 재시작 후 국가 선택에서 **몽골 OSM 기반 송전망**을 선택하면 지도 조회 가능 상태로 바뀐다.
 
@@ -35,7 +36,7 @@ pixi run python ~/Projects/ai-ems-agent/scripts/export_pypsa_map.py \
 ```bash
 cd ~/Projects/ai-ems-agent
 source .venv/bin/activate
-python -m pytest -q tests/test_grid_catalog.py
+python -m pytest -q tests/test_grid_catalog.py tests/test_export_pypsa_map.py
 python -m pytest -q
 python -m uvicorn web_app:app --host 127.0.0.1 --port 8000
 ```
@@ -43,7 +44,8 @@ python -m uvicorn web_app:app --host 127.0.0.1 --port 8000
 점검할 항목:
 - KPG 선택 시 기존 지도 및 분석 기능 동작
 - 몽골 지도 파일이 없을 때 `준비 중` 상태, 빈 지도, 분석 버튼 비활성화
-- 몽골 지도 파일 생성 후 모선/선로 미리보기 렌더링
+- 몽골 지도 파일 생성 후 모선/선로/발전소 데이터 마커와 발전원 범례 렌더링
+- 동일 좌표 레코드 묶음 팝업에서 각 데이터 행과 용량 및 추정 매핑 모선 표시
 - 몽골 선택 시 KPG 상정사고·Agent 분석이 실행되지 않는지 확인
 - KPG로 재선택하면 지도/분석 기능 복원
 - 향후 전환 API는 모델 선택값과 Tool 실행 컨텍스트를 서버에서도 강제 검증해야 함
