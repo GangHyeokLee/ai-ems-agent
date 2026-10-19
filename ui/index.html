@@ -44,6 +44,12 @@
     .generator-change-marker circle, .sensitivity-marker circle { fill: #7c3aed; stroke: white; stroke-width: 2; }
     .sensitivity-marker text { fill: white; font-size: 9px; font-weight: bold; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
 
+    .powerplant-marker { cursor:pointer; stroke:white; stroke-width:1.5px; }
+    .plant-legend { position:absolute; left:12px; bottom:12px; padding:9px 12px; background:rgba(255,255,255,.96); border:1px solid #cbd5e1; border-radius:7px; color:#334155; font-size:11px; z-index:10; max-width:245px; }
+    .plant-legend[hidden] { display:none; }
+    .plant-legend-item { display:inline-flex; align-items:center; gap:5px; margin-right:8px; margin-top:5px; }
+    .plant-dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+    .plant-note { margin-top:6px; color:#64748b; line-height:1.4; }
     .layer-hidden { display: none !important; }
     #map.analysis-hidden .analysis-marker { display: none !important; }
     #map.analysis-hidden .network-line.outage-line,
@@ -140,9 +146,11 @@
           <strong>지도 표시</strong>
           <label class="map-layer-option"><input id="layer-lines" type="checkbox" checked /><span>선로</span></label>
           <label class="map-layer-option"><input id="layer-buses" type="checkbox" checked /><span>버스</span></label>
-          <label class="map-layer-option"><input id="layer-generators" type="checkbox" /><span>발전기</span></label>
+          <label class="map-layer-option"><input id="layer-generators" type="checkbox" /><span>발전기 (KPG)</span></label>
+          <label class="map-layer-option"><input id="layer-powerplants" type="checkbox" checked /><span>발전소 데이터 (몽골)</span></label>
           <label class="map-layer-option"><input id="layer-analysis" type="checkbox" checked /><span>분석 결과</span></label>
         </div>
+        <div id="plant-legend" class="plant-legend" hidden></div>
         <div id="map-tooltip" class="map-tooltip">
           <button id="map-tooltip-close" class="map-tooltip-close">×</button>
           <div id="map-tooltip-content"></div>
@@ -363,6 +371,7 @@
     async function loadNetworkMap() {
       const svg = document.getElementById("network-map");
       svg.replaceChildren();
+      document.getElementById("plant-legend").hidden = true;
       const entry = gridEntries.find((item) => item.id === selectedGridId);
       if (!entry?.map_available) {
         mapProjection = null;
@@ -466,6 +475,7 @@
       }
 
       renderGeneratorLayer(data.generators || []);
+      renderPowerplantLayer(data.powerplants || []);
     }
 
     function groupByBus(items) {
@@ -502,10 +512,79 @@
       }
     }
 
+    function powerplantColor(fueltype) {
+      return {
+        "Solar": "#f59e0b",
+        "Wind": "#0891b2",
+        "Hard Coal": "#475569",
+        "Lignite": "#92400e",
+        "Oil": "#7c3aed",
+        "Hydro": "#2563eb",
+      }[fueltype] || "#64748b";
+    }
+
+    function renderPowerplantLayer(powerplants) {
+      const legend = document.getElementById("plant-legend");
+      legend.hidden = powerplants.length === 0;
+      if (!powerplants.length || !mapProjection) return;
+      const svg = document.getElementById("network-map");
+      const groups = new Map();
+      for (const plant of powerplants) {
+        const key = String(plant.latitude) + "," + String(plant.longitude);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(plant);
+      }
+      for (const items of groups.values()) {
+        const plant = items[0];
+        const position = mapProjection(plant);
+        const circle = document.createElementNS(SVG_NS, "circle");
+        circle.setAttribute("cx", position.x);
+        circle.setAttribute("cy", position.y);
+        circle.setAttribute("r", items.length > 1 ? 9 : 6.5);
+        circle.setAttribute("fill", powerplantColor(plant.fueltype));
+        circle.setAttribute("class", "powerplant-marker layer-powerplant");
+        circle.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const rows = items.map((item) => {
+            const capacity = item.capacity_mw == null ? "미상" : Number(item.capacity_mw).toFixed(2) + " MW";
+            const bus = item.mapped_bus_id == null ? "없음" : escapeHtml(item.mapped_bus_id) + " (추정)";
+            return '<div class="map-tooltip-row"><strong>' + escapeHtml(item.name) +
+              '</strong><div>발전원: ' + escapeHtml(item.fueltype) +
+              ' · 용량: ' + capacity + '</div><div>매핑 모선: ' + bus + '</div></div>';
+          }).join("");
+          showMapTooltip(event, '<div class="map-tooltip-title">발전소 데이터 ' +
+            items.length + '건 · 동일 좌표</div>' + rows +
+            '<div class="map-tooltip-row">공개 데이터 레코드이며 실계통 접속 미검증</div>');
+        });
+        svg.appendChild(circle);
+      }
+      const counts = new Map();
+      powerplants.forEach((plant) => counts.set(plant.fueltype, (counts.get(plant.fueltype) || 0) + 1));
+      legend.replaceChildren();
+      const title = document.createElement("strong");
+      title.textContent = '발전소 공개 데이터 · ' + powerplants.length + '건';
+      legend.appendChild(title);
+      for (const [fuel, count] of counts) {
+        const item = document.createElement("span");
+        item.className = "plant-legend-item";
+        const dot = document.createElement("span");
+        dot.className = "plant-dot";
+        dot.style.backgroundColor = powerplantColor(fuel);
+        item.appendChild(dot);
+        item.appendChild(document.createTextNode(fuel + ' ' + count));
+        legend.appendChild(item);
+      }
+      const note = document.createElement("div");
+      note.className = "plant-note";
+      note.textContent = "레코드 기준 · 중복 가능 · 용량/연결 검증 전";
+      legend.appendChild(note);
+    }
+
     function applyLayerVisibility() {
       setLayerHidden(".layer-line", !document.getElementById("layer-lines").checked);
       setLayerHidden(".layer-bus", !document.getElementById("layer-buses").checked);
       setLayerHidden(".layer-generator", !document.getElementById("layer-generators").checked);
+      setLayerHidden(".layer-powerplant", !document.getElementById("layer-powerplants").checked);
       document.getElementById("map").classList.toggle("analysis-hidden", !document.getElementById("layer-analysis").checked);
     }
 
@@ -991,7 +1070,7 @@
     });
     document.getElementById("chat-send").addEventListener("click", sendChatMessage);
     document.getElementById("chat-message").addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendChatMessage(); } });
-    for (const id of ["layer-lines", "layer-buses", "layer-generators", "layer-analysis"]) document.getElementById(id).addEventListener("change", applyLayerVisibility);
+    for (const id of ["layer-lines", "layer-buses", "layer-generators", "layer-powerplants", "layer-analysis"]) document.getElementById(id).addEventListener("change", applyLayerVisibility);
     document.querySelectorAll(".analysis-box-header").forEach((header) => {
       header.addEventListener("click", (event) => {
         event.preventDefault();
