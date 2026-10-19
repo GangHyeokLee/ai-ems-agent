@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from ai_ems.grid_catalog import (
     KPG_GRID_ID, MONGOLIA_GRID_ID, list_grids, load_mongolia_map,
 )
+from ai_ems.pf_preview import load_mongolia_pf_preview
 from ai_ems import load_network
 from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph
 from ai_ems.agent.tools import create_agent_tools
@@ -33,6 +34,7 @@ from ai_ems.config import (
 
 UI_DIR = Path("ui")
 MONGOLIA_MAP_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-map.json"
+MONGOLIA_PF_PREVIEW_FILE = PROJECT_ROOT / "data" / "grids" / "mn35k-synthetic-pf-preview.json"
 KPG_GEOGRAPHY_FILE = PROJECT_ROOT / "data" / "grids" / "kr-geography.json"
 
 network = load_network(CASE_FILE)
@@ -84,7 +86,10 @@ def health():
 
 @app.get("/api/grids")
 def grid_catalog():
-    return {"grids": list_grids(MONGOLIA_MAP_FILE), "default_grid_id": KPG_GRID_ID}
+    return {
+        "grids": list_grids(MONGOLIA_MAP_FILE, MONGOLIA_PF_PREVIEW_FILE),
+        "default_grid_id": KPG_GRID_ID,
+    }
 
 
 @app.get("/api/grids/{grid_id}/map")
@@ -99,6 +104,19 @@ def grid_map(grid_id: str):
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
     raise HTTPException(status_code=404, detail="Unknown grid ID")
+
+
+@app.get("/api/grids/mn-osm-35k/pf-preview")
+def mongolia_pf_preview():
+    try:
+        return load_mongolia_pf_preview(
+            MONGOLIA_PF_PREVIEW_FILE,
+            MONGOLIA_MAP_FILE,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/network-summary")

@@ -19,9 +19,13 @@ MAX_PREVIEW_PLANTS = 100000
 MAX_PREVIEW_TRANSFORMERS = 100000
 
 
-def list_grids(mongolia_map_file: Path) -> list[dict[str, Any]]:
+def list_grids(
+    mongolia_map_file: Path,
+    mongolia_pf_preview_file: Path | None = None,
+) -> list[dict[str, Any]]:
     """Return the KPG test case and the active Mongolia 35 kV map preview."""
     map_ready = mongolia_map_file.is_file()
+    pf_preview_ready = bool(mongolia_pf_preview_file and mongolia_pf_preview_file.is_file())
     return [
         {
             "id": KPG_GRID_ID,
@@ -42,10 +46,12 @@ def list_grids(mongolia_map_file: Path) -> list[dict[str, Any]]:
             "format": "PyPSA NetCDF → JSON map preview",
             "map_available": map_ready,
             "analysis_available": False,
+            "pf_preview_available": map_ready and pf_preview_ready,
             "status": "map_ready" if map_ready else "preparing",
             "note": (
-                "35kV 전용 LineType·합성 변압기·발전소 접속 미검증. "
-                "지도 조회 전용이며 전력조류계산을 지원하지 않습니다."
+                "합성 AC Power Flow 미리보기는 조회 전용이며 웹 요청 시 재계산하지 않습니다. "
+                "실제 몽골 운영 데이터가 아니며, 선로·변압기 정수와 발전소 접속은 일부 미검증입니다. "
+                "N-1·Redispatch·AI 분석은 지원하지 않습니다."
             ),
         },
     ]
@@ -264,5 +270,4 @@ def load_mongolia_map(map_file: Path) -> dict[str, Any]:
     return {"buses": buses, "lines": lines, "transformers": transformers,
             "generators": [], "powerplants": plants, "country_polygons": polygons,
             "admin_regions": regions}
-
 

@@ -130,6 +130,14 @@
     #map-panel { display:flex; flex-direction:column; }
     #map { flex:1; min-height:0; height:auto; }
     #grid-capability-note { padding:8px 14px; border-bottom:1px solid #e5e7eb; font-size:12px; color:#475569; background:#fffbeb; }
+    #pf-preview-panel { padding:8px 14px; border-bottom:1px solid #e5e7eb; background:#fff7ed; color:#7c2d12; font-size:12px; line-height:1.5; }
+    #pf-preview-panel[hidden], #pf-preview-toolbar[hidden] { display:none; }
+    #pf-preview-toolbar { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; padding:7px 14px; border-bottom:1px solid #e5e7eb; color:#334155; font-size:12px; }
+    #pf-preview-toolbar select { padding:5px 8px; border:1px solid #cbd5e1; border-radius:5px; background:white; }
+    #pf-preview-legend { color:#475569; }
+    .pf-legend-key { display:inline-flex; align-items:center; gap:4px; margin-right:8px; white-space:nowrap; }
+    .pf-legend-key i { display:inline-block; width:10px; height:10px; border:1px solid #94a3b8; border-radius:50%; }
+    .pf-legend-ramp { display:inline-block; width:72px; height:9px; margin:0 5px; border:1px solid #94a3b8; border-radius:999px; vertical-align:middle; }
     @media (max-width: 1100px) {
       main { height: auto; min-height: calc(100vh - 64px); grid-template-columns: 1fr !important; grid-template-rows: minmax(420px, 52vh) minmax(620px, auto); gap: 16px; }
       .workspace-splitter { display: none; }
@@ -148,6 +156,21 @@
         <span id="grid-status" class="grid-status">계통 정보를 확인 중...</span>
       </div>
       <div id="grid-capability-note" hidden></div>
+      <div id="pf-preview-panel" hidden>
+        <strong>합성 AC Power Flow 시험 결과 — 실제 몽골 운영 데이터가 아닙니다.</strong>
+        <div id="pf-preview-status">계산된 합성 시나리오 결과를 읽는 중...</div>
+        <div>166모선 주 연결요소 · 합성 발전기 45대 · 합성 부하 25.6 MW · 합성 리액터 20 MVAr</div>
+        <div>일부 선로·변압기 전기정수 미검증 · 실제 발전소 접속 미확인 · 2013 snapshot은 실제 측정값이 아닙니다.</div>
+      </div>
+      <div id="pf-preview-toolbar" hidden>
+        <label for="pf-display-mode">합성 PF 표시</label>
+        <select id="pf-display-mode" aria-label="몽골 합성 PF 지도 표시 모드" disabled>
+          <option value="voltage_kv">기본 지도 · 정격전압</option>
+          <option value="bus_voltage">모선 전압 · pu</option>
+          <option value="line_loading">선로 부하율 · MVA 기준</option>
+        </select>
+        <span id="pf-preview-legend">PF 미리보기 데이터 없음</span>
+      </div>
       <div id="map">
         <svg id="network-map" viewBox="0 0 700 900" preserveAspectRatio="xMidYMid meet"></svg>
         <div class="map-layer-control">
@@ -230,6 +253,11 @@
     let chatBusy = false;
     let latestSecurityResult = null;
     let generatorStateMap = new Map();
+    let pfPreview = null;
+    let pfBusResultMap = new Map();
+    let pfLineResultMap = new Map();
+    let pfTransformerResultMap = new Map();
+    let currentMapData = null;
 
     function clamp(value, min, max) {
       return Math.min(Math.max(value, min), max);
@@ -331,6 +359,146 @@
       return VOLTAGE_COLORS[voltageLabel(voltage)] || "#64748b";
     }
 
+    function scaleColor(value, minValue, maxValue, lowColor, highColor) {
+      const ratio = maxValue > minValue ? clamp((value - minValue) / (maxValue - minValue), 0, 1) : 0;
+      const low = lowColor.match(/[0-9a-f]{2}/gi).map((part) => parseInt(part, 16));
+      const high = highColor.match(/[0-9a-f]{2}/gi).map((part) => parseInt(part, 16));
+      const rgb = low.map((part, index) => Math.round(part + (high[index] - part) * ratio));
+      return "#" + rgb.map((part) => part.toString(16).padStart(2, "0")).join("");
+    }
+
+    function finiteTree(value) {
+      if (typeof value === "number") return Number.isFinite(value);
+      if (Array.isArray(value)) return value.every(finiteTree);
+      if (value && typeof value === "object") return Object.values(value).every(finiteTree);
+      return value == null || ["string", "boolean"].includes(typeof value);
+    }
+
+    function validateBrowserPfPreview(payload, mapData) {
+      if (!payload || !payload.metadata || !payload.summary || !finiteTree(payload)) throw new Error("PF 미리보기 JSON 구조 또는 수치가 올바르지 않습니다.");
+      const meta = payload.metadata;
+      if (meta.schema_version !== "1.0" || meta.grid_id !== "mn-osm-35k" ||
+          meta.scenario_id !== "reduced_27_q_limited_with_reactor" ||
+          meta.synthetic_scenario !== true || meta.actual_operating_data !== false ||
+          meta.pf_status !== "AC_PF_CONVERGED" ||
+          meta.screening_status !== "SYNTHETIC_SCENARIO_WITHIN_SCREENING_LIMITS" ||
+          payload.summary.pf_converged !== true) {
+        throw new Error("허용된 검증 시나리오가 아닙니다.");
+      }
+      const mapBuses = new Map(mapData.buses.map((item) => [String(item.bus_id), item]));
+      const mapLines = new Map(mapData.lines.map((item) => [String(item.line_id), item]));
+      const mapTransformers = new Map((mapData.transformers || []).map((item) => [String(item.transformer_id), item]));
+      const uniqueMap = (items, key) => {
+        const result = new Map();
+        for (const item of items) {
+          const id = String(item[key] ?? "");
+          if (!id || result.has(id)) throw new Error("PF 미리보기 설비 ID가 비어 있거나 중복됩니다.");
+          result.set(id, item);
+        }
+        return result;
+      };
+      const buses = uniqueMap(payload.buses, "bus_id");
+      const lines = uniqueMap(payload.lines, "line_id");
+      const transformers = uniqueMap(payload.transformers, "transformer_id");
+      if (buses.size !== 166 || lines.size !== 156 || transformers.size !== 27 ||
+          meta.analysis_bus_count !== buses.size || meta.analysis_line_count !== lines.size ||
+          meta.analysis_transformer_count !== transformers.size) {
+        throw new Error("PF 미리보기 설비 개수가 지도 및 검증 기준과 다릅니다.");
+      }
+      for (const [id, item] of buses) {
+        const mapped = mapBuses.get(id);
+        if (!mapped || Number(item.voltage_kv) !== Number(mapped.voltage_kv) ||
+            item.analysis_status !== "ANALYZED") throw new Error(`모선 ${id}가 지도와 일치하지 않습니다.`);
+      }
+      for (const [id, item] of lines) {
+        const mapped = mapLines.get(id);
+        if (!mapped || String(item.bus1_id) !== String(mapped.bus1_id) ||
+            String(item.bus2_id) !== String(mapped.bus2_id) ||
+            item.analysis_status !== "ANALYZED") throw new Error(`선로 ${id}가 지도와 일치하지 않습니다.`);
+      }
+      for (const [id, item] of transformers) {
+        const mapped = mapTransformers.get(id);
+        if (!mapped || String(item.bus1_id) !== String(mapped.bus1_id) ||
+            String(item.bus2_id) !== String(mapped.bus2_id) ||
+            item.analysis_status !== "ANALYZED") throw new Error(`변압기 ${id}가 지도와 일치하지 않습니다.`);
+      }
+      if (meta.excluded_bus_ids.length !== mapBuses.size - buses.size ||
+          meta.excluded_line_ids.length !== mapLines.size - lines.size) {
+        throw new Error("해석 대상 제외 설비 목록이 지도와 일치하지 않습니다.");
+      }
+      return payload;
+    }
+
+    function resetPfPreview() {
+      pfPreview = null;
+      pfBusResultMap.clear();
+      pfLineResultMap.clear();
+      pfTransformerResultMap.clear();
+      document.getElementById("pf-display-mode").value = "voltage_kv";
+      document.getElementById("pf-display-mode").disabled = true;
+      document.getElementById("pf-preview-legend").textContent = "PF 미리보기 데이터 없음";
+      if (currentMapData) applyPfDisplayMode();
+    }
+
+    function updatePfPreviewPanel() {
+      const mongolia = isMongoliaGrid();
+      const panel = document.getElementById("pf-preview-panel");
+      const toolbar = document.getElementById("pf-preview-toolbar");
+      panel.hidden = !mongolia;
+      toolbar.hidden = !mongolia;
+      if (!mongolia) return;
+      const entry = gridEntries.find((item) => item.id === selectedGridId);
+      document.getElementById("pf-preview-status").textContent = pfPreview
+        ? `${pfPreview.metadata.snapshot} snapshot · AC PF 수렴 · 가정 스크리닝 통과 · 모델 신뢰성 검토 필요`
+        : entry?.pf_preview_available
+          ? "합성 PF 미리보기 결과를 불러오는 중..."
+          : "사전 생성된 PF 미리보기 없음 · 기본 지도만 표시";
+    }
+
+    function updatePreviewLegend() {
+      const legend = document.getElementById("pf-preview-legend");
+      if (!pfPreview || !currentMapData) {
+        legend.textContent = "PF 미리보기 데이터 없음";
+        return;
+      }
+      const mode = document.getElementById("pf-display-mode").value;
+      const summary = pfPreview.summary;
+      if (mode === "bus_voltage") {
+        const limits = pfPreview.metadata.voltage_limits_pu;
+        legend.innerHTML = `모선 전압 ${summary.voltage_min_pu.toFixed(4)} pu <span class="pf-legend-ramp" style="background:linear-gradient(90deg,#2563eb,#dc2626)"></span> ${summary.voltage_max_pu.toFixed(4)} pu · 허용 ${limits.min.toFixed(2)}–${limits.max.toFixed(2)} pu`;
+      } else if (mode === "line_loading") {
+        legend.innerHTML = `선로 부하율 0.00% <span class="pf-legend-ramp" style="background:linear-gradient(90deg,#16a34a,#dc2626)"></span> ${summary.line_max_loading_percent.toFixed(2)}% · MVA 기준`;
+      } else {
+        const levels = [...new Set(currentMapData.buses.map((bus) => Number(bus.voltage_kv)).filter(Number.isFinite))].sort((a, b) => a - b);
+        legend.innerHTML = levels.map((value) =>
+          `<span class="pf-legend-key"><i style="background:${voltageColor(value)}"></i>${value} kV</span>`
+        ).join("");
+      }
+    }
+
+    function applyPfDisplayMode() {
+      if (!currentMapData) return;
+      const mode = document.getElementById("pf-display-mode").value;
+      for (const element of document.querySelectorAll(".network-bus")) {
+        const bus = currentMapData.buses.find((item) => String(item.bus_id) === element.dataset.busId);
+        const result = pfBusResultMap.get(element.dataset.busId);
+        let color = voltageColor(bus?.voltage_kv);
+        if (mode === "bus_voltage" && result) {
+          const bounds = pfPreview.metadata.voltage_limits_pu;
+          color = scaleColor(result.v_mag_pu, bounds.min, bounds.max, "#2563eb", "#dc2626");
+        }
+        element.style.fill = color;
+      }
+      for (const element of document.querySelectorAll(".network-line")) {
+        const line = currentMapData.lines.find((item) => String(item.line_id) === element.dataset.lineId);
+        const result = pfLineResultMap.get(element.dataset.lineId);
+        element.style.stroke = mode === "line_loading" && result
+          ? scaleColor(result.loading_percent, 0, pfPreview.summary.line_max_loading_percent, "#16a34a", "#dc2626")
+          : voltageColor(line?.voltage_kv);
+      }
+      updatePreviewLegend();
+    }
+
     function gridSupportsAnalysis() {
       return gridEntries.find((item) => item.id === selectedGridId)?.analysis_available === true;
     }
@@ -354,6 +522,7 @@
       document.getElementById("security-result").textContent = available ? "사고 선로를 입력하고 분석하세요." : "운전 데이터 검증 전이므로 분석이 비활성화되었습니다.";
       document.getElementById("sensitivity-result").textContent = "Security Analysis 후 민감도를 분석할 수 있습니다.";
       document.getElementById("generator-contingency-result").textContent = available ? "발전기를 선택하거나 ID를 입력하고 분석하세요." : "현재 계통은 지도 조회만 가능합니다.";
+      updatePfPreviewPanel();
     }
 
     async function initializeGridCatalog() {
@@ -374,8 +543,11 @@
         select.value = selectedGridId;
         select.addEventListener("change", async () => {
           selectedGridId = select.value;
+          gridSwitchToken++;
           latestSecurityResult = null;
           mapProjection = null;
+          currentMapData = null;
+          resetPfPreview();
           generatorStateMap.clear();
           document.getElementById("network-map").replaceChildren();
           hideMapTooltip();
@@ -393,6 +565,8 @@
       const token = ++gridSwitchToken;
       const svg = document.getElementById("network-map");
       svg.replaceChildren();
+      currentMapData = null;
+      resetPfPreview();
       document.getElementById("plant-legend").hidden = true;
       const entry = gridEntries.find((item) => item.id === selectedGridId);
       if (!entry?.map_available) {
@@ -404,16 +578,48 @@
         const data = await response.json();
         if (token !== gridSwitchToken) return;
         if (!response.ok) throw new Error(data.detail || "지도를 불러오지 못했습니다.");
+        currentMapData = data;
         generatorStateMap = new Map((data.generators || []).map((item) => [item.generator_id, item]));
         if (!Array.isArray(data.buses) || data.buses.length === 0) throw new Error("좌표가 있는 모선이 없습니다.");
         drawNetwork(data);
         applyLayerVisibility();
         if (gridSupportsAnalysis()) updateGeneratorAnalyzeAvailability();
+        if (isMongoliaGrid()) await loadMongoliaPfPreview(token, entry);
       } catch (error) {
         if (token !== gridSwitchToken) return;
         mapProjection = null;
         document.getElementById("grid-status").textContent = "지도 오류: " + error.message;
       }
+    }
+
+    async function loadMongoliaPfPreview(token, entry) {
+      const status = document.getElementById("pf-preview-status");
+      if (!entry?.pf_preview_available) {
+        resetPfPreview();
+        updatePfPreviewPanel();
+        return;
+      }
+      try {
+        const response = await fetch("/api/grids/mn-osm-35k/pf-preview");
+        const payload = await response.json();
+        if (token !== gridSwitchToken) return;
+        if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+        pfPreview = validateBrowserPfPreview(payload, currentMapData);
+        pfBusResultMap = new Map(payload.buses.map((item) => [String(item.bus_id), item]));
+        pfLineResultMap = new Map(payload.lines.map((item) => [String(item.line_id), item]));
+        pfTransformerResultMap = new Map(payload.transformers.map((item) => [String(item.transformer_id), item]));
+        document.getElementById("pf-display-mode").disabled = false;
+        status.textContent = `${payload.metadata.snapshot} snapshot · AC PF 수렴 · 가정 스크리닝 통과 · 모델 신뢰성 검토 필요`;
+        document.getElementById("grid-status").textContent = "지도 조회 · 합성 PF 미리보기 (읽기 전용)";
+        applyPfDisplayMode();
+      } catch (error) {
+        if (token !== gridSwitchToken) return;
+        resetPfPreview();
+        status.textContent = "PF 미리보기 오류 — 기본 몽골 지도는 표시 중입니다: " + error.message;
+        document.getElementById("grid-status").textContent = "지도 조회 · PF 미리보기 사용 불가";
+        applyPfDisplayMode();
+      }
+      updatePfPreviewPanel();
     }
 
     function setAnalysisBoxCollapsed(boxId, collapsed) {
@@ -524,9 +730,11 @@
           event.stopPropagation();
           clearMapSelection();
           element.classList.add("selected-line");
-          setAnalysisBoxCollapsed("security-analysis-box", false);
-          document.getElementById("outage-line").value = line.line_id;
-          invalidateSecurityResult();
+          if (!isMongolia) {
+            setAnalysisBoxCollapsed("security-analysis-box", false);
+            document.getElementById("outage-line").value = line.line_id;
+            invalidateSecurityResult();
+          }
           showLineTooltip(event, line, bus1, bus2);
         });
         svg.appendChild(hit);
@@ -544,10 +752,7 @@
         element.setAttribute("tabindex", "0");
         const onSelect = event => {
           event.stopPropagation();
-          showMapTooltip(event, '<div class="map-tooltip-title">변압기 '+escapeHtml(transformer.transformer_id)+'</div>' +
-            '<div class="map-tooltip-row">Bus '+escapeHtml(transformer.bus1_id)+' ('+escapeHtml(voltageLabel(bus1.voltage_kv))+'kV) ↔ Bus '+
-            escapeHtml(transformer.bus2_id)+' ('+escapeHtml(voltageLabel(bus2.voltage_kv))+'kV)</div>' +
-            '<div class="map-tooltip-row">자동 추론된 연결 · 실제 설비 및 정수 미검증</div>');
+          showTransformerTooltip(event, transformer, bus1, bus2);
         };
         element.addEventListener("click", onSelect);
         element.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") onSelect(event); });
@@ -755,17 +960,76 @@
     }
 
     function showBusTooltip(event, bus) {
+      let resultRows = "";
+      if (isMongoliaGrid()) {
+        const result = pfBusResultMap.get(String(bus.bus_id));
+        if (!pfPreview) {
+          resultRows = `<div class="map-tooltip-row">합성 PF 미리보기 데이터를 사용할 수 없습니다.</div>`;
+        } else if (!result) {
+          resultRows = `<div class="map-tooltip-row"><strong>해석 상태</strong>: 해석 대상 제외</div>`;
+        } else {
+          resultRows = `
+            <div class="map-tooltip-row"><strong>해석 전압</strong>: ${result.v_mag_pu.toFixed(4)} pu</div>
+            <div class="map-tooltip-row"><strong>위상각</strong>: ${result.v_ang_deg.toFixed(4)}°</div>
+            <div class="map-tooltip-row"><strong>제어</strong>: ${escapeHtml(result.control)}</div>
+            <div class="map-tooltip-row"><strong>전압 위반</strong>: ${result.voltage_violation ? "예" : "아니오"}</div>
+            <div class="map-tooltip-row">합성 PF 시험 결과 · 실제 운영 데이터 아님</div>`;
+        }
+      }
       showMapTooltip(event, `
-        <div class="map-tooltip-title">Bus ${bus.bus_id}</div>
-        <div class="map-tooltip-row"><strong>지역</strong>: ${bus.name_korean}</div>
-        <div class="map-tooltip-row"><strong>English</strong>: ${bus.name_english}</div>`);
+        <div class="map-tooltip-title">Bus ${escapeHtml(bus.bus_id)}</div>
+        <div class="map-tooltip-row"><strong>지역</strong>: ${escapeHtml(bus.name_korean)}</div>
+        <div class="map-tooltip-row"><strong>English</strong>: ${escapeHtml(bus.name_english)}</div>
+        ${resultRows}`);
     }
 
     function showLineTooltip(event, line, bus1, bus2) {
+      let resultRows = "";
+      if (isMongoliaGrid()) {
+        const result = pfLineResultMap.get(String(line.line_id));
+        if (!pfPreview) {
+          resultRows = `<div class="map-tooltip-row">합성 PF 미리보기 데이터를 사용할 수 없습니다.</div>`;
+        } else if (!result) {
+          resultRows = `<div class="map-tooltip-row"><strong>해석 상태</strong>: 해석 대상 제외 · 분석 수치 없음</div>`;
+        } else {
+          resultRows = `
+            <div class="map-tooltip-row"><strong>Bus ${escapeHtml(result.bus1_id)} 단</strong>: P₀ ${result.p0_mw.toFixed(4)} MW · Q₀ ${result.q0_mvar.toFixed(4)} MVAr</div>
+            <div class="map-tooltip-row"><strong>Bus ${escapeHtml(result.bus2_id)} 단</strong>: P₁ ${result.p1_mw.toFixed(4)} MW · Q₁ ${result.q1_mvar.toFixed(4)} MVAr</div>
+            <div class="map-tooltip-row">P/Q 부호: 각 단자에서 모선 → 선로 방향이 양(+)이며 부호를 변경하지 않았습니다.</div>
+            <div class="map-tooltip-row"><strong>MVA 기준 부하율</strong>: ${result.loading_percent.toFixed(3)}%</div>
+            <div class="map-tooltip-row"><strong>가정 열 스크리닝 위반</strong>: ${result.thermal_violation ? "예" : "아니오"}</div>
+            <div class="map-tooltip-row">합성 PF 시험 결과 · 실제 운영 데이터 아님</div>`;
+        }
+      }
       showMapTooltip(event, `
-        <div class="map-tooltip-title">${line.line_id}</div>
-        <div class="map-tooltip-row"><strong>From</strong>: Bus ${line.bus1_id} · ${bus1.name_korean}</div>
-        <div class="map-tooltip-row"><strong>To</strong>: Bus ${line.bus2_id} · ${bus2.name_korean}</div>`);
+        <div class="map-tooltip-title">${escapeHtml(line.line_id)}</div>
+        <div class="map-tooltip-row"><strong>From</strong>: Bus ${escapeHtml(line.bus1_id)} · ${escapeHtml(bus1.name_korean)}</div>
+        <div class="map-tooltip-row"><strong>To</strong>: Bus ${escapeHtml(line.bus2_id)} · ${escapeHtml(bus2.name_korean)}</div>
+        ${resultRows}`);
+    }
+
+    function showTransformerTooltip(event, transformer, bus1, bus2) {
+      let resultRows = "";
+      if (isMongoliaGrid()) {
+        const result = pfTransformerResultMap.get(String(transformer.transformer_id));
+        if (!pfPreview) {
+          resultRows = `<div class="map-tooltip-row">합성 PF 미리보기 데이터를 사용할 수 없습니다.</div>`;
+        } else if (!result) {
+          resultRows = `<div class="map-tooltip-row"><strong>해석 상태</strong>: 해석 대상 제외 · 분석 수치 없음</div>`;
+        } else {
+          resultRows = `
+            <div class="map-tooltip-row"><strong>Bus ${escapeHtml(result.bus1_id)} 단</strong>: P₀ ${result.p0_mw.toFixed(4)} MW · Q₀ ${result.q0_mvar.toFixed(4)} MVAr</div>
+            <div class="map-tooltip-row"><strong>Bus ${escapeHtml(result.bus2_id)} 단</strong>: P₁ ${result.p1_mw.toFixed(4)} MW · Q₁ ${result.q1_mvar.toFixed(4)} MVAr</div>
+            <div class="map-tooltip-row">P/Q 부호: 각 단자에서 모선 → 변압기 방향이 양(+)이며 부호를 변경하지 않았습니다.</div>
+            <div class="map-tooltip-row"><strong>MVA 기준 부하율</strong>: ${result.loading_percent.toFixed(3)}%</div>
+            <div class="map-tooltip-row"><strong>가정 열 스크리닝 위반</strong>: ${result.thermal_violation ? "예" : "아니오"}</div>`;
+        }
+      }
+      showMapTooltip(event, `
+        <div class="map-tooltip-title">변압기 ${escapeHtml(transformer.transformer_id)}</div>
+        <div class="map-tooltip-row">Bus ${escapeHtml(transformer.bus1_id)} (${escapeHtml(voltageLabel(bus1.voltage_kv))}kV) ↔ Bus ${escapeHtml(transformer.bus2_id)} (${escapeHtml(voltageLabel(bus2.voltage_kv))}kV)</div>
+        <div class="map-tooltip-row">추정 변압기 · 실제 설비 및 전기정수 미검증</div>
+        ${resultRows}`);
     }
 
     function showGeneratorTooltip(event, busId, generators) {
@@ -1207,6 +1471,7 @@
     });
     document.getElementById("map-tooltip-close").addEventListener("click", (event) => { event.stopPropagation(); hideMapTooltip(); });
     document.getElementById("map-tooltip").addEventListener("click", (event) => event.stopPropagation());
+    document.getElementById("pf-display-mode").addEventListener("change", applyPfDisplayMode);
     document.addEventListener("click", (event) => {
       const tooltip = document.getElementById("map-tooltip");
       if (tooltip.style.display !== "none" && !tooltip.contains(event.target)) hideMapTooltip();
