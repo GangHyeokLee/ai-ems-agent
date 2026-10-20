@@ -212,3 +212,22 @@ def test_help_popover_wraps_korean_by_word():
     assert ".help-popover > :not(.help-strong) { contain: inline-size; }" in INDEX_HTML
     assert ".help-popover .help-strong { white-space: nowrap; }" in INDEX_HTML
     assert 'popover.classList.add("wrap-first")' in INDEX_HTML.split("function setupHelp(", 1)[1]
+
+
+def test_quiet_ui_keeps_warnings_and_moves_guidance_to_help():
+    """Always-on guidance/notices removed; errors, non-convergence, islanding and unsupported states kept."""
+    for removed in ('id="pf-overlay-note"', 'class="pf-legend-note"', '<p class="result-notice">',
+                    "지도에서 발전기 행을 클릭하면 자동으로 입력됩니다.</span>", "몽골 합성 시나리오 검증 사례",
+                    '"사고 선로를 입력하고 분석하세요."'):
+        assert removed not in INDEX_HTML, removed
+    help_block = INDEX_HTML.split('id="model-help"', 1)[1].split("</div>", 1)[0]
+    for field in ('id="pf-display-criteria"', 'id="analysis-interpretation"', 'id="equipment-data-note"'):
+        assert field in help_block, field
+    criteria = function_body("renderDisplayCriteria")
+    assert "PoC 시연용 시각화 구간이며 운영사의 공식 경보 기준이 아닙니다." in criteria
+    assert "사고 결과 강조가 PF 색상보다 우선 표시됩니다" in criteria
+    kept = ("현재 계통은 발전기 탈락 분석을 지원하지 않습니다.", "상정사고 분석이 수렴하지 않아 민감도 분석을 수행할 수 없습니다.",
+            "사고 후 PF가 수렴하지 않아 민감도를 계산할 수 없습니다.", "분리 섬 처리 정책이 정해지지 않아 민감도는 미평가입니다",
+            "분리 섬 PF 미실행", "사고 후 PF 비수렴 · 위반 판정 불가", "PF 미리보기 오류")
+    for text in kept:
+        assert text in INDEX_HTML, text

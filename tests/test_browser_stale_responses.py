@@ -37,8 +37,8 @@ UNIFIED_PROBE = ROOT / "tests" / "browser" / "unified_ui_probe.js"
 THEME_PROBE = ROOT / "tests" / "browser" / "theme_help_probe.js"
 PROBES = {"stale": PROBE, "unified": UNIFIED_PROBE, "theme": THEME_PROBE}
 THEME_SHOT_DIR = ROOT / "outputs" / "browser_theme_help"
-THEME_SCREENSHOT_STOPS = ["kpg_dark", "help_model_light", "help_model_kpg_dark", "help_model_mn_dark", "mn_dark",
-                          "mn_dark_details", "help_assistant_mn_dark"]
+THEME_SCREENSHOT_STOPS = ["kpg_light", "mn_light_island", "help_model_light", "kpg_dark", "help_model_kpg_dark",
+                          "help_model_mn_dark", "mn_dark", "mn_dark_details", "help_assistant_mn_dark"]
 INDEX = ROOT / "ui" / "index.html"
 SHOT_DIR = ROOT / "outputs" / "browser_stale_responses"
 WINDOWS_CHROME = Path("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe")

@@ -209,7 +209,6 @@
     .result-items .result-item { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
     .result-item-title { font-weight: 700; }
     .result-alert { margin: 6px 0 0; padding: 5px 8px; border-left: 3px solid var(--alert-border); background: var(--alert-bg); color: var(--alert-text); font-size: 12px; }
-    .result-notice { margin: 8px 0 0; font-size: 11px; color: var(--notice-text); }
     .result-details { margin-top: 8px; font-size: 12px; color: var(--text-muted); }
     .result-details summary { cursor: pointer; font-weight: 700; color: var(--text); }
     .result-detail-section h4 { margin: 8px 0 2px; font-size: 12px; }
@@ -292,6 +291,11 @@
           <p id="pf-preview-status">계산된 합성 시나리오 결과를 읽는 중...</p>
           <p id="pf-preview-provenance"></p>
           <p id="pf-preview-limit-note"></p>
+          <p id="equipment-data-note" hidden></p>
+          <h4>지도 표시 기준</h4>
+          <ul id="pf-display-criteria"></ul>
+          <h4>분석 결과 해석</h4>
+          <ul id="analysis-interpretation"></ul>
           <h4>현재 상태</h4>
           <p id="grid-status-detail">계통 정보를 확인 중...</p>
           <h4>계통 기능 범위</h4>
@@ -311,7 +315,6 @@
         </select>
         <div>
           <span id="pf-preview-legend">PF 결과를 사용할 수 없습니다.</span>
-          <span id="pf-overlay-note" class="pf-legend-note" hidden>Security/Sensitivity 사고 결과 강조가 PF 색상보다 우선 표시됩니다. 분석 결과를 숨기려면 지도 표시의 ‘분석 결과’를 해제하세요.</span>
         </div>
       </div>
       <div id="map">
@@ -350,7 +353,7 @@
             </div>
             <div class="analysis-box-content">
               <select id="mn-contingency-examples" aria-label="몽골 대표 사고 선택" hidden>
-                <option value="">대표 사고 선택 (몽골 합성 시나리오 검증 사례)</option>
+                <option value="">대표 사고 선택</option>
                 <option value="222087807-1_0">222087807-1_0 — 110kV / 8모선 분리</option>
                 <option value="751261406-1_0">751261406-1_0 — 220kV / 계통 분리 없음</option>
                 <option value="484333456-1_0">484333456-1_0 — 220kV / 11모선 분리</option>
@@ -371,14 +374,13 @@
               <button type="button" class="analysis-toggle" aria-expanded="true" title="접기">▾</button>
             </div>
             <div class="analysis-box-content">
-              <span class="analysis-subtitle">지도에서 발전기 행을 클릭하면 자동으로 입력됩니다.</span>
               <input id="outage-generator" type="text" placeholder="Generator ID (예: GEN-124#1)" />
               <div class="slack-options">
                 <label><input type="radio" name="generator-slack-mode" value="single" checked /> Single</label>
                 <label><input type="radio" name="generator-slack-mode" value="distributed" /> Distributed</label>
               </div>
               <button id="generator-analyze-button">Analyze</button>
-              <div id="generator-contingency-result">발전기를 선택하거나 ID를 입력하고 분석하세요.</div>
+              <div id="generator-contingency-result"></div>
             </div>
           </div>
 
@@ -679,7 +681,6 @@
       document.getElementById("pf-display-mode").value = "base";
       document.getElementById("pf-display-mode").disabled = true;
       document.getElementById("pf-preview-legend").textContent = "PF 결과를 사용할 수 없습니다.";
-      document.getElementById("pf-overlay-note").hidden = true;
       if (currentMapData) applyPfDisplayMode();
     }
 
@@ -701,6 +702,14 @@
       document.getElementById("model-help-trigger").hidden = !entry;
       toolbar.hidden = !available;
       document.getElementById("grid-scope-note").textContent = entry?.note || "";
+      const resultText = GRID_RESULT_TEXT[selectedGridId];
+      document.getElementById("analysis-interpretation").innerHTML = resultText
+        ? [resultText.securityNotice, resultText.sensitivityNotice, resultText.candidateMarkerNote]
+          .map((item) => `<li>${escapeHtml(item)}</li>`).join("") : "";
+      const equipmentNote = document.getElementById("equipment-data-note");
+      equipmentNote.textContent = isMongoliaGrid() ? "지도 발전소 데이터: 레코드 기준 · 중복 가능 · 용량/연결 검증 전." : "";
+      equipmentNote.hidden = !isMongoliaGrid();
+      renderDisplayCriteria();
       const alert = document.getElementById("pf-preview-alert");
       alert.textContent = pfPreviewError ? `PF 미리보기 오류 — 기본 지도와 기존 분석 기능은 유지됩니다: ${pfPreviewError}` : "";
       alert.hidden = !pfPreviewError;
@@ -726,12 +735,19 @@
           : "사전 생성된 PF 미리보기 없음 · 기본 지도만 표시";
     }
 
+    // Map display criteria and result interpretation live in the model help (not on screen permanently).
+    function renderDisplayCriteria() {
+      const items = [
+        pfPreview ? `모선 전압 표시: 각 모선의 하한/상한 ${voltageLimitLegend()} · 한계 근접 기준 ±${PF_DISPLAY_POLICY.voltageCautionMarginPu.toFixed(2)} pu` : null,
+        "선로 부하율 표시: PoC 시연용 시각화 구간이며 운영사의 공식 경보 기준이 아닙니다. 부하율은 MVA 기준입니다.",
+        "Security/Sensitivity 사고 결과 강조가 PF 색상보다 우선 표시됩니다. 분석 결과를 숨기려면 지도 표시의 ‘분석 결과’를 해제하세요.",
+      ].filter(Boolean);
+      document.getElementById("pf-display-criteria").innerHTML = items.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+    }
+
     function updatePreviewLegend() {
       const legend = document.getElementById("pf-preview-legend");
-      document.getElementById("pf-overlay-note").hidden = !(
-        !isMongoliaGrid() && latestSecurityResult &&
-        document.getElementById("layer-analysis").checked
-      );
+      renderDisplayCriteria();
       if (!pfPreview || !currentMapData) {
         legend.textContent = pfPreviewError ? "PF 색상 미적용 · 기본 지도 표시 중" : "PF 결과를 사용할 수 없습니다.";
         return;
@@ -745,8 +761,7 @@
           ["#f97316", "과전압 주의"],
           ["#dc2626", "과전압 위반"],
           [PF_DISPLAY_POLICY.unknown, "미해석"],
-        ].map(([color, label]) => `<span class="pf-legend-key"><i style="background:${color}"></i>${label}</span>`).join("")
-          + `<span class="pf-legend-note">각 모선의 하한/상한 ${voltageLimitLegend()} · 한계 근접 기준 ±${PF_DISPLAY_POLICY.voltageCautionMarginPu.toFixed(2)} pu</span>`;
+        ].map(([color, label]) => `<span class="pf-legend-key"><i style="background:${color}"></i>${label}</span>`).join("");
       } else if (mode === "line_loading") {
         legend.innerHTML = [
           ["#16a34a", "0–50%"],
@@ -754,8 +769,7 @@
           ["#f97316", ">80–100%"],
           ["#dc2626", ">100%"],
           [PF_DISPLAY_POLICY.unknown, "미해석 / 정격 미확인"],
-        ].map(([color, label]) => `<span class="pf-legend-key"><i style="background:${color}"></i>${label}</span>`).join("")
-          + `<span class="pf-legend-note">PoC 시연용 시각화 구간이며 운영사의 공식 경보 기준이 아닙니다. 부하율은 MVA 기준입니다.</span>`;
+        ].map(([color, label]) => `<span class="pf-legend-key"><i style="background:${color}"></i>${label}</span>`).join("");
       } else {
         const levels = [...new Set(currentMapData.buses.map((bus) => Number(bus.voltage_kv)).filter(Number.isFinite))].sort((a, b) => a - b);
         legend.innerHTML = levels.map((value) =>
@@ -818,6 +832,11 @@
           "답변은 합성 시나리오 결과이며 실제 몽골 운영 데이터가 아닙니다.",
         ],
         examples: ["Bus 137 전압은?", "부하율이 가장 높은 선로 5개 알려줘.", "몽골 합성 PF 결과에서 전압 위반 모선이 있나?"],
+        panel: [
+          "Security Analysis: 대표 사고를 고르거나 지도에서 선로를 클릭한 뒤 Analyze를 실행합니다.",
+          "Sensitivity Analysis: 계통 분리 없는 사고의 Security Analysis 후 실행합니다(합성 발전기 주입 민감도). 감시 선로를 비우면 사고 후 |ΔP|가 가장 큰 메시 선로를 자동 추천합니다.",
+          "계통 분리 사고는 민감도를 평가하지 않으며, 발전기 탈락 분석은 지원하지 않습니다.",
+        ],
       },
       analysis: {
         title: "AI Assistant 사용 안내 · KPG-193 계통해석",
@@ -830,6 +849,11 @@
           "KPG-193 합성 시험계통 결과이며 실제 한국 운영계통 결과가 아닙니다.",
         ],
         examples: ["LINE-16-28 사고를 분석해 줘.", "GEN-124#1 발전기 탈락을 분석해 줘.", "LINE-16-28 사고 대응방안을 검토해 줘."],
+        panel: [
+          "Security Analysis: 사고 선로를 입력하거나 지도에서 선로를 클릭한 뒤 Analyze를 실행합니다.",
+          "Sensitivity Analysis: Security Analysis 후 실행합니다. 감시 선로를 비우면 사고 후 최대 위반 선로를 선택합니다.",
+          "Generator Contingency Analysis: 지도에서 발전기 행을 클릭하면 자동으로 입력됩니다.",
+        ],
       },
     };
     function renderAssistantHelp(entry) {
@@ -841,7 +865,9 @@
       }
       popover.innerHTML = `<h3 id="assistant-help-title">${escapeHtml(guide.title)}</h3><p>${escapeHtml(guide.intro)}</p>`
         + `<h4>지원 범위 · 제한</h4><ul>${guide.scope.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
-        + `<h4>예시 질문</h4><ul>${guide.examples.map((item) => `<li>“${escapeHtml(item)}”</li>`).join("")}</ul>`;
+        + `<h4>예시 질문</h4><ul>${guide.examples.map((item) => `<li>“${escapeHtml(item)}”</li>`).join("")}</ul>`
+        + `<h4>분석 패널</h4><ul>${[...guide.panel, "지도의 분석 강조는 PF 색상보다 우선하며, 지도 표시의 ‘분석 결과’를 해제하면 숨겨집니다."]
+          .map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
     }
 
     // ===== Shared help popover: hover, click/tap (pin), Enter/Space, Escape, viewport-clamped =====
@@ -989,16 +1015,14 @@
         entry?.pf_preview_available === true && pfPreview !== null
       );
       if (resetResults) {
-        document.getElementById("security-result").textContent = available ? "사고 선로를 입력하고 분석하세요." :
-          securityAvailable ? "대표 사고를 고르거나 지도에서 선로를 클릭한 뒤 분석하세요. (합성 시나리오)" :
+        document.getElementById("security-result").textContent = available || securityAvailable ? "" :
           isMongoliaGrid() && entry?.security_analysis_note ? `몽골 Security Analysis 비활성: ${entry.security_analysis_note}` :
           "운전 데이터 검증 전이므로 분석이 비활성화되었습니다.";
         document.getElementById("sensitivity-result").textContent = !gridCapability("sensitivity_analysis_available")
           ? (isMongoliaGrid() && entry?.sensitivity_analysis_note ? `몽골 Sensitivity 비활성: ${entry.sensitivity_analysis_note}` : "현재 계통은 Sensitivity Analysis를 지원하지 않습니다.")
-          : isMongoliaGrid() ? "계통 분리 없는 사고의 Security Analysis 후 민감도를 분석할 수 있습니다. (합성 발전기 주입 민감도)"
-          : "Security Analysis 후 민감도를 분석할 수 있습니다.";
+          : "";
         document.getElementById("generator-contingency-result").textContent = generatorAvailable
-          ? "발전기를 선택하거나 ID를 입력하고 분석하세요." : "현재 계통은 발전기 탈락 분석을 지원하지 않습니다.";
+          ? "" : "현재 계통은 발전기 탈락 분석을 지원하지 않습니다.";
       }
       updatePfPreviewPanel();
     }
@@ -1369,12 +1393,12 @@
         plants.forEach((plant) => counts.set(plant.fueltype, (counts.get(plant.fueltype) || 0) + 1));
         title = `발전소 데이터 · ${plants.length}건`;
         entries = [...counts].map(([fuel, count]) => [powerplantColor(fuel), `${fuel} ${count}`]);
-        note = "레코드 기준 · 중복 가능 · 용량/연결 검증 전";
+        note = "";
       } else if (generators.length) {
         const buses = new Set(generators.map((item) => String(item.bus_id)));
         title = `발전기 · ${generators.length}대`;
         entries = [[dataColor("#16a34a"), `모델 발전기 (${buses.size}개 모선)`]];
-        note = "모선 단위 표시 · 클릭 시 발전기 목록";
+        note = "";
       }
       legend.replaceChildren();
       legend.hidden = !title;
@@ -1395,10 +1419,12 @@
         items.appendChild(item);
       }
       legend.appendChild(items);
-      const noteElement = document.createElement("div");
-      noteElement.className = "plant-note";
-      noteElement.textContent = note;
-      legend.appendChild(noteElement);
+      if (note) {
+        const noteElement = document.createElement("div");
+        noteElement.className = "plant-note";
+        noteElement.textContent = note;
+        legend.appendChild(noteElement);
+      }
     }
 
     function renderPowerplantLayer(powerplants) {
@@ -1770,7 +1796,7 @@
       updatePreviewLegend();
       document.getElementById("sensitivity-button").disabled = true;
       resetSecurityHighlight(); resetSensitivityMarkers(); resetGeneratorContingencyMarkers(); hideMapTooltip();
-      document.getElementById("sensitivity-result").textContent = "Security Analysis 후 민감도를 분석할 수 있습니다.";
+      document.getElementById("sensitivity-result").textContent = "";
       try {
         const isMongoliaRequest = requestGridId === "mn-osm-35k";
         const url = isMongoliaRequest
@@ -1851,12 +1877,11 @@
         status: result.post_status ?? "-",
         statusNote: assessed ? "" : "사고 후 PF 비수렴 · 위반 판정 불가",
         violationCount: assessed ? (result.violated_equipment_count ?? 0) : null,
-        violations, alerts: [], notice: GRID_RESULT_TEXT["kr-kpg193"].securityNotice, details: [],
+        violations, alerts: [], details: [],
         overlay: securityOverlay(result.outage_line_id, violations),
         sensitivity: {
           enabled: assessed && gridCapability("sensitivity_analysis_available"),
-          message: assessed ? "Security Analysis 후 민감도를 분석할 수 있습니다. (감시 선로를 비우면 최대 위반 선로)"
-            : "상정사고 분석이 수렴하지 않아 민감도 분석을 수행할 수 없습니다.",
+          message: assessed ? "" : "상정사고 분석이 수렴하지 않아 민감도 분석을 수행할 수 없습니다.",
         },
         monitoredOptions: violations.map((v) => ({ value: v.equipmentId, label: "사고 후 위반 설비" })),
       };
@@ -1911,15 +1936,14 @@
         status: result.post_status ?? "-",
         statusNote: !assessed ? "사고 후 PF 비수렴 · 위반 판정 불가" : island ? "주 계통만 수렴" : "",
         violationCount: assessed ? (result.violated_equipment_count ?? 0) : null,
-        violations, alerts, notice: GRID_RESULT_TEXT["mn-osm-35k"].securityNotice,
+        violations, alerts,
         details: details.filter(Boolean),
         overlay: securityOverlay(result.outage_line_id, violations, result.isolated_buses || [], result.isolated_line_ids || []),
         sensitivity: {
           enabled: sensitivityCapable && assessed && !island,
           message: !sensitivityCapable ? "현재 계통은 Sensitivity Analysis를 지원하지 않습니다."
             : island ? "계통 분리 사고: 분리 섬 처리 정책이 정해지지 않아 민감도는 미평가입니다(순위 없음)."
-            : assessed ? "Security Analysis 후 민감도를 분석할 수 있습니다. (감시 선로를 비우면 자동 추천)"
-            : "사고 후 PF가 수렴하지 않아 민감도를 계산할 수 없습니다.",
+            : assessed ? "" : "사고 후 PF가 수렴하지 않아 민감도를 계산할 수 없습니다.",
         },
         monitoredOptions: (result.top_line_flow_changes || []).map((change) => ({
           value: change.line_id, label: `사고 후 ΔP ${fmt(change.dp_mw, 3)} MW`,
@@ -1946,7 +1970,6 @@
         targetLineId: result.monitored_line_id, targetLabel: "",
         candidateCount: result.candidate_count ?? candidates.length, candidates,
         unit: GRID_RESULT_TEXT["kr-kpg193"].sensitivityUnit,
-        notice: GRID_RESULT_TEXT["kr-kpg193"].sensitivityNotice,
         details: [],
         overlay: { monitoredLineId: result.monitored_line_id, monitoredEnds: mapLineEnds(result.monitored_line_id), candidates },
       };
@@ -1996,7 +2019,6 @@
         targetLineId: result.monitored_line_id, targetLabel: lineSpanLabel(result.monitored_line),
         candidateCount: result.candidate_count ?? candidates.length, candidates,
         unit: GRID_RESULT_TEXT["mn-osm-35k"].sensitivityUnit,
-        notice: GRID_RESULT_TEXT["mn-osm-35k"].sensitivityNotice,
         details: details.filter(Boolean),
         overlay: evaluated ? { monitoredLineId: result.monitored_line_id, monitoredEnds: result.monitored_line || null, candidates }
           : { monitoredLineId: null, monitoredEnds: null, candidates: [] },
@@ -2043,7 +2065,6 @@
       element.innerHTML = `<div class="result-card" data-result-kind="${vm.kind}" data-grid-id="${vm.gridId}">`
         + `<div class="result-rows">${rows}</div>${alerts}`
         + (items ? `<div class="result-items">${items}</div>` : "")
-        + (vm.notice ? `<p class="result-notice">${escapeHtml(vm.notice)}</p>` : "")
         + renderDetails(vm.details) + `</div>`;
     }
 

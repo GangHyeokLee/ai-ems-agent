@@ -117,6 +117,9 @@
       check("OS switch back to light is applied", root.dataset.theme === "light");
       delete themeMedia.matches;
       check("No explicit choice stored yet", localStorage.getItem(KEY) === null);
+      // Explicit Light (the OS of the test machine may itself be dark).
+      pickTheme("light");
+      check("Light: explicit choice applied + stored", root.dataset.theme === "light" && localStorage.getItem(KEY) === "light" && getComputedStyle(root).colorScheme === "light");
       const lightBody = getComputedStyle(document.body).backgroundColor;
 
       // ---- Light theme help popover ----------------------------------------------------------
@@ -132,6 +135,9 @@
       const kpgHelp = modelHelp.textContent;
       checkHelpLayout("Help KPG (light)", modelHelp);
       check("Help KPG: normal status moved into help", $("grid-status-detail").textContent === "KPG-193 지도 · 격리된 기본상태 PF 미리보기");
+      check("Help KPG: display criteria + result interpretation kept", ["선로 부하율 표시: PoC 시연용 시각화 구간이며 운영사의 공식 경보 기준이 아닙니다.", "사고 결과 강조가 PF 색상보다 우선 표시됩니다",
+        "모선 전압 표시: 각 모선의 하한/상한", "KPG-193 합성 시험계통 결과 · 실제 한국 운영계통 결과가 아닙니다."].every((t) => modelHelp.textContent.includes(t)), modelHelp.textContent.slice(-400));
+      check("Quiet panels: no default instructions", $("security-result").textContent === "" && $("sensitivity-result").textContent === "" && $("generator-contingency-result").textContent === "");
       check("Help KPG: original details preserved", ["실제 한국 운영 데이터가 아닙니다", "AC PF 수렴", "회 반복", "모선", "선로", "발전기", "HVDC", "운영 경보 기준이 아닙니다", "KPG-193 합성 시험계통의 정상상태 PF 미리보기"]
         .every((text) => kpgHelp.includes(text)), kpgHelp.slice(0, 300));
       check("Help: inside viewport", inViewport(modelHelp));
@@ -158,7 +164,23 @@
       check("Assistant help KPG: scope + examples", ["LINE-16-28 사고를 분석해 줘.", "GEN-124#1 발전기 탈락을 분석해 줘.", "최적 Redispatch가 아닙니다", "실제 한국 운영계통 결과가 아닙니다"].every((t) => kpgGuide.includes(t)), kpgGuide.slice(0, 200));
       check("Assistant help: inside viewport + only one open", inViewport(assistantHelp) && modelHelp.hidden);
       checkHelpLayout("Assistant help KPG", assistantHelp);
+      check("Assistant help KPG: panel usage moved here", ["지도에서 발전기 행을 클릭하면 자동으로 입력됩니다.", "감시 선로를 비우면 사고 후 최대 위반 선로를 선택합니다.", "‘분석 결과’를 해제하면 숨겨집니다"]
+        .every((t) => assistantHelp.textContent.includes(t)));
       if (stopAt === "help_model_light") { document.body.click(); modelTrigger.click(); return finish(); }
+      document.body.click();
+      // KPG Security + Sensitivity in Light
+      type("outage-line", "LINE-16-28");
+      await runSecurityAnalysis();
+      type("monitored-line", "");
+      await runSensitivityAnalysis();
+      check("Light KPG: results rendered", $("security-result").textContent.includes("Violations: 1") && $("sensitivity-result").textContent.includes("Top Candidates: 5"));
+      checkText("light security row", $("security-result").querySelector(".result-row"));
+      checkText("light sensitivity candidate", $("sensitivity-result").querySelector(".result-item-sub"));
+      checkText("light analysis legend", document.querySelector("#analysis-legend .analysis-legend-item"));
+      checkText("light grid toolbar", document.querySelector(".grid-toolbar label"));
+      checkText("light chat input", $("chat-message"));
+      check("Light KPG: no repeated notices or general guidance on screen", !document.querySelector(".result-notice, .pf-legend-note, .plant-note, #pf-overlay-note, .analysis-subtitle"));
+      if (stopAt === "kpg_light") return finish();
       document.body.click();
 
       // ---- Dark theme (explicit) ---------------------------------------------------------------
@@ -185,9 +207,10 @@
       checkText("theme label", document.querySelector("#theme-switch label"));
       checkText("model info button", modelTrigger);
       checkText("security row", $("security-result").querySelector(".result-row"));
-      checkText("security sub/notice", $("security-result").querySelector(".result-notice"));
+      checkText("security result row", $("security-result").querySelector(".result-row"));
+      check("Dark KPG: no repeated notices or general guidance on screen", !document.querySelector(".result-notice, .pf-legend-note, .plant-note, #pf-overlay-note, .analysis-subtitle"));
       checkText("sensitivity candidate", $("sensitivity-result").querySelector(".result-item-sub"));
-      checkText("analysis subtitle", document.querySelector(".analysis-subtitle"));
+      checkText("analysis box heading", document.querySelector(".analysis-box-header strong"));
       checkText("analysis legend", document.querySelector("#analysis-legend .analysis-legend-item"));
       checkText("equipment legend", document.querySelector("#plant-legend .plant-legend-item"));
       checkText("layer control", document.querySelector(".map-layer-option span"));
@@ -235,12 +258,18 @@
         "전기정수 미검증", "모델 신뢰성 검토 필요", "선로 N-1 Security Analysis"].every((t) => mnHelp.includes(t)), mnHelp.slice(0, 300));
       check("Help MN: no KPG text", !mnHelp.includes("HVDC") && !mnHelp.includes("KPG193"));
       check("Help MN: normal status moved into help", $("grid-status-detail").textContent === "합성 PF 미리보기 · 선로 N-1 Security / Sensitivity Analysis 가능");
+      check("Help MN: interpretation + equipment data limits kept", ["합성 발전기 주입 민감도 · 실제 발전소·재급전 권고가 아닙니다.", "레코드 기준 · 중복 가능 · 용량/연결 검증 전"]
+        .every((t) => modelHelp.textContent.includes(t)));
+      check("MN: unsupported generator analysis stays visible", $("generator-contingency-result").textContent === "현재 계통은 발전기 탈락 분석을 지원하지 않습니다.");
+      check("MN: no synthetic tag in the example selector", $("mn-contingency-examples").options[0].textContent === "대표 사고 선택");
       checkHelpLayout("Help MN (dark)", modelHelp);
       if (stopAt === "help_model_mn_dark") return finish();
       document.body.click();
       type("outage-line", "484333456-1_0");
       await runSecurityAnalysis();
       checkText("island alert", $("security-result").querySelector(".result-alert"));
+      check("MN island: alert + not-evaluated message kept", $("security-result").querySelector(".result-alert").textContent.includes("분리 섬 PF 미실행")
+        && $("sensitivity-result").textContent.includes("미평가"));
       checkText("sensitivity disabled message", $("sensitivity-result"));
       type("outage-line", "751261406-1_0");
       await runSecurityAnalysis();
@@ -299,6 +328,16 @@
       && document.querySelector('#theme-switch input[value="dark"]').checked);
     pickTheme("light");
     check("Light: applied + stored", root.dataset.theme === "light" && localStorage.getItem(KEY) === "light");
+    // Mongolia warnings in Light: islanding, not-evaluated Sensitivity, unsupported generator analysis.
+    await switchGrid("mn-osm-35k", true);
+    type("outage-line", "484333456-1_0");
+    await runSecurityAnalysis();
+    check("Light MN island: warnings kept", $("security-result").querySelector(".result-alert")?.textContent.includes("분리 섬 PF 미실행")
+      && $("sensitivity-result").textContent.includes("미평가") && $("generator-contingency-result").textContent.includes("지원하지 않습니다"));
+    checkText("light island alert", $("security-result").querySelector(".result-alert"));
+    checkText("light unsupported generator message", $("generator-contingency-result"));
+    if (stopAt === "mn_light_island") return finish();
+    await switchGrid("kr-kpg193", false);
     pickTheme("system");
     check("System: stored + follows OS", localStorage.getItem(KEY) === "system" && root.dataset.theme === (themeMedia.matches ? "dark" : "light"));
     sessionStorage.removeItem("themeProbe.phase");

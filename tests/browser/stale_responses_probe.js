@@ -153,7 +153,7 @@
       check("Switch MN→KPG: no Mongolia apply after switch",
         delta(before, "applyMongoliaSecurityResult") === 0 && delta(before, "applyMongoliaSensitivityResult") === 0);
       check("Switch MN→KPG: no Mongolia overlays on KPG map", mnOverlayCount() === 0 && count(".sensitivity-marker") === 0);
-      check("Switch MN→KPG: KPG panels show defaults", securityText().includes("사고 선로를 입력하고 분석하세요") && !sensitivityText().includes("합성"), securityText());
+      check("Switch MN→KPG: KPG panels reset (no stale text)", securityText() === "" && sensitivityText() === "", [securityText(), sensitivityText()]);
       check("Switch MN→KPG: KPG default outage restored", $("outage-line").value === "LINE-16-28");
     })) return finish();
 
