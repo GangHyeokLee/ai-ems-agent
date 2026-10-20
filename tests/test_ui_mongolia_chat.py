@@ -231,3 +231,13 @@ def test_quiet_ui_keeps_warnings_and_moves_guidance_to_help():
             "분리 섬 PF 미실행", "사고 후 PF 비수렴 · 위반 판정 불가", "PF 미리보기 오류")
     for text in kept:
         assert text in INDEX_HTML, text
+
+
+def test_map_tooltips_do_not_repeat_model_origin_disclaimers():
+    """Model provenance belongs in ⓘ model info, not each equipment tooltip."""
+    assert "pfSourceLabel" not in INDEX_HTML
+    assert 'id="pf-preview-disclaimer"' in INDEX_HTML
+    for tooltip in ("showBusTooltip", "showLineTooltip", "showTransformerTooltip"):
+        body = function_body(tooltip)
+        assert 'class="map-tooltip-title"' in body
+        assert "pfResultState" in body or "formatPfNumber" in body

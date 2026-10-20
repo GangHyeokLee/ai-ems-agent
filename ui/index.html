@@ -1541,12 +1541,6 @@
       return result.analysis_status === "ANALYZED" ? "해석 완료" : "해석 불가 / 설비 분리";
     }
 
-    function pfSourceLabel() {
-      return isMongoliaGrid()
-        ? "합성 PF 시험 결과 · 실제 몽골 운영 데이터 아님"
-        : "KPG-193 합성 시험계통 · 실제 한국 운영 데이터 아님";
-    }
-
     function showBusTooltip(event, bus) {
       const result = pfBusResultMap.get(String(bus.bus_id));
       const rows = pfPreview
@@ -1566,7 +1560,7 @@
         ${rows}
         ${isMongoliaGrid() && (latestSecurityResult?.isolated_buses || []).map(String).includes(String(bus.bus_id))
           ? `<div class="map-tooltip-row"><strong>N-1 사고</strong>: ${escapeHtml(latestSecurityResult.outage_line_id)} 탈락으로 분리 · 섬 PF 미실행</div>` : ""}
-        <div class="map-tooltip-row">${pfSourceLabel()}</div>`);
+        `);
     }
 
     function showLineTooltip(event, line, bus1, bus2) {
@@ -1586,7 +1580,7 @@
         <div class="map-tooltip-row"><strong>양단 모선</strong>: ${escapeHtml(line.bus1_id)} (${escapeHtml(bus1.name_korean || "-")}) ↔ ${escapeHtml(line.bus2_id)} (${escapeHtml(bus2.name_korean || "-")})</div>
         <div class="map-tooltip-row"><strong>정격전압</strong>: ${formatPfNumber(line.voltage_kv, 2)} kV</div>
         ${rows}
-        <div class="map-tooltip-row">${pfSourceLabel()}</div>`);
+        `);
     }
 
     function showTransformerTooltip(event, transformer, bus1, bus2) {
@@ -1609,7 +1603,7 @@
         <div class="map-tooltip-row"><strong>양단 전압</strong>: ${formatPfNumber(transformer.bus1_voltage_kv ?? bus1.voltage_kv, 2)} kV ↔ ${formatPfNumber(transformer.bus2_voltage_kv ?? bus2.voltage_kv, 2)} kV</div>
         <div class="map-tooltip-row">${inferred}</div>
         ${rows}
-        <div class="map-tooltip-row">${pfSourceLabel()}</div>`);
+        `);
     }
 
     function showGeneratorTooltip(event, busId, generators) {
