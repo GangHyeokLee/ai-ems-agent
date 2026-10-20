@@ -4,7 +4,10 @@ A geographic base network is NOT an operational AC load-flow model.
 Keep map availability separate from power-flow capability.
 
 Capabilities:
-- analysis_available: physics analysis (N-1, sensitivity, generator contingency) can run.
+- analysis_available: the full KPG physics-analysis suite (kept for backward compatibility;
+  False for Mongolia even when its Security Analysis is available).
+- security_analysis_available: line N-1 Security Analysis can run on a validated model.
+- sensitivity_analysis_available / generator_contingency_available: per-feature flags.
 - pf_preview_available: a PF preview asset exists for the map (validated on every request).
 - chat_available: the AI Assistant may be used. For KPG this is the existing analysis
   agent; for Mongolia it is a read-only agent over the validated synthetic PF preview,
@@ -29,10 +32,16 @@ MAX_PREVIEW_TRANSFORMERS = 100000
 def list_grids(
     mongolia_map_file: Path,
     mongolia_pf_preview_file: Path | None = None,
+    mongolia_security_status: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Return the KPG test case and the active Mongolia 35 kV map preview."""
     map_ready = mongolia_map_file.is_file()
     pf_preview_ready = bool(mongolia_pf_preview_file and mongolia_pf_preview_file.is_file())
+    security_ready = bool(map_ready and mongolia_security_status and mongolia_security_status.get("available") is True)
+    security_note = (
+        None if security_ready
+        else (mongolia_security_status or {}).get("reason") or "몽골 PyPowSyBl 모델 검증 정보가 없습니다."
+    )
     return [
         {
             "id": KPG_GRID_ID,
@@ -43,6 +52,9 @@ def list_grids(
             "map_available": True,
             "analysis_available": True,
             "pf_preview_available": True,
+            "security_analysis_available": True,
+            "sensitivity_analysis_available": True,
+            "generator_contingency_available": True,
             "chat_available": True,
             "chat_mode": "analysis",
             "status": "analysis_ready",
@@ -60,13 +72,19 @@ def list_grids(
             "map_available": map_ready,
             "analysis_available": False,
             "pf_preview_available": map_ready and pf_preview_ready,
+            "security_analysis_available": security_ready,
+            "security_analysis_note": security_note,
+            "sensitivity_analysis_available": False,
+            "generator_contingency_available": False,
             "chat_available": map_ready and pf_preview_ready,
             "chat_mode": "pf_read_only",
             "status": "map_ready" if map_ready else "preparing",
             "note": (
                 "합성 AC Power Flow 미리보기는 조회 전용이며 웹 요청 시 재계산하지 않습니다. "
                 "실제 몽골 운영 데이터가 아니며, 선로·변압기 정수와 발전소 접속은 일부 미검증입니다. "
-                "N-1·Redispatch는 지원하지 않으며, AI Assistant는 합성 PF 결과 조회·설명만 지원합니다."
+                "선로 N-1 Security Analysis는 검증된 PyPowSyBl 합성 모델로 화면에서 실행할 수 있습니다. "
+                "AI Assistant는 합성 PF 결과 조회 전용이며 N-1 계산을 호출하지 않습니다. "
+                "Sensitivity·Redispatch·발전기 탈락 분석은 지원하지 않습니다."
             ),
         },
     ]

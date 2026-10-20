@@ -65,6 +65,13 @@
     .plant-note { margin-top:6px; color:#64748b; line-height:1.4; }
     .layer-hidden { display: none !important; }
     #map.analysis-hidden .analysis-marker { display: none !important; }
+    /* Buses cut off by a Mongolia N-1 contingency (island PF not computed); hidden with the analysis layer. */
+    :where(#map:not(.analysis-hidden)) .network-bus.isolated-bus { fill: #ffffff !important; stroke: #7c3aed; stroke-width: 2.5; stroke-dasharray: 2 1.5; r: 5; }
+    :where(#map:not(.analysis-hidden)) .network-line.isolated-line { stroke: #a78bfa !important; stroke-width: 2 !important; stroke-dasharray: 4 3; opacity: 1; }
+    .island-summary { margin-top: 6px; padding: 6px 8px; border-left: 3px solid #7c3aed; background: #f5f3ff; color: #3b0764; }
+    .security-caveat { margin-top: 6px; font-size: 11px; color: #7c2d12; }
+    .security-change-list { margin: 4px 0 0; padding-left: 18px; font-size: 12px; }
+    #mn-contingency-examples { width: 100%; margin-bottom: 6px; padding: 5px 6px; }
 
     .map-tooltip { position: absolute; z-index: 20; display: none; min-width: 220px; max-width: 360px; padding: 12px 14px; border: 1px solid #cbd5e1; border-radius: 8px; background: rgba(255,255,255,.98); box-shadow: 0 8px 24px rgba(15,23,42,.18); color: #0f172a; font-size: 13px; line-height: 1.55; pointer-events: auto; user-select: text; }
     .map-tooltip-title { margin: 0 24px 6px 0; font-size: 14px; font-weight: 700; }
@@ -209,6 +216,12 @@
               <button type="button" class="analysis-toggle" aria-expanded="true" title="접기">▾</button>
             </div>
             <div class="analysis-box-content">
+              <select id="mn-contingency-examples" aria-label="몽골 대표 사고 선택" hidden>
+                <option value="">대표 사고 선택 (몽골 합성 시나리오 검증 사례)</option>
+                <option value="222087807-1_0">222087807-1_0 — 110kV / 8모선 분리</option>
+                <option value="751261406-1_0">751261406-1_0 — 220kV / 계통 분리 없음</option>
+                <option value="484333456-1_0">484333456-1_0 — 220kV / 11모선 분리</option>
+              </select>
               <input id="outage-line" type="text" value="LINE-16-28" placeholder="Outage line ID" />
               <button id="analyze-button">Analyze</button>
               <div id="security-result">사고 선로를 입력하고 분석하세요.</div>
@@ -612,6 +625,10 @@
       return gridEntries.find((item) => item.id === selectedGridId)?.analysis_available === true;
     }
 
+    function gridCapability(name) {
+      return gridEntries.find((item) => item.id === selectedGridId)?.[name] === true;
+    }
+
     // Chat capability is separate from physics analysis: Mongolia allows read-only PF Q&A only.
     function gridSupportsChat() {
       return gridEntries.find((item) => item.id === selectedGridId)?.chat_available === true;
@@ -626,23 +643,25 @@
       document.getElementById("chat-log").replaceChildren();
       const entry = gridEntries.find((item) => item.id === selectedGridId);
       if (entry?.chat_mode === "pf_read_only" && entry.chat_available) {
-        appendChatMessage("system", "합성 PF 조회 전용 AI Assistant입니다. 사전 계산된 합성 AC PF 결과만 조회하며 N-1·Redispatch 등 계산은 지원하지 않습니다.\n예: “Bus 137 전압은?” · “부하율이 가장 높은 선로 5개 알려줘.” · “몽골 합성 PF 결과에서 전압 위반 모선이 있나?”");
+        appendChatMessage("system", "합성 PF 조회 전용 AI Assistant입니다. 사전 계산된 합성 AC PF 결과만 조회하며, AI 채팅에서는 N-1 계산을 호출할 수 없습니다. 선로 N-1은 Security Analysis 패널에서 실행하세요. Sensitivity·Redispatch는 지원하지 않습니다.\n예: “Bus 137 전압은?” · “부하율이 가장 높은 선로 5개 알려줘.” · “몽골 합성 PF 결과에서 전압 위반 모선이 있나?”");
       }
     }
 
-    function updateGridCapabilities() {
+    function updateGridCapabilities(resetResults = true) {
       const entry = gridEntries.find((item) => item.id === selectedGridId);
       const available = entry?.analysis_available === true;
-      for (const id of ["analyze-button", "generator-analyze-button"]) {
-        document.getElementById(id).disabled = !available;
-      }
+      // Per-feature flags: Mongolia enables Security only; KPG enables every feature.
+      const securityAvailable = entry?.security_analysis_available === true;
+      const generatorAvailable = entry?.generator_contingency_available === true;
+      document.getElementById("analyze-button").disabled = !securityAvailable;
+      document.getElementById("outage-line").disabled = !securityAvailable;
+      document.getElementById("generator-analyze-button").disabled = !generatorAvailable;
+      document.getElementById("outage-generator").disabled = !generatorAvailable;
+      document.getElementById("mn-contingency-examples").hidden = !(isMongoliaGrid() && securityAvailable);
       const chatAvailable = entry?.chat_available === true;
       document.getElementById("chat-send").disabled = !chatAvailable || chatBusy;
-      for (const id of ["outage-line", "outage-generator"]) {
-        document.getElementById(id).disabled = !available;
-      }
       document.querySelectorAll('input[name="generator-slack-mode"]').forEach((input) => {
-        input.disabled = !available;
+        input.disabled = !generatorAvailable;
       });
       document.getElementById("chat-message").disabled = !chatAvailable;
       document.getElementById("chat-message").placeholder = entry?.chat_mode === "pf_read_only"
@@ -651,19 +670,30 @@
       document.getElementById("sensitivity-button").disabled = true;
       const warning = document.getElementById("grid-capability-note");
       warning.hidden = available;
-      warning.textContent = available ? "" : (entry?.note || "이 계통은 분석할 수 없습니다.");
+      warning.textContent = available ? "" : [
+        entry?.note || "이 계통은 분석할 수 없습니다.",
+        isMongoliaGrid() && !securityAvailable && entry?.security_analysis_note ? `Security Analysis 비활성: ${entry.security_analysis_note}` : "",
+      ].filter(Boolean).join(" ");
       document.getElementById("grid-map-title").textContent = entry?.name || selectedGridId;
       document.getElementById("grid-status").textContent = !entry ? "미등록" :
         !entry.map_available ? "지도 데이터 준비 중" :
         available ? "계통해석 가능" :
+        securityAvailable ? "합성 PF 조회 · 선로 N-1 Security Analysis 가능" :
         chatAvailable ? "합성 PF 조회 전용 · 계통해석 미지원" : "지도 조회 전용 · 계통해석 미검증";
       document.getElementById("grid-status").classList.toggle("grid-warning", !available);
       document.getElementById("pf-display-mode").disabled = !(
         entry?.pf_preview_available === true && pfPreview !== null
       );
-      document.getElementById("security-result").textContent = available ? "사고 선로를 입력하고 분석하세요." : "운전 데이터 검증 전이므로 분석이 비활성화되었습니다.";
-      document.getElementById("sensitivity-result").textContent = "Security Analysis 후 민감도를 분석할 수 있습니다.";
-      document.getElementById("generator-contingency-result").textContent = available ? "발전기를 선택하거나 ID를 입력하고 분석하세요." : "현재 계통은 지도 조회만 가능합니다.";
+      if (resetResults) {
+        document.getElementById("security-result").textContent = available ? "사고 선로를 입력하고 분석하세요." :
+          securityAvailable ? "대표 사고를 고르거나 지도에서 선로를 클릭한 뒤 분석하세요. (합성 시나리오)" :
+          isMongoliaGrid() && entry?.security_analysis_note ? `몽골 Security Analysis 비활성: ${entry.security_analysis_note}` :
+          "운전 데이터 검증 전이므로 분석이 비활성화되었습니다.";
+        document.getElementById("sensitivity-result").textContent = gridCapability("sensitivity_analysis_available")
+          ? "Security Analysis 후 민감도를 분석할 수 있습니다." : "현재 계통은 Sensitivity Analysis를 지원하지 않습니다.";
+        document.getElementById("generator-contingency-result").textContent = generatorAvailable
+          ? "발전기를 선택하거나 ID를 입력하고 분석하세요." : "현재 계통은 발전기 탈락 분석을 지원하지 않습니다.";
+      }
       updatePfPreviewPanel();
     }
 
@@ -695,6 +725,8 @@
           document.getElementById("network-map").replaceChildren();
           hideMapTooltip();
           resetChatForGrid();
+          document.getElementById("outage-line").value = isMongoliaGrid() ? "" : "LINE-16-28";
+          document.getElementById("mn-contingency-examples").value = "";
           updateGridCapabilities();
           await loadNetworkMap();
         });
@@ -759,7 +791,9 @@
         document.getElementById("pf-display-mode").disabled = false;
         updatePfPreviewPanel();
         document.getElementById("grid-status").textContent = isMongoliaGrid()
-          ? "지도 조회 · 합성 PF 미리보기 (읽기 전용)"
+          ? (gridCapability("security_analysis_available")
+            ? "합성 PF 미리보기 · 선로 N-1 Security Analysis 가능"
+            : "지도 조회 · 합성 PF 미리보기 (읽기 전용)")
           : "KPG-193 지도 · 격리된 기본상태 PF 미리보기";
         applyPfDisplayMode();
       } catch (error) {
@@ -887,7 +921,7 @@
           event.stopPropagation();
           clearMapSelection();
           element.classList.add("selected-line");
-          if (!isMongolia) {
+          if (gridCapability("security_analysis_available")) {
             setAnalysisBoxCollapsed("security-analysis-box", false);
             document.getElementById("outage-line").value = line.line_id;
             invalidateSecurityResult();
@@ -1172,6 +1206,8 @@
         ${bus.name_korean ? `<div class="map-tooltip-row"><strong>지역</strong>: ${escapeHtml(bus.name_korean)}</div>` : ""}
         ${bus.name_english ? `<div class="map-tooltip-row"><strong>English</strong>: ${escapeHtml(bus.name_english)}</div>` : ""}
         ${rows}
+        ${isMongoliaGrid() && (latestSecurityResult?.isolated_buses || []).map(String).includes(String(bus.bus_id))
+          ? `<div class="map-tooltip-row"><strong>N-1 사고</strong>: ${escapeHtml(latestSecurityResult.outage_line_id)} 탈락으로 분리 · 섬 PF 미실행</div>` : ""}
         <div class="map-tooltip-row">${pfSourceLabel()}</div>`);
     }
 
@@ -1381,6 +1417,8 @@
 
     function resetSecurityHighlight() {
       document.querySelectorAll(".network-line").forEach((line) => line.classList.remove("outage-line", "violation-line"));
+      document.querySelectorAll(".network-bus.isolated-bus").forEach((bus) => bus.classList.remove("isolated-bus"));
+      document.querySelectorAll(".network-line.isolated-line").forEach((line) => line.classList.remove("isolated-line"));
     }
 
     function highlightLine(lineId, className) {
@@ -1390,8 +1428,9 @@
     }
 
     async function runSecurityAnalysis() {
-      if (!gridSupportsAnalysis()) return;
+      if (!gridCapability("security_analysis_available")) return;
       const token = gridSwitchToken;
+      const requestGridId = selectedGridId;
       const outageLineId = document.getElementById("outage-line").value.trim();
       if (!outageLineId) return;
       const resultElement = document.getElementById("security-result");
@@ -1402,11 +1441,20 @@
       resetSecurityHighlight(); resetSensitivityMarkers(); resetGeneratorContingencyMarkers(); hideMapTooltip();
       document.getElementById("sensitivity-result").textContent = "Security Analysis 후 민감도를 분석할 수 있습니다.";
       try {
-        const response = await fetch("/api/security-analysis?outage_line_id=" + encodeURIComponent(outageLineId));
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const isMongoliaRequest = requestGridId === "mn-osm-35k";
+        const url = isMongoliaRequest
+          ? "/api/grids/mn-osm-35k/security-analysis?outage_line_id=" + encodeURIComponent(outageLineId)
+          : "/api/security-analysis?outage_line_id=" + encodeURIComponent(outageLineId);
+        const response = await fetch(url);
+        if (!response.ok) {
+          const detail = await response.json().then((body) => body.detail).catch(() => null);
+          throw new Error(detail || `HTTP ${response.status}`);
+        }
         const result = await response.json();
-        if (token !== gridSwitchToken || !gridSupportsAnalysis()) return;
-        applySecurityResult(result);
+        // Ignore late answers once the user switched grids.
+        if (token !== gridSwitchToken || selectedGridId !== requestGridId || !gridCapability("security_analysis_available")) return;
+        if (isMongoliaRequest) applyMongoliaSecurityResult(result);
+        else applySecurityResult(result);
       } catch (error) {
         if (token === gridSwitchToken) resultElement.textContent = `분석 실패: ${error.message}`;
       }
@@ -1424,6 +1472,62 @@
       const available = result.violation_assessment_available === true;
       document.getElementById("sensitivity-button").disabled = !available;
       document.getElementById("sensitivity-result").textContent = available ? "Security Analysis 후 민감도를 분석할 수 있습니다." : "상정사고 분석이 수렴하지 않아 민감도 분석을 수행할 수 없습니다.";
+    }
+
+    function applyMongoliaSecurityResult(result) {
+      setAnalysisBoxCollapsed("security-analysis-box", false);
+      resetSecurityHighlight(); resetSensitivityMarkers(); resetGeneratorContingencyMarkers();
+      highlightLine(result.outage_line_id, "outage-line");
+      for (const v of result.violations || []) {
+        if (v.equipment_type === "Line") highlightLine(v.equipment_id, "violation-line");
+      }
+      for (const id of result.isolated_line_ids || []) highlightLine(id, "isolated-line");
+      const isolated = new Set((result.isolated_buses || []).map(String));
+      document.querySelectorAll(".network-bus").forEach((bus) => {
+        if (isolated.has(bus.dataset.busId)) bus.classList.add("isolated-bus");
+      });
+      renderMongoliaSecurityResult(result);
+      latestSecurityResult = result;
+      updatePreviewLegend();
+      document.getElementById("sensitivity-button").disabled = true;
+      document.getElementById("sensitivity-result").textContent = "현재 계통은 Sensitivity Analysis를 지원하지 않습니다.";
+    }
+
+    function fmt(value, digits = 4) {
+      return value == null || !Number.isFinite(Number(value)) ? "-" : Number(value).toFixed(digits);
+    }
+
+    function renderMongoliaSecurityResult(result) {
+      const element = document.getElementById("security-result");
+      const converged = result.violation_assessment_available === true;
+      const line = result.outage_line || {};
+      const status = !converged ? `${escapeHtml(result.post_status ?? "-")} (사고 후 PF 비수렴 · 수치 결과 없음)`
+        : result.island_detected ? `${escapeHtml(result.post_status)} (주 계통만 수렴)` : escapeHtml(result.post_status);
+      let html = `<div><strong>Outage</strong>: ${escapeHtml(result.outage_line_id)} (${escapeHtml(line.bus0 ?? "-")}–${escapeHtml(line.bus1 ?? "-")}, ${fmt(line.voltage_kv, 0)} kV)</div>`
+        + `<div><strong>Status</strong>: ${status}</div>`
+        + `<div><strong>Violations</strong>: ${converged ? `${result.violated_equipment_count}${result.violated_equipment_count === 0 ? " (가정 스크리닝 기준 위반 없음)" : ""}` : "판정 불가"}</div>`;
+      if (result.island_detected) {
+        html += `<div class="island-summary"><strong>계통 분리 발생</strong><br>`
+          + `분리 모선 ${result.isolated_bus_count}개 · 분리 합성 부하 ${fmt(result.isolated_load_mw, 2)} MW · 분리 합성 발전기 ${(result.isolated_generator_ids || []).length}대<br>`
+          + `분리된 섬의 PF는 실행하지 않았습니다(전압·조류 결과 없음). 지도에 분리 모선은 보라색 점선 원, 섬 내부 선로 ${(result.isolated_line_ids || []).length}개는 보라색 점선으로 표시되며 PF 색상은 사고 후 상태가 아닙니다.</div>`;
+      }
+      if (converged) {
+        html += `<div><strong>사고 후 전압(주 계통)</strong>: ${fmt(result.post_voltage_min_pu)} – ${fmt(result.post_voltage_max_pu)} pu</div>`
+          + `<div><strong>최대 전압 변화</strong>: ${fmt(result.max_voltage_change_pu)} pu (모선 ${escapeHtml(result.max_voltage_change_bus_id)})</div>`
+          + `<div><strong>최대 선로 P 변화</strong>: ${fmt(result.max_line_p_change_mw, 3)} MW (${escapeHtml(result.max_line_p_change_id)})</div>`
+          + `<div><strong>최대 선로 Q 변화</strong>: ${fmt(result.max_line_q_change_mvar, 3)} MVAr (${escapeHtml(result.max_line_q_change_id)})</div>`
+          + `<div><strong>사고 후 최대 선로 부하율</strong>: ${fmt(result.post_max_line_loading_percent, 2)} % (${escapeHtml(result.post_max_line_loading_id)})</div>`;
+        const changes = (result.top_voltage_changes || []).slice(0, 3)
+          .map((item) => `<li>모선 ${escapeHtml(item.bus_id)}: ${fmt(item.base_v_pu)} → ${fmt(item.post_v_pu)} pu</li>`).join("");
+        if (changes) html += `<div><strong>전압 변화 상위</strong></div><ul class="security-change-list">${changes}</ul>`;
+        for (const v of result.violations || []) {
+          html += `<hr><div><strong>Violated Equipment</strong>: ${escapeHtml(v.equipment_id)} (${escapeHtml(v.equipment_type)} · ${escapeHtml(v.limit_type)})</div>`
+            + `<div><strong>Limit / Value</strong>: ${formatValue(v.limit, v.unit)} / ${formatValue(v.value, v.unit)}</div>`
+            + (v.loading_percent == null ? "" : `<div><strong>Loading</strong>: ${v.loading_percent.toFixed(2)} %</div>`);
+        }
+      }
+      html += `<div class="security-caveat">PyPowSyBl AC Security Analysis · 합성 시나리오 ${escapeHtml(result.scenario_id ?? "")} · 실제 몽골 운영 데이터가 아닙니다. 분리 부하는 합성 부하 기준입니다.</div>`;
+      element.innerHTML = html;
     }
 
     function formatValue(value, unit) { return value == null ? "-" : value.toFixed(2) + (unit ? ` ${unit}` : ""); }
@@ -1661,7 +1765,7 @@
       } finally {
         if (token === gridSwitchToken) {
           chatBusy = false;
-          updateGridCapabilities();
+          updateGridCapabilities(false);
           input.focus();
         }
       }
@@ -1671,6 +1775,11 @@
     document.getElementById("sensitivity-button").addEventListener("click", runSensitivityAnalysis);
     document.getElementById("generator-analyze-button").addEventListener("click", runGeneratorContingencyAnalysis);
     document.getElementById("outage-line").addEventListener("input", invalidateSecurityResult);
+    document.getElementById("mn-contingency-examples").addEventListener("change", (event) => {
+      if (!event.target.value) return;
+      document.getElementById("outage-line").value = event.target.value;
+      invalidateSecurityResult();
+    });
     document.getElementById("outage-generator").addEventListener("input", () => {
       const generatorId = document.getElementById("outage-generator").value.trim();
       if (updateGeneratorAnalyzeAvailability() && generatorId) {

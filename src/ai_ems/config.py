@@ -45,6 +45,18 @@ BUS_LOCATION_FILE = _path_from_env(
     "data/bus_location.csv",
 )
 
+# Mongolia PyPowSyBl model supplied (read-only) by the sibling mongolia-grid-poc repository.
+# Server-side settings only; HTTP requests can never choose these paths.
+MONGOLIA_XIIDM_FILE = _path_from_env(
+    "AI_EMS_MN_XIIDM_FILE",
+    "../mongolia-grid-poc/pypsa-earth/networks/MN_35k_poc/powsybl/mn35k_synthetic_powsybl.xiidm",
+)
+
+MONGOLIA_POWSYBL_REPORTS_DIR = _path_from_env(
+    "AI_EMS_MN_POWSYBL_REPORTS_DIR",
+    "../mongolia-grid-poc/reports/pypowsybl_conversion",
+)
+
 WEB_HOST = os.getenv(
     "AI_EMS_WEB_HOST",
     "127.0.0.1",

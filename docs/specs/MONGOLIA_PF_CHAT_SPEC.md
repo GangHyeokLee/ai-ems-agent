@@ -51,14 +51,15 @@ P0/Q0는 bus1 단자, P1/Q1은 bus2 단자 값이며 각 단자에서 모선 →
 
 | 필드 | 의미 | KPG | 몽골 |
 |---|---|---|---|
-| `analysis_available` | 물리해석(N-1, 민감도, 발전기 탈락) 실행 가능 | true | false |
+| `analysis_available` | KPG 전체 분석 묶음(하위 호환) | true | false |
+| `security_analysis_available` | 선로 N-1 Security Analysis (몽골은 [별도 사양](MONGOLIA_SECURITY_ANALYSIS.md)) | true | XIIDM 검증 성공 시 true |
 | `pf_preview_available` | PF 미리보기 파일 존재(요청 시 검증) | true | 지도+PF 파일 존재 시 true |
 | `chat_available` | AI Assistant 사용 가능 | true | 지도+PF 파일 존재 시 true |
 | `chat_mode` | Agent 종류 | `analysis` | `pf_read_only` |
 
 ## UI
 
-- 몽골 선택 시 채팅 입력만 활성화되며 Security/Sensitivity/Generator Contingency 버튼은 비활성 상태를 유지한다.
+- 몽골 선택 시 채팅은 합성 PF 조회 전용으로 활성화된다. 채팅에서는 N-1을 호출할 수 없으며, 선로 N-1은 Security Analysis 패널에서 실행한다. Sensitivity/Generator Contingency 버튼은 비활성 상태를 유지한다.
 - 계통 전환 시 채팅 로그와 세션 ID를 초기화하고, 이전 계통의 늦은 응답은 무시한다.
 - 몽골 답변은 지도 분석 강조(`ui_updates`)를 적용하지 않는다.
 

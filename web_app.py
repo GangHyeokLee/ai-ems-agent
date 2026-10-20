@@ -41,7 +41,16 @@ from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
 from ai_ems.config import (
     BUS_LOCATION_FILE,
     CASE_FILE,
+    MONGOLIA_POWSYBL_REPORTS_DIR,
+    MONGOLIA_XIIDM_FILE,
     PROJECT_ROOT,
+)
+from ai_ems.mongolia_security import (
+    ExcludedOutageLine,
+    ModelFiles,
+    MongoliaModelUnavailable,
+    MongoliaSecurityService,
+    UnknownOutageLine,
 )
 
 UI_DIR = Path("ui")
@@ -66,6 +75,22 @@ def _load_validated_mongolia_pf() -> dict[str, Any]:
 # Separate read-only agent and session store: Mongolia never reaches KPG tools/history.
 mongolia_agent_graph = create_mongolia_agent_graph(_load_validated_mongolia_pf)
 mongolia_agent_sessions: dict[str, list[Any]] = {}
+
+# Mongolia PyPowSyBl Security Analysis: separate model, never the KPG `network`.
+_mongolia_security_services: dict[tuple, MongoliaSecurityService] = {}
+
+
+def _mongolia_security() -> MongoliaSecurityService:
+    files = ModelFiles(
+        MONGOLIA_XIIDM_FILE,
+        MONGOLIA_POWSYBL_REPORTS_DIR,
+        MONGOLIA_PF_PREVIEW_FILE,
+        MONGOLIA_MAP_FILE,
+    )
+    key = (files.xiidm, files.reports_dir, files.pf_preview, files.map_file)
+    if key not in _mongolia_security_services:
+        _mongolia_security_services[key] = MongoliaSecurityService(files)
+    return _mongolia_security_services[key]
 
 bus_locations = pd.read_csv(BUS_LOCATION_FILE)
 
@@ -109,7 +134,11 @@ def health():
 @app.get("/api/grids")
 def grid_catalog():
     return {
-        "grids": list_grids(MONGOLIA_MAP_FILE, MONGOLIA_PF_PREVIEW_FILE),
+        "grids": list_grids(
+            MONGOLIA_MAP_FILE,
+            MONGOLIA_PF_PREVIEW_FILE,
+            _mongolia_security().status(),
+        ),
         "default_grid_id": KPG_GRID_ID,
     }
 
@@ -139,6 +168,25 @@ def mongolia_pf_preview():
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/grids/mn-osm-35k/security-status")
+def mongolia_security_status():
+    return {"grid_id": MONGOLIA_GRID_ID, **_mongolia_security().status()}
+
+
+@app.get("/api/grids/mn-osm-35k/security-analysis")
+def mongolia_security_analysis(outage_line_id: str):
+    try:
+        return _mongolia_security().run_line_contingency(outage_line_id)
+    except MongoliaModelUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"몽골 Security Analysis를 사용할 수 없습니다: {exc}") from exc
+    except UnknownOutageLine as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ExcludedOutageLine as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"몽골 Security Analysis 실행 실패: {exc}") from exc
 
 
 @app.get("/api/grids/kr-kpg193/pf-preview")

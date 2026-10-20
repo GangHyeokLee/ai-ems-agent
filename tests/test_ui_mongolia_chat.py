@@ -25,10 +25,12 @@ def test_late_or_mongolia_answers_never_apply_kpg_overlays():
     assert guard < body.index("applySecurityResult(")
 
 
-def test_analysis_buttons_stay_tied_to_analysis_capability():
+def test_analysis_buttons_follow_their_own_capabilities():
     body = function_body("updateGridCapabilities")
-    assert 'for (const id of ["analyze-button", "generator-analyze-button"])' in body
-    assert "document.getElementById(id).disabled = !available;" in body
+    assert 'document.getElementById("analyze-button").disabled = !securityAvailable;' in body
+    assert 'document.getElementById("generator-analyze-button").disabled = !generatorAvailable;' in body
+    assert "entry?.security_analysis_available === true" in body
+    assert "entry?.generator_contingency_available === true" in body
     assert 'document.getElementById("chat-send").disabled = !chatAvailable || chatBusy;' in body
     assert 'document.getElementById("chat-message").disabled = !chatAvailable;' in body
 
@@ -39,3 +41,26 @@ def test_grid_switch_resets_chat_session_and_log():
     assert 'getElementById("chat-log").replaceChildren()' in reset
     assert "합성 PF 조회 전용" in reset
     assert "resetChatForGrid();" in INDEX_HTML.split('select.addEventListener("change"', 1)[1]
+
+
+def test_security_analysis_routes_by_grid_and_ignores_late_answers():
+    body = function_body("runSecurityAnalysis")
+    assert 'if (!gridCapability("security_analysis_available")) return;' in body
+    assert '"/api/grids/mn-osm-35k/security-analysis?outage_line_id="' in body
+    assert '"/api/security-analysis?outage_line_id="' in body
+    assert "selectedGridId !== requestGridId" in body
+    assert "if (isMongoliaRequest) applyMongoliaSecurityResult(result);" in body
+
+
+def test_isolated_bus_highlight_is_scoped_to_visible_analysis_layer():
+    assert ":where(#map:not(.analysis-hidden)) .network-bus.isolated-bus" in INDEX_HTML
+    assert ":where(#map:not(.analysis-hidden)) .network-line.isolated-line" in INDEX_HTML
+    assert "#map.analysis-hidden .network-bus" not in INDEX_HTML
+    assert 'bus.classList.remove("isolated-bus")' in function_body("resetSecurityHighlight")
+
+
+def test_mongolia_result_states_island_pf_not_computed():
+    body = function_body("renderMongoliaSecurityResult")
+    assert "주 계통만 수렴" in body
+    assert "분리된 섬의 PF는 실행하지 않았습니다" in body
+    assert "실제 몽골 운영 데이터가 아닙니다" in body
