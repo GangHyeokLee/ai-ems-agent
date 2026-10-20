@@ -52,6 +52,7 @@ from ai_ems.mongolia_security import (
     MongoliaSecurityService,
     UnknownOutageLine,
 )
+from ai_ems.mongolia_sensitivity import InvalidMonitoredLine, SensitivityVerificationFailed
 
 UI_DIR = Path("ui")
 MONGOLIA_MAP_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-map.json"
@@ -187,6 +188,30 @@ def mongolia_security_analysis(outage_line_id: str):
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"몽골 Security Analysis 실행 실패: {exc}") from exc
+
+
+@app.get("/api/grids/mn-osm-35k/sensitivity-analysis")
+def mongolia_sensitivity_analysis(
+    outage_line_id: str,
+    monitored_line_id: str | None = None,
+    top_n: int = 10,
+):
+    try:
+        return _mongolia_security().run_line_sensitivity(
+            outage_line_id,
+            monitored_line_id or None,
+            top_n=top_n,
+        )
+    except MongoliaModelUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"몽골 Sensitivity Analysis를 사용할 수 없습니다: {exc}") from exc
+    except UnknownOutageLine as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ExcludedOutageLine, InvalidMonitoredLine) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SensitivityVerificationFailed as exc:
+        raise HTTPException(status_code=422, detail=f"민감도 검증 실패(결과를 반환하지 않음): {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"몽골 Sensitivity Analysis 실행 실패: {exc}") from exc
 
 
 @app.get("/api/grids/kr-kpg193/pf-preview")

@@ -43,6 +43,7 @@ Local LLM + LangGraph + PyPowSyBl 기반 **AI-EMS Agent PoC** 프로젝트.
 - 멀티턴 분석 요청
 - 몽골 합성 AC PF 결과 읽기 전용 질의응답 (별도 Agent·Tool, [사양](docs/specs/MONGOLIA_PF_CHAT_SPEC.md))
 - 몽골 합성 계통 선로 N-1 Security Analysis와 계통 분리 표시 (PyPowSyBl XIIDM, [사양](docs/specs/MONGOLIA_SECURITY_ANALYSIS.md))
+- 몽골 계통 분리 없는 N-1 후 선로 조류 Sensitivity (유한차분 검증, [사양](docs/specs/MONGOLIA_SENSITIVITY_ANALYSIS.md))
 
 ### Web UI
 
@@ -437,6 +438,15 @@ python -m pytest -q
 59 passed
 ```
 
+브라우저 지연 응답 회귀 테스트 (KPG·몽골 Security/Sensitivity, 계통 전환; Chrome 필요, opt-in):
+
+```bash
+AI_EMS_BROWSER_TESTS=1 python -m pytest -q tests/test_browser_stale_responses.py
+```
+
+Chrome은 `AI_EMS_CHROME` 또는 WSL의 Windows Chrome / PATH의 Chrome·Chromium을 사용한다.
+결과(`results.json`)와 스크린샷은 `outputs/browser_stale_responses/`에 저장된다.
+
 실제 KPG case smoke test:
 
 ```bash
@@ -456,6 +466,7 @@ python tests/smoke_test.py
 - [KPG-193 PyPowSyBl Adapter Specification](docs/specs/KPG_POWSYBL_ADAPTER_SPEC.md)
 - [몽골 합성 AC PF 읽기 전용 AI 질의응답](docs/specs/MONGOLIA_PF_CHAT_SPEC.md)
 - [몽골 합성 계통 선로 N-1 Security Analysis](docs/specs/MONGOLIA_SECURITY_ANALYSIS.md)
+- [몽골 합성 계통 N-1 후 선로 조류 Sensitivity](docs/specs/MONGOLIA_SENSITIVITY_ANALYSIS.md)
 
 ### Experiment Records
 

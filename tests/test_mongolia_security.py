@@ -235,7 +235,8 @@ def test_capabilities_are_split_per_feature():
     assert kpg["generator_contingency_available"] is True and kpg["chat_available"] is True
     assert mn["analysis_available"] is False
     assert mn["security_analysis_available"] is True
-    assert mn["sensitivity_analysis_available"] is False and mn["generator_contingency_available"] is False
+    assert mn["sensitivity_analysis_available"] is True     # enabled only after the FD self-check passes
+    assert mn["generator_contingency_available"] is False
     assert mn["chat_available"] is True and mn["chat_mode"] == "pf_read_only"
 
 

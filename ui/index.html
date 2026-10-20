@@ -32,6 +32,7 @@
     /* :where() keeps specificity unchanged; hidden analysis falls back to the inline PF/base stroke. */
     :where(#map:not(.analysis-hidden)) .network-line.violation-line { stroke: #f59e0b !important; stroke-width: 5 !important; opacity: 1; }
     :where(#map:not(.analysis-hidden)) .network-line.outage-line { stroke: #dc2626 !important; stroke-width: 5 !important; opacity: 1; }
+    :where(#map:not(.analysis-hidden)) .network-line.monitored-line { stroke: #db2777 !important; stroke-width: 5 !important; stroke-dasharray: 7 3; opacity: 1; }
     .network-line.hover-line, .network-line.selected-line { stroke: #0f172a !important; stroke-width: 3.5 !important; opacity: 1; }
     .network-line-hit { stroke: transparent; stroke-width: 14; fill: none; pointer-events: stroke; cursor: pointer; }
     .network-bus { fill: #2563eb; stroke: white; stroke-width: 1.2; cursor: pointer; }
@@ -72,6 +73,11 @@
     .security-caveat { margin-top: 6px; font-size: 11px; color: #7c2d12; }
     .security-change-list { margin: 4px 0 0; padding-left: 18px; font-size: 12px; }
     #mn-contingency-examples { width: 100%; margin-bottom: 6px; padding: 5px 6px; }
+    #mn-monitored-line { width: 100%; margin-top: 6px; }
+    .mn-monitored-marker circle { fill: none; stroke: #db2777; stroke-width: 3; }
+    .mn-monitored-marker text { fill: #db2777; font-size: 10px; font-weight: 700; text-anchor: middle; pointer-events: none; }
+    .mn-synthetic-gen rect { fill: #0e7490; stroke: white; stroke-width: 1.5; }
+    .mn-synthetic-gen text { fill: white; font-size: 9px; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
 
     .map-tooltip { position: absolute; z-index: 20; display: none; min-width: 220px; max-width: 360px; padding: 12px 14px; border: 1px solid #cbd5e1; border-radius: 8px; background: rgba(255,255,255,.98); box-shadow: 0 8px 24px rgba(15,23,42,.18); color: #0f172a; font-size: 13px; line-height: 1.55; pointer-events: auto; user-select: text; }
     .map-tooltip-title { margin: 0 24px 6px 0; font-size: 14px; font-weight: 700; }
@@ -225,6 +231,8 @@
               <input id="outage-line" type="text" value="LINE-16-28" placeholder="Outage line ID" />
               <button id="analyze-button">Analyze</button>
               <div id="security-result">사고 선로를 입력하고 분석하세요.</div>
+              <input id="mn-monitored-line" type="text" list="mn-monitored-options" placeholder="감시 선로 ID (비우면 사고 후 |ΔP| 기준 자동 추천)" hidden />
+              <datalist id="mn-monitored-options"></datalist>
               <button id="sensitivity-button" class="sensitivity-button" disabled>Sensitivity Analysis</button>
               <div id="sensitivity-result">Security Analysis 후 민감도를 분석할 수 있습니다.</div>
             </div>
@@ -286,6 +294,9 @@
     });
     let gridSwitchToken = 0;
     let chatBusy = false;
+    // Per-request sequence numbers: a slower earlier response must not overwrite a newer result.
+    let securityRequestSeq = 0;
+    let sensitivityRequestSeq = 0;
     let latestSecurityResult = null;
     let generatorStateMap = new Map();
     let pfPreview = null;
@@ -643,7 +654,7 @@
       document.getElementById("chat-log").replaceChildren();
       const entry = gridEntries.find((item) => item.id === selectedGridId);
       if (entry?.chat_mode === "pf_read_only" && entry.chat_available) {
-        appendChatMessage("system", "합성 PF 조회 전용 AI Assistant입니다. 사전 계산된 합성 AC PF 결과만 조회하며, AI 채팅에서는 N-1 계산을 호출할 수 없습니다. 선로 N-1은 Security Analysis 패널에서 실행하세요. Sensitivity·Redispatch는 지원하지 않습니다.\n예: “Bus 137 전압은?” · “부하율이 가장 높은 선로 5개 알려줘.” · “몽골 합성 PF 결과에서 전압 위반 모선이 있나?”");
+        appendChatMessage("system", "합성 PF 조회 전용 AI Assistant입니다. 사전 계산된 합성 AC PF 결과만 조회하며, AI 채팅에서는 N-1 계산을 호출할 수 없습니다. 선로 N-1과 (계통 분리 없는 사고의) Sensitivity는 Security Analysis 패널에서 실행하세요. Redispatch는 지원하지 않습니다.\n예: “Bus 137 전압은?” · “부하율이 가장 높은 선로 5개 알려줘.” · “몽골 합성 PF 결과에서 전압 위반 모선이 있나?”");
       }
     }
 
@@ -658,6 +669,7 @@
       document.getElementById("generator-analyze-button").disabled = !generatorAvailable;
       document.getElementById("outage-generator").disabled = !generatorAvailable;
       document.getElementById("mn-contingency-examples").hidden = !(isMongoliaGrid() && securityAvailable);
+      document.getElementById("mn-monitored-line").hidden = !(isMongoliaGrid() && gridCapability("sensitivity_analysis_available"));
       const chatAvailable = entry?.chat_available === true;
       document.getElementById("chat-send").disabled = !chatAvailable || chatBusy;
       document.querySelectorAll('input[name="generator-slack-mode"]').forEach((input) => {
@@ -678,7 +690,8 @@
       document.getElementById("grid-status").textContent = !entry ? "미등록" :
         !entry.map_available ? "지도 데이터 준비 중" :
         available ? "계통해석 가능" :
-        securityAvailable ? "합성 PF 조회 · 선로 N-1 Security Analysis 가능" :
+        securityAvailable ? (gridCapability("sensitivity_analysis_available")
+          ? "합성 PF 조회 · 선로 N-1 Security / Sensitivity Analysis 가능" : "합성 PF 조회 · 선로 N-1 Security Analysis 가능") :
         chatAvailable ? "합성 PF 조회 전용 · 계통해석 미지원" : "지도 조회 전용 · 계통해석 미검증";
       document.getElementById("grid-status").classList.toggle("grid-warning", !available);
       document.getElementById("pf-display-mode").disabled = !(
@@ -689,8 +702,10 @@
           securityAvailable ? "대표 사고를 고르거나 지도에서 선로를 클릭한 뒤 분석하세요. (합성 시나리오)" :
           isMongoliaGrid() && entry?.security_analysis_note ? `몽골 Security Analysis 비활성: ${entry.security_analysis_note}` :
           "운전 데이터 검증 전이므로 분석이 비활성화되었습니다.";
-        document.getElementById("sensitivity-result").textContent = gridCapability("sensitivity_analysis_available")
-          ? "Security Analysis 후 민감도를 분석할 수 있습니다." : "현재 계통은 Sensitivity Analysis를 지원하지 않습니다.";
+        document.getElementById("sensitivity-result").textContent = !gridCapability("sensitivity_analysis_available")
+          ? (isMongoliaGrid() && entry?.sensitivity_analysis_note ? `몽골 Sensitivity 비활성: ${entry.sensitivity_analysis_note}` : "현재 계통은 Sensitivity Analysis를 지원하지 않습니다.")
+          : isMongoliaGrid() ? "계통 분리 없는 사고의 Security Analysis 후 민감도를 분석할 수 있습니다. (합성 발전기 주입 민감도)"
+          : "Security Analysis 후 민감도를 분석할 수 있습니다.";
         document.getElementById("generator-contingency-result").textContent = generatorAvailable
           ? "발전기를 선택하거나 ID를 입력하고 분석하세요." : "현재 계통은 발전기 탈락 분석을 지원하지 않습니다.";
       }
@@ -727,6 +742,9 @@
           resetChatForGrid();
           document.getElementById("outage-line").value = isMongoliaGrid() ? "" : "LINE-16-28";
           document.getElementById("mn-contingency-examples").value = "";
+          document.getElementById("mn-monitored-line").value = "";
+          document.getElementById("mn-monitored-options").replaceChildren();
+          securityRequestSeq++; sensitivityRequestSeq++;
           updateGridCapabilities();
           await loadNetworkMap();
         });
@@ -792,7 +810,8 @@
         updatePfPreviewPanel();
         document.getElementById("grid-status").textContent = isMongoliaGrid()
           ? (gridCapability("security_analysis_available")
-            ? "합성 PF 미리보기 · 선로 N-1 Security Analysis 가능"
+            ? (gridCapability("sensitivity_analysis_available")
+              ? "합성 PF 미리보기 · 선로 N-1 Security / Sensitivity Analysis 가능" : "합성 PF 미리보기 · 선로 N-1 Security Analysis 가능")
             : "지도 조회 · 합성 PF 미리보기 (읽기 전용)")
           : "KPG-193 지도 · 격리된 기본상태 PF 미리보기";
         applyPfDisplayMode();
@@ -1431,6 +1450,8 @@
       if (!gridCapability("security_analysis_available")) return;
       const token = gridSwitchToken;
       const requestGridId = selectedGridId;
+      const seq = ++securityRequestSeq;
+      sensitivityRequestSeq++;
       const outageLineId = document.getElementById("outage-line").value.trim();
       if (!outageLineId) return;
       const resultElement = document.getElementById("security-result");
@@ -1452,11 +1473,11 @@
         }
         const result = await response.json();
         // Ignore late answers once the user switched grids.
-        if (token !== gridSwitchToken || selectedGridId !== requestGridId || !gridCapability("security_analysis_available")) return;
+        if (token !== gridSwitchToken || seq !== securityRequestSeq || selectedGridId !== requestGridId || !gridCapability("security_analysis_available")) return;
         if (isMongoliaRequest) applyMongoliaSecurityResult(result);
         else applySecurityResult(result);
       } catch (error) {
-        if (token === gridSwitchToken) resultElement.textContent = `분석 실패: ${error.message}`;
+        if (token === gridSwitchToken && seq === securityRequestSeq) resultElement.textContent = `분석 실패: ${error.message}`;
       }
     }
 
@@ -1489,8 +1510,129 @@
       renderMongoliaSecurityResult(result);
       latestSecurityResult = result;
       updatePreviewLegend();
-      document.getElementById("sensitivity-button").disabled = true;
-      document.getElementById("sensitivity-result").textContent = "현재 계통은 Sensitivity Analysis를 지원하지 않습니다.";
+      const sensitivityCapable = gridCapability("sensitivity_analysis_available");
+      const evaluable = sensitivityCapable && result.violation_assessment_available === true && !result.island_detected;
+      document.getElementById("sensitivity-button").disabled = !evaluable;
+      document.getElementById("sensitivity-result").textContent = !sensitivityCapable
+        ? "현재 계통은 Sensitivity Analysis를 지원하지 않습니다."
+        : result.island_detected ? "계통 분리 사고: 분리 섬 처리 정책이 정해지지 않아 민감도는 미평가입니다(순위 없음)."
+        : evaluable ? "감시 선로를 고르거나 비워 두고(자동 추천) Sensitivity Analysis를 실행하세요."
+        : "사고 후 PF가 수렴하지 않아 민감도를 계산할 수 없습니다.";
+      const options = document.getElementById("mn-monitored-options");
+      options.replaceChildren();
+      for (const change of result.top_line_flow_changes || []) {
+        const option = document.createElement("option");
+        option.value = change.line_id;
+        option.label = `사고 후 ΔP ${Number(change.dp_mw).toFixed(3)} MW`;
+        options.appendChild(option);
+      }
+    }
+
+    async function runMongoliaSensitivityAnalysis() {
+      if (!gridCapability("sensitivity_analysis_available")) return;
+      const token = gridSwitchToken;
+      const requestGridId = selectedGridId;
+      const outageLineId = document.getElementById("outage-line").value.trim();
+      const monitoredLineId = document.getElementById("mn-monitored-line").value.trim();
+      const resultElement = document.getElementById("sensitivity-result");
+      if (!latestSecurityResult || latestSecurityResult.grid_id !== "mn-osm-35k" || latestSecurityResult.outage_line_id !== outageLineId) {
+        resultElement.textContent = "현재 사고에 대한 Security Analysis를 먼저 실행하세요.";
+        return;
+      }
+      if (latestSecurityResult.island_detected) return;
+      const seq = ++sensitivityRequestSeq;
+      resultElement.textContent = "민감도 계산 및 유한차분 검증 중...";
+      resetSensitivityMarkers();
+      try {
+        const params = new URLSearchParams({ outage_line_id: outageLineId, top_n: "5" });
+        if (monitoredLineId) params.set("monitored_line_id", monitoredLineId);
+        const response = await fetch("/api/grids/mn-osm-35k/sensitivity-analysis?" + params.toString());
+        if (!response.ok) {
+          const detail = await response.json().then((body) => body.detail).catch(() => null);
+          throw new Error(detail || `HTTP ${response.status}`);
+        }
+        const result = await response.json();
+        if (token !== gridSwitchToken || seq !== sensitivityRequestSeq || selectedGridId !== requestGridId) return;
+        applyMongoliaSensitivityResult(result);
+      } catch (error) {
+        if (token === gridSwitchToken && seq === sensitivityRequestSeq) resultElement.textContent = `민감도 분석 실패: ${error.message}`;
+      }
+    }
+
+    function applyMongoliaSensitivityResult(result) {
+      setAnalysisBoxCollapsed("security-analysis-box", false);
+      resetSensitivityMarkers();
+      const element = document.getElementById("sensitivity-result");
+      if (result.analysis_status !== "COMPLETED") {
+        element.innerHTML = `<div><strong>Sensitivity</strong>: 미평가 (${escapeHtml(result.analysis_status)})</div><div>${escapeHtml(result.message || "")}</div>`;
+        return;
+      }
+      highlightLine(result.monitored_line_id, "monitored-line");
+      const mon = result.monitored_line || {};
+      const fdResults = result.finite_difference_check?.results || [];
+      const fdMax = Math.max(...fdResults.map((item) => item.abs_diff));
+      let html = `<div><strong>감시 선로</strong>: ${escapeHtml(result.monitored_line_id)} (${escapeHtml(mon.bus0 ?? "-")}–${escapeHtml(mon.bus1 ?? "-")}, ${fmt(mon.voltage_kv, 0)} kV, ${result.monitored_line_selection?.mode === "auto" ? "자동 추천" : "사용자 선택"})</div>`
+        + `<div><strong>사고 후 조류</strong>: ${fmt(result.base_flow_mw, 3)} → ${fmt(result.post_flow_mw, 3)} MW (bus ${escapeHtml(mon.bus0 ?? "-")} 단자 유효전력) · 사고 후 부하율 ${fmt(result.post_loading_percent, 2)} % (양단 피상전력 MVA 기준)</div>`
+        + `<div><strong>정의</strong>: ∂P(감시 선로, bus0 단자) / ∂P(합성 발전기 주입) [MW/MW], 변화량은 Slack 모선 25가 흡수</div>`
+        + (result.radial_note ? `<div class="security-caveat">${escapeHtml(result.radial_note)}</div>` : "")
+        + `<div><strong>민감도 순위</strong> (합성 발전기 ${result.evaluated_generator_count}대 평가, 0인 발전기 ${result.zero_sensitivity_count}대)</div>`;
+      for (const c of result.candidates || []) {
+        html += `<div class="sensitivity-candidate"><strong>${c.rank}. ${escapeHtml(c.generator_id)}</strong> <span>(합성 · 실제 발전소 아님)</span>`
+          + `<div>모선 ${escapeHtml(c.bus_id)} · ${fmt(c.voltage_kv, 0)} kV · ${escapeHtml(c.control)}</div>`
+          + `<div>사고 후 민감도: ${fmt(c.sensitivity, 4)} (사고 전 ${fmt(c.pre_contingency_sensitivity, 4)})</div></div>`;
+      }
+      html += `<div class="security-caveat">지도: 감시 선로는 분홍 점선과 분홍 원(‘감시 선로’), 합성 발전기 순위는 청록 사각형 번호로 표시됩니다.</div>`;
+      html += `<div><strong>유한차분 검증</strong>: ${result.finite_difference_check?.passed ? "통과" : "실패"} · 상위 ${fdResults.length}대 · 최대 |AC−FD| ${Number.isFinite(fdMax) ? fdMax.toExponential(1) : "-"} MW/MW</div>`
+        + `<div class="security-caveat">합성 발전기 유효전력 주입 민감도이며 실제 재급전 권고가 아닙니다. 실제 몽골 운영 데이터가 아닙니다.</div>`;
+      element.innerHTML = html;
+      renderMongoliaSensitivityMarkers(result.candidates || []);
+      renderMonitoredLineMarker(result.monitored_line);
+    }
+
+    // Short lines (a few km) vanish at national scale, so ring the monitored line's midpoint.
+    function renderMonitoredLineMarker(line) {
+      if (!mapProjection || !currentMapData || !line) return;
+      const bus0 = currentMapData.buses.find((item) => String(item.bus_id) === String(line.bus0));
+      const bus1 = currentMapData.buses.find((item) => String(item.bus_id) === String(line.bus1));
+      if (!bus0 || !bus1) return;
+      const p0 = mapProjection(bus0), p1 = mapProjection(bus1);
+      const cx = (p0.x + p1.x) / 2, cy = (p0.y + p1.y) / 2;
+      const group = document.createElementNS(SVG_NS, "g");
+      group.setAttribute("class", "sensitivity-marker analysis-marker mn-monitored-marker");
+      const circle = document.createElementNS(SVG_NS, "circle");
+      circle.setAttribute("cx", cx); circle.setAttribute("cy", cy); circle.setAttribute("r", 13);
+      const text = document.createElementNS(SVG_NS, "text");
+      text.setAttribute("x", cx); text.setAttribute("y", cy - 17); text.textContent = "감시 선로";
+      group.appendChild(circle); group.appendChild(text);
+      document.getElementById("network-map").appendChild(group);
+    }
+
+    function renderMongoliaSensitivityMarkers(candidates) {
+      if (!mapProjection || !currentMapData) return;
+      const svg = document.getElementById("network-map");
+      const byBus = new Map();
+      for (const c of candidates) {
+        if (!byBus.has(c.bus_id)) byBus.set(c.bus_id, []);
+        byBus.get(c.bus_id).push(c);
+      }
+      for (const [busId, generators] of byBus.entries()) {
+        const bus = currentMapData.buses.find((item) => String(item.bus_id) === String(busId));
+        if (!bus) continue;
+        const p = mapProjection(bus);
+        const group = document.createElementNS(SVG_NS, "g");
+        group.setAttribute("class", "sensitivity-marker analysis-marker mn-synthetic-gen");
+        const rect = document.createElementNS(SVG_NS, "rect");
+        rect.setAttribute("x", p.x - 8); rect.setAttribute("y", p.y - 8); rect.setAttribute("width", 16); rect.setAttribute("height", 16); rect.setAttribute("rx", 3);
+        const text = document.createElementNS(SVG_NS, "text");
+        text.setAttribute("x", p.x); text.setAttribute("y", p.y); text.textContent = generators[0].rank;
+        group.appendChild(rect); group.appendChild(text);
+        group.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const rows = generators.map((item) => `<div class="map-tooltip-row"><strong>${item.rank}. ${escapeHtml(item.generator_id)}</strong>: ${fmt(item.sensitivity, 4)} MW/MW</div>`).join("");
+          showMapTooltip(event, `<div class="map-tooltip-title">모선 ${escapeHtml(busId)} · 합성 발전기</div>${rows}<div class="map-tooltip-row">합성 시나리오 발전기이며 실제 발전소·재급전 후보가 아닙니다.</div>`);
+        });
+        svg.appendChild(group);
+      }
     }
 
     function fmt(value, digits = 4) {
@@ -1543,11 +1685,18 @@
       element.innerHTML = html;
     }
 
-    function resetSensitivityMarkers() { document.querySelectorAll(".sensitivity-marker").forEach((m) => m.remove()); }
+    function resetSensitivityMarkers() {
+      document.querySelectorAll(".sensitivity-marker").forEach((m) => m.remove());
+      document.querySelectorAll(".network-line.monitored-line").forEach((line) => line.classList.remove("monitored-line"));
+    }
     function resetGeneratorContingencyMarkers() { document.querySelectorAll(".generator-contingency-marker").forEach((m) => m.remove()); }
 
     function invalidateSecurityResult() {
+      // An edited outage line makes every in-flight Security/Sensitivity response stale.
+      securityRequestSeq++; sensitivityRequestSeq++;
       latestSecurityResult = null;
+      resetSecurityHighlight();
+      document.getElementById("security-result").textContent = "사고 선로가 변경되었습니다. Analyze를 실행하세요.";
       updatePreviewLegend();
       document.getElementById("sensitivity-button").disabled = true;
       document.getElementById("sensitivity-result").textContent = "변경한 사고에 대해 Security Analysis를 먼저 실행하세요.";
@@ -1555,6 +1704,7 @@
     }
 
     async function runSensitivityAnalysis() {
+      if (isMongoliaGrid()) return runMongoliaSensitivityAnalysis();
       if (!gridSupportsAnalysis()) return;
       const token = gridSwitchToken;
       const outageLineId = document.getElementById("outage-line").value.trim();
@@ -1566,14 +1716,15 @@
       const resultElement = document.getElementById("sensitivity-result");
       resultElement.textContent = "민감도 분석 중...";
       resetSensitivityMarkers();
+      const seq = ++sensitivityRequestSeq;
       try {
         const response = await fetch("/api/sensitivity-analysis?outage_line_id=" + encodeURIComponent(outageLineId) + "&top_n=5");
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const result = await response.json();
-        if (token !== gridSwitchToken || !gridSupportsAnalysis()) return;
+        if (token !== gridSwitchToken || seq !== sensitivityRequestSeq || !gridSupportsAnalysis()) return;
         applySensitivityResult(result);
       } catch (error) {
-        if (token === gridSwitchToken) resultElement.textContent = `민감도 분석 실패: ${error.message}`;
+        if (token === gridSwitchToken && seq === sensitivityRequestSeq) resultElement.textContent = `민감도 분석 실패: ${error.message}`;
       }
     }
 
@@ -1775,6 +1926,13 @@
     document.getElementById("sensitivity-button").addEventListener("click", runSensitivityAnalysis);
     document.getElementById("generator-analyze-button").addEventListener("click", runGeneratorContingencyAnalysis);
     document.getElementById("outage-line").addEventListener("input", invalidateSecurityResult);
+    document.getElementById("mn-monitored-line").addEventListener("input", () => {
+      sensitivityRequestSeq++;
+      resetSensitivityMarkers();
+      if (latestSecurityResult) {
+        document.getElementById("sensitivity-result").textContent = "감시 선로가 변경되었습니다. Sensitivity Analysis를 다시 실행하세요.";
+      }
+    });
     document.getElementById("mn-contingency-examples").addEventListener("change", (event) => {
       if (!event.target.value) return;
       document.getElementById("outage-line").value = event.target.value;
