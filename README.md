@@ -438,6 +438,15 @@ python -m pytest -q
 59 passed
 ```
 
+브라우저 지연 응답 회귀 테스트 (KPG·몽골 Security/Sensitivity, 계통 전환; Chrome 필요, opt-in):
+
+```bash
+AI_EMS_BROWSER_TESTS=1 python -m pytest -q tests/test_browser_stale_responses.py
+```
+
+Chrome은 `AI_EMS_CHROME` 또는 WSL의 Windows Chrome / PATH의 Chrome·Chromium을 사용한다.
+결과(`results.json`)와 스크린샷은 `outputs/browser_stale_responses/`에 저장된다.
+
 실제 KPG case smoke test:
 
 ```bash

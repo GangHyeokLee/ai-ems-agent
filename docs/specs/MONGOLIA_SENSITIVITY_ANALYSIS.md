@@ -86,7 +86,25 @@ KPG `/api/sensitivity-analysis`와 `LOADFLOW_PARAMETERS`는 변경하지 않았�
 cd ~/Projects/ai-ems-agent
 .venv/bin/python -m pytest -q tests/test_mongolia_sensitivity.py tests/test_mongolia_security.py tests/test_ui_mongolia_chat.py
 .venv/bin/python -m pytest -q tests
+# 브라우저 지연 응답 회귀 (Chrome headless, opt-in)
+AI_EMS_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests/test_browser_stale_responses.py
 ```
+
+브라우저 회귀(`tests/browser/stale_responses_probe.js`)는 페이지의 `fetch`를 가로채 응답을 붙잡아 두었다가 해제하거나 HTTP 500으로 바꿔 응답 순서를 제어한다. 애플리케이션의 `runSecurityAnalysis()`·`runSensitivityAnalysis()`가 반환하는 Promise를 기다린 뒤 화면을 검증하며, 애플리케이션 코드에 지연을 넣지 않고 고정 sleep도 쓰지 않는다. 검증 대상은 다음과 같다.
+
+- `apply*Result` 호출 횟수
+- 사고 선로·위반 선로·분리 모선/선로 강조
+- 감시 선로 강조와 링
+- 합성 발전기 순위 마커
+- KPG 민감도 마커
+- 패널 문구
+
+시나리오는 다음 네 가지다.
+
+- 몽골 Security: A 응답 대기 중 사고 선로 입력을 B로 바꾼다.
+- 몽골 Sensitivity: 응답 대기 중 감시 선로 또는 사고 선로를 바꾼다.
+- KPG: Security 입력을 변경하고, 새 Sensitivity가 성공한 뒤 이전 요청이 늦게 실패한다. 발전기 탈락 분석이 정상 동작하는지도 확인한다.
+- 계통 전환: 몽골→KPG, KPG→몽골 전환 중 이전 응답이 도착한다.
 
 ## 한계
 
