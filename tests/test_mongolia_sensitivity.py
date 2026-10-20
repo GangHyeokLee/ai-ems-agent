@@ -243,3 +243,37 @@ def test_post_loading_matches_security_analysis_line_loading(service):
     assert RADIAL_MONITOR in from_security
     result = service.run_line_sensitivity(OUTAGE, RADIAL_MONITOR, top_n=1)
     assert result["post_loading_percent"] == pytest.approx(from_security[RADIAL_MONITOR], abs=1e-9)
+
+
+def test_sensitivity_provider_failure_disables_only_sensitivity(monkeypatch):
+    def broken_provider(*args, **kwargs):
+        raise RuntimeError("sensitivity provider unavailable")
+
+    monkeypatch.setattr(pp.sensitivity, "create_ac_analysis", broken_provider)
+    svc = ms.MongoliaSecurityService(files())
+    status = svc.status()                                   # must not raise
+    assert status["available"] is True                      # validated base PF / Security model kept
+    assert status["sensitivity_available"] is False
+    assert "RuntimeError" in status["sensitivity_reason"]
+    security = svc.run_line_contingency("222087807-1_0")
+    assert security["isolated_bus_count"] == 8 and security["post_status"] == "CONVERGED"
+    with pytest.raises(sens.SensitivityVerificationFailed):
+        svc.run_line_sensitivity(OUTAGE, RADIAL_MONITOR)
+
+
+def test_sensitivity_provider_failure_keeps_catalog_map_and_security_api(monkeypatch):
+    def broken_provider(*args, **kwargs):
+        raise RuntimeError("sensitivity provider unavailable")
+
+    monkeypatch.setattr(pp.sensitivity, "create_ac_analysis", broken_provider)
+    monkeypatch.setattr(web_app, "_mongolia_security_services", {})
+    response = client.get("/api/grids")
+    assert response.status_code == 200
+    grid = next(g for g in response.json()["grids"] if g["id"] == "mn-osm-35k")
+    assert grid["security_analysis_available"] is True
+    assert grid["sensitivity_analysis_available"] is False and "RuntimeError" in grid["sensitivity_analysis_note"]
+    assert grid["chat_available"] is True and grid["map_available"] is True
+    assert client.get("/api/grids/mn-osm-35k/map").status_code == 200
+    assert client.get("/api/grids/mn-osm-35k/security-analysis", params={"outage_line_id": OUTAGE}).status_code == 200
+    blocked = client.get("/api/grids/mn-osm-35k/sensitivity-analysis", params={"outage_line_id": OUTAGE})
+    assert blocked.status_code == 422 and "RuntimeError" in blocked.json()["detail"]

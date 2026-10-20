@@ -1692,7 +1692,11 @@
     function resetGeneratorContingencyMarkers() { document.querySelectorAll(".generator-contingency-marker").forEach((m) => m.remove()); }
 
     function invalidateSecurityResult() {
+      // An edited outage line makes every in-flight Security/Sensitivity response stale.
+      securityRequestSeq++; sensitivityRequestSeq++;
       latestSecurityResult = null;
+      resetSecurityHighlight();
+      document.getElementById("security-result").textContent = "사고 선로가 변경되었습니다. Analyze를 실행하세요.";
       updatePreviewLegend();
       document.getElementById("sensitivity-button").disabled = true;
       document.getElementById("sensitivity-result").textContent = "변경한 사고에 대해 Security Analysis를 먼저 실행하세요.";
@@ -1712,15 +1716,15 @@
       const resultElement = document.getElementById("sensitivity-result");
       resultElement.textContent = "민감도 분석 중...";
       resetSensitivityMarkers();
+      const seq = ++sensitivityRequestSeq;
       try {
-        const seq = ++sensitivityRequestSeq;
         const response = await fetch("/api/sensitivity-analysis?outage_line_id=" + encodeURIComponent(outageLineId) + "&top_n=5");
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const result = await response.json();
         if (token !== gridSwitchToken || seq !== sensitivityRequestSeq || !gridSupportsAnalysis()) return;
         applySensitivityResult(result);
       } catch (error) {
-        if (token === gridSwitchToken) resultElement.textContent = `민감도 분석 실패: ${error.message}`;
+        if (token === gridSwitchToken && seq === sensitivityRequestSeq) resultElement.textContent = `민감도 분석 실패: ${error.message}`;
       }
     }
 
@@ -1922,6 +1926,13 @@
     document.getElementById("sensitivity-button").addEventListener("click", runSensitivityAnalysis);
     document.getElementById("generator-analyze-button").addEventListener("click", runGeneratorContingencyAnalysis);
     document.getElementById("outage-line").addEventListener("input", invalidateSecurityResult);
+    document.getElementById("mn-monitored-line").addEventListener("input", () => {
+      sensitivityRequestSeq++;
+      resetSensitivityMarkers();
+      if (latestSecurityResult) {
+        document.getElementById("sensitivity-result").textContent = "감시 선로가 변경되었습니다. Sensitivity Analysis를 다시 실행하세요.";
+      }
+    });
     document.getElementById("mn-contingency-examples").addEventListener("change", (event) => {
       if (!event.target.value) return;
       document.getElementById("outage-line").value = event.target.value;

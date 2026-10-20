@@ -389,6 +389,15 @@ def _load_network(path: Path):
         raise MongoliaModelUnavailable(f"XIIDM을 불러올 수 없습니다: {exc}") from exc
 
 
+def _sensitivity_self_check(net, model: ValidatedModel) -> dict[str, Any]:
+    try:
+        from ai_ems.mongolia_sensitivity import run_self_check
+
+        return run_self_check(net, model)
+    except Exception as exc:  # noqa: BLE001 - any provider/engine error only disables Sensitivity
+        return {"passed": False, "reason": f"Sensitivity 자체 검증 중 오류: {type(exc).__name__}: {exc}"}
+
+
 class MongoliaSecurityService:
     """Caches the validation verdict (by file signature) and runs isolated per-request analyses."""
 
@@ -418,12 +427,13 @@ class MongoliaSecurityService:
                 try:
                     self._model, net = load_validated_model(self.files)
                     self._error = None
-                    from ai_ems.mongolia_sensitivity import run_self_check
-
-                    self._sensitivity = run_self_check(net, self._model)
                 except MongoliaModelUnavailable as exc:
-                    self._model, self._error = None, str(exc)
+                    self._model, self._error, net = None, str(exc), None
                     self._sensitivity = {"passed": False, "reason": str(exc)}
+                if self._model is not None:
+                    # Separate boundary: a sensitivity-engine failure disables only Sensitivity,
+                    # never the validated base PF / Security model, map or chat.
+                    self._sensitivity = _sensitivity_self_check(net, self._model)
                 self._signature = signature
             return self._model, self._error
 

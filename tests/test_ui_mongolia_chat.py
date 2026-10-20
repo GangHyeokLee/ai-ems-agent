@@ -85,3 +85,17 @@ def test_mongolia_sensitivity_display_rules():
     assert "실제 발전소 아님" in apply and "재급전 권고가 아닙니다" in apply
     security = function_body("applyMongoliaSecurityResult")
     assert "!result.island_detected" in security and "미평가" in security
+
+
+def test_input_changes_invalidate_in_flight_results():
+    invalidate = function_body("invalidateSecurityResult")
+    assert "securityRequestSeq++; sensitivityRequestSeq++;" in invalidate
+    assert "resetSecurityHighlight();" in invalidate and "resetSensitivityMarkers();" in invalidate
+    monitored = INDEX_HTML.split('getElementById("mn-monitored-line").addEventListener("input"', 1)[1].split("});", 1)[0]
+    assert "sensitivityRequestSeq++;" in monitored and "resetSensitivityMarkers();" in monitored
+
+
+def test_kpg_sensitivity_error_path_checks_request_sequence():
+    body = function_body("runSensitivityAnalysis")
+    assert body.index("const seq = ++sensitivityRequestSeq;") < body.index("try {")
+    assert "if (token === gridSwitchToken && seq === sensitivityRequestSeq) resultElement.textContent = `민감도 분석 실패" in body
