@@ -34,7 +34,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "tests" / "browser" / "stale_responses_probe.js"
 UNIFIED_PROBE = ROOT / "tests" / "browser" / "unified_ui_probe.js"
-PROBES = {"stale": PROBE, "unified": UNIFIED_PROBE}
+THEME_PROBE = ROOT / "tests" / "browser" / "theme_help_probe.js"
+PROBES = {"stale": PROBE, "unified": UNIFIED_PROBE, "theme": THEME_PROBE}
+THEME_SHOT_DIR = ROOT / "outputs" / "browser_theme_help"
+THEME_SCREENSHOT_STOPS = ["kpg_dark", "help_model_kpg_dark", "mn_dark", "mn_dark_details", "help_assistant_mn_dark"]
 INDEX = ROOT / "ui" / "index.html"
 SHOT_DIR = ROOT / "outputs" / "browser_stale_responses"
 WINDOWS_CHROME = Path("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe")
@@ -158,7 +161,8 @@ def make_proxy(upstream: str, gates: Gates, chat_fixtures: dict[str, dict] | Non
                 return
             if self.path == "/" or self.path.startswith("/?"):
                 gates.reset()
-                probe = PROBES["unified" if "probe=unified" in self.path else "stale"]
+                name = re.search(r"probe=(\w+)", self.path)
+                probe = PROBES.get(name.group(1) if name else "stale", PROBE)
                 html = INDEX.read_text(encoding="utf-8").replace(
                     "</body>", f"<script>{probe.read_text(encoding='utf-8')}</script></body>")
                 body = html.encode("utf-8")
@@ -236,7 +240,8 @@ def app_url():
         server.wait(timeout=30)
 
 
-def run_chrome(chrome: tuple[Path, bool], url: str, profile: str, screenshot: Path | None = None) -> str:
+def run_chrome(chrome: tuple[Path, bool], url: str, profile: str, screenshot: Path | None = None,
+               window: str = "1600,1200") -> str:
     path, windows = chrome
     if windows:
         profile_dir = f"C:\\Windows\\Temp\\ai-ems-{profile}"
@@ -245,7 +250,7 @@ def run_chrome(chrome: tuple[Path, bool], url: str, profile: str, screenshot: Pa
         profile_dir = f"/tmp/ai-ems-{profile}"
         cwd = None
     args = [str(path), "--headless=new", f"--user-data-dir={profile_dir}", "--no-first-run",
-            "--window-size=1600,1200", "--virtual-time-budget=600000"]
+            f"--window-size={window}", "--virtual-time-budget=600000"]
     target = None
     if screenshot is not None:
         target = Path("/mnt/c/Users/Public") / screenshot.name if windows else screenshot
@@ -273,7 +278,9 @@ def run_chrome(chrome: tuple[Path, bool], url: str, profile: str, screenshot: Pa
 
 
 def expected_checks(probe: Path) -> int:
-    return len(re.findall(r'\bcheck\("(?!probe exception)', probe.read_text(encoding="utf-8")))
+    source = probe.read_text(encoding="utf-8")
+    # check("...") calls plus checkText("...") calls (each records exactly one check).
+    return len(re.findall(r'\bcheck\("(?!probe exception)', source)) + len(re.findall(r'\bcheckText\("', source))
 
 
 def probe_results(dom: str) -> dict:
@@ -325,3 +332,42 @@ def test_unified_ui_screenshots(app_url):
             shot.unlink()
         run_chrome(chrome, f"{url}?probe=unified&stop={stop}", f"unified-shot-{stop}", screenshot=shot)
         assert shot.is_file() and shot.stat().st_size > 10_000, stop
+
+
+def run_theme_probe(app_url, profile: str, window: str = "1600,1200", stop: str | None = None) -> dict:
+    url, chrome = app_url
+    target = f"{url}?probe=theme" + (f"&stop={stop}" if stop else "")
+    return probe_results(run_chrome(chrome, target, profile, window=window))
+
+
+def test_theme_and_help_on_both_grids(app_url):
+    report = run_theme_probe(app_url, f"theme-probe-{int(time.time())}")
+    results = report["results"]
+    THEME_SHOT_DIR.mkdir(parents=True, exist_ok=True)
+    (THEME_SHOT_DIR / "results.json").write_text(
+        json.dumps({"results": results, "contrast": report["contrast"]}, ensure_ascii=False, indent=2), encoding="utf-8")
+    failed = [item for item in results if not item["pass"]]
+    assert len(results) == expected_checks(THEME_PROBE), [item["name"] for item in results]
+    assert not failed, json.dumps(failed, ensure_ascii=False, indent=2)
+
+
+def test_help_popover_stays_inside_a_small_viewport(app_url):
+    # Runs the light-theme help checks (hover/click/keyboard/viewport) and stops with the help open.
+    report = run_theme_probe(app_url, f"theme-narrow-{int(time.time())}", window="820,640", stop="help_model_kpg_dark")
+    failed = [item for item in report["results"] if not item["pass"]]
+    assert report["results"] and not failed, json.dumps(failed, ensure_ascii=False, indent=2)
+    (THEME_SHOT_DIR / "results_narrow.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def test_theme_screenshots(app_url):
+    url, chrome = app_url
+    for stop in THEME_SCREENSHOT_STOPS:
+        shot = THEME_SHOT_DIR / f"{stop}.png"
+        if shot.exists():
+            shot.unlink()
+        run_chrome(chrome, f"{url}?probe=theme&stop={stop}", f"theme-shot-{stop}-{int(time.time())}", screenshot=shot)
+        assert shot.is_file() and shot.stat().st_size > 10_000, stop
+    narrow = THEME_SHOT_DIR / "help_model_narrow.png"
+    run_chrome(chrome, f"{url}?probe=theme&stop=help_model_kpg_dark", f"theme-shot-narrow-{int(time.time())}",
+               screenshot=narrow, window="820,640")
+    assert narrow.is_file()

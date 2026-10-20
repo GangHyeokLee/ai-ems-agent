@@ -36,10 +36,11 @@ def test_analysis_buttons_follow_their_own_capabilities():
 
 
 def test_grid_switch_resets_chat_session_and_log():
-    reset = function_body("resetChatForGrid")
+    reset = INDEX_HTML.split("function resetChatForGrid(", 1)[1].split("\n    }\n", 1)[0]
     assert "sessionStorage.removeItem(SESSION_STORAGE_KEY)" in reset
     assert 'getElementById("chat-log").replaceChildren()' in reset
-    assert "합성 PF 조회 전용" in reset
+    assert "appendChatMessage" not in reset                  # guide moved to the help popover (Issue #6)
+    assert "renderAssistantHelp(" in reset
     assert "resetChatForGrid();" in INDEX_HTML.split('select.addEventListener("change"', 1)[1]
 
 
@@ -146,3 +147,45 @@ def test_legends_are_shared_components():
     legend = function_body("renderEquipmentLegend")
     assert "data.powerplants" in legend and "data.generators" in legend
     assert "renderEquipmentLegend(data);" in function_body("drawNetwork")
+
+
+# ---------------------------------------------------------------- Issue #6: theme + help popovers
+
+def test_theme_tokens_and_entry_points():
+    assert ':root[data-theme="dark"]' in INDEX_HTML and "color-scheme: dark" in INDEX_HTML
+    head = INDEX_HTML.split("<style>", 1)[0]
+    assert 'localStorage.getItem("ai-ems-theme")' in head and "prefers-color-scheme: dark" in head   # before first paint
+    for value in ("light", "dark", "system"):
+        assert f'<input type="radio" name="theme" value="{value}" />' in INDEX_HTML
+    apply = INDEX_HTML.split("function applyTheme(", 1)[1].split("\n    }\n", 1)[0]
+    assert 'preference === "system" && themeMedia.matches' in apply and "refreshThemedDataColors();" in apply
+    assert 'localStorage.setItem(THEME_STORAGE_KEY, preference)' in INDEX_HTML
+    assert 'themeMedia.addEventListener("change"' in INDEX_HTML
+
+
+def test_data_colours_keep_meaning_and_overlays_not_colour_only():
+    assert "function dataColor(hex)" in INDEX_HTML and "DARK_DATA_TINTS" in INDEX_HTML
+    for fn in ("voltageColor", "lineLoadingColor", "busVoltageColor", "powerplantColor"):
+        assert "dataColor(" in INDEX_HTML.split(f"function {fn}(", 1)[1].split("\n    }\n", 1)[0], fn
+    assert ".network-line.violation-line { stroke: #f59e0b !important; stroke-width: 5 !important; stroke-dasharray: 12 4;" in INDEX_HTML
+    assert ".network-line.monitored-line { stroke: #db2777 !important; stroke-width: 5 !important; stroke-dasharray: 7 3;" in INDEX_HTML
+
+
+def test_help_popovers_are_accessible_and_keep_original_text():
+    for trigger, popover in (("model-help-trigger", "model-help"), ("assistant-help-trigger", "assistant-help")):
+        assert f'id="{trigger}" aria-haspopup="dialog" aria-expanded="false" aria-controls="{popover}"' in INDEX_HTML
+        assert f'id="{popover}" class="help-popover" role="dialog"' in INDEX_HTML
+        assert f'setupHelp("{trigger}", "{popover}");' in INDEX_HTML
+    setup = INDEX_HTML.split("function setupHelp(", 1)[1].split("\n    }\n    document", 1)[0]
+    for needle in ('"mouseenter"', '"mouseleave"', '"click"', "window.innerWidth", "maxHeight"):
+        assert needle in setup, needle
+    assert 'event.key !== "Escape"' in INDEX_HTML
+    # original banner fields still filled, now inside the popover; failures visible outside it
+    for field in ("pf-preview-disclaimer", "pf-preview-status", "pf-preview-provenance", "pf-preview-limit-note", "grid-scope-note"):
+        assert f'id="{field}"' in INDEX_HTML.split('id="model-help"', 1)[1].split("</div>", 1)[0], field
+    assert 'id="pf-preview-alert" class="model-alert" role="alert"' in INDEX_HTML
+    guides = INDEX_HTML.split("const ASSISTANT_GUIDES", 1)[1].split("};\n", 1)[0]
+    for text in ("AI 채팅에서는 N-1 계산을 호출할 수 없습니다", "Redispatch는 지원하지 않습니다.", "Bus 137 전압은?",
+                 "부하율이 가장 높은 선로 5개 알려줘.", "몽골 합성 PF 결과에서 전압 위반 모선이 있나?"):
+        assert text in guides, text
+    assert 'title="' not in INDEX_HTML.split('id="model-help-trigger"', 1)[1].split(">", 1)[0]   # not a bare title tooltip

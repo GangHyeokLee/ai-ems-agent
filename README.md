@@ -447,6 +447,7 @@ AI_EMS_BROWSER_TESTS=1 python -m pytest -q tests/test_browser_stale_responses.py
 Chrome은 `AI_EMS_CHROME` 또는 WSL의 Windows Chrome / PATH의 Chrome·Chromium을 사용한다.
 결과(`results.json`)와 스크린샷은 `outputs/browser_stale_responses/`에 저장된다.
 같은 명령으로 KPG·몽골 공통 UI 비교(`tests/browser/unified_ui_probe.js`, [사양](docs/specs/MULTI_GRID_UI.md))도 실행되며 결과는 `outputs/browser_unified_ui/`에 저장된다.
+테마·도움말 검증(`tests/browser/theme_help_probe.js`, [사양](docs/specs/THEME_AND_HELP.md)) 결과는 `outputs/browser_theme_help/`에 저장된다.
 
 실제 KPG case smoke test:
 
@@ -469,6 +470,7 @@ python tests/smoke_test.py
 - [몽골 합성 계통 선로 N-1 Security Analysis](docs/specs/MONGOLIA_SECURITY_ANALYSIS.md)
 - [몽골 합성 계통 N-1 후 선로 조류 Sensitivity](docs/specs/MONGOLIA_SENSITIVITY_ANALYSIS.md)
 - [멀티 계통 공통 UI (KPG·몽골)](docs/specs/MULTI_GRID_UI.md)
+- [Light/Dark 테마 · 모델/AI Assistant 도움말](docs/specs/THEME_AND_HELP.md)
 
 ### Experiment Records
 
