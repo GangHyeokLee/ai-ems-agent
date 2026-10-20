@@ -35,7 +35,11 @@ ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "tests" / "browser" / "stale_responses_probe.js"
 UNIFIED_PROBE = ROOT / "tests" / "browser" / "unified_ui_probe.js"
 THEME_PROBE = ROOT / "tests" / "browser" / "theme_help_probe.js"
-PROBES = {"stale": PROBE, "unified": UNIFIED_PROBE, "theme": THEME_PROBE}
+REFERENCE_PROBE = ROOT / "tests" / "browser" / "reference_layers_probe.js"
+PROBES = {"stale": PROBE, "unified": UNIFIED_PROBE, "theme": THEME_PROBE, "reference": REFERENCE_PROBE}
+REFERENCE_SHOT_DIR = ROOT / "outputs" / "browser_reference_layers"
+REFERENCE_SCREENSHOT_STOPS = ["ref_off", "ref_on", "ub_off", "ub_on", "ub_tooltip", "ub_analysis_on",
+                              "darkhan_off", "darkhan_on", "national_on_dark", "ub_on_dark"]
 THEME_SHOT_DIR = ROOT / "outputs" / "browser_theme_help"
 THEME_SCREENSHOT_STOPS = ["kpg_light", "mn_light_island", "help_model_light", "kpg_dark", "help_model_kpg_dark",
                           "help_model_mn_dark", "mn_dark", "mn_dark_details", "help_assistant_mn_dark"]
@@ -384,3 +388,25 @@ def test_theme_screenshots(app_url):
     run_chrome(chrome, f"{url}?probe=theme&stop=help_model_kpg_dark", f"theme-shot-narrow-{int(time.time())}",
                screenshot=narrow, window="820,640")
     assert narrow.is_file()
+
+
+def test_reference_layers_mongolia_only_and_not_analysable(app_url):
+    url, chrome = app_url
+    report = probe_results(run_chrome(chrome, f"{url}?probe=reference", f"reference-probe-{int(time.time())}"))
+    results = report["results"]
+    REFERENCE_SHOT_DIR.mkdir(parents=True, exist_ok=True)
+    (REFERENCE_SHOT_DIR / "results.json").write_text(
+        json.dumps({"results": results, "counts": report["counts"]}, ensure_ascii=False, indent=2), encoding="utf-8")
+    failed = [item for item in results if not item["pass"]]
+    assert not missing_checks(REFERENCE_PROBE, results), missing_checks(REFERENCE_PROBE, results)
+    assert not failed, json.dumps(failed, ensure_ascii=False, indent=2)
+
+
+def test_reference_layers_screenshots(app_url):
+    url, chrome = app_url
+    for stop in REFERENCE_SCREENSHOT_STOPS:
+        shot = REFERENCE_SHOT_DIR / f"{stop}.png"
+        if shot.exists():
+            shot.unlink()
+        run_chrome(chrome, f"{url}?probe=reference&stop={stop}", f"reference-shot-{stop}-{int(time.time())}", screenshot=shot)
+        assert shot.is_file() and shot.stat().st_size > 10_000, stop
