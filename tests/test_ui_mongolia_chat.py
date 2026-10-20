@@ -60,19 +60,18 @@ def test_isolated_bus_highlight_is_scoped_to_visible_analysis_layer():
 
 
 def test_mongolia_result_states_island_pf_not_computed():
-    body = function_body("renderMongoliaSecurityResult")
+    body = function_body("mongoliaSecurityViewModel")
     assert "주 계통만 수렴" in body
-    assert "분리된 섬의 PF는 실행하지 않았습니다" in body
-    assert "실제 몽골 운영 데이터가 아닙니다" in body
+    assert "분리 섬 PF 미실행" in body
+    assert "실제 몽골 운영 데이터가 아닙니다" in INDEX_HTML.split("const GRID_RESULT_TEXT", 1)[1].split("};", 1)[0]
 
 
-def test_mongolia_sensitivity_routing_and_request_sequence_guards():
-    body = function_body("runMongoliaSensitivityAnalysis")
+def test_sensitivity_routing_and_request_sequence_guards():
+    body = function_body("runSensitivityAnalysis")
     assert 'gridCapability("sensitivity_analysis_available")' in body
-    assert '"/api/grids/mn-osm-35k/sensitivity-analysis?"' in body
-    assert "seq !== sensitivityRequestSeq" in body
-    assert "latestSecurityResult.island_detected" in body
-    assert "if (isMongoliaGrid()) return runMongoliaSensitivityAnalysis();" in function_body("runSensitivityAnalysis")
+    assert '"/api/grids/mn-osm-35k/sensitivity-analysis?"' in body and '"/api/sensitivity-analysis?"' in body
+    assert "seq !== sensitivityRequestSeq" in body and "selectedGridId !== requestGridId" in body
+    assert "latestSecurityView?.sensitivity?.enabled !== true" in body     # island / non-converged gate
     security = function_body("runSecurityAnalysis")
     assert "const seq = ++securityRequestSeq;" in security and "seq !== securityRequestSeq" in security
     assert "sensitivityRequestSeq++" in security          # a new Security run discards pending Sensitivity
@@ -80,18 +79,20 @@ def test_mongolia_sensitivity_routing_and_request_sequence_guards():
 
 def test_mongolia_sensitivity_display_rules():
     assert ":where(#map:not(.analysis-hidden)) .network-line.monitored-line" in INDEX_HTML
-    apply = function_body("applyMongoliaSensitivityResult")
-    assert 'result.analysis_status !== "COMPLETED"' in apply
-    assert "실제 발전소 아님" in apply and "재급전 권고가 아닙니다" in apply
-    security = function_body("applyMongoliaSecurityResult")
-    assert "!result.island_detected" in security and "미평가" in security
+    view = function_body("mongoliaSensitivityViewModel")
+    assert 'result.analysis_status === "COMPLETED"' in view and "미평가 (계통 분리)" in view
+    texts = INDEX_HTML.split("const GRID_RESULT_TEXT", 1)[1].split("};", 1)[0]
+    assert "실제 발전소·재급전 권고가 아닙니다" in texts and "실제 발전소·재급전 후보가 아님" in texts
+    security = function_body("mongoliaSecurityViewModel")
+    assert "sensitivityCapable && assessed && !island" in security and "미평가" in security
 
 
 def test_input_changes_invalidate_in_flight_results():
     invalidate = function_body("invalidateSecurityResult")
     assert "securityRequestSeq++; sensitivityRequestSeq++;" in invalidate
     assert "resetSecurityHighlight();" in invalidate and "resetSensitivityMarkers();" in invalidate
-    monitored = INDEX_HTML.split('getElementById("mn-monitored-line").addEventListener("input"', 1)[1].split("});", 1)[0]
+    assert "latestSecurityView = null;" in invalidate
+    monitored = INDEX_HTML.split('getElementById("monitored-line").addEventListener("input"', 1)[1].split("});", 1)[0]
     assert "sensitivityRequestSeq++;" in monitored and "resetSensitivityMarkers();" in monitored
 
 
@@ -99,3 +100,49 @@ def test_kpg_sensitivity_error_path_checks_request_sequence():
     body = function_body("runSensitivityAnalysis")
     assert body.index("const seq = ++sensitivityRequestSeq;") < body.index("try {")
     assert "if (token === gridSwitchToken && seq === sensitivityRequestSeq) resultElement.textContent = `민감도 분석 실패" in body
+
+
+# ---------------------------------------------------------------- Issue #5: one UI for every grid
+
+def test_no_grid_specific_result_renderers_remain():
+    for removed in ("function renderSecurityResult(", "function renderMongoliaSecurityResult(",
+                    "function renderSensitivityMarkers(", "function renderMongoliaSensitivityMarkers(",
+                    "function runMongoliaSensitivityAnalysis(", "mn-synthetic-gen", "mn-monitored"):
+        assert removed not in INDEX_HTML, removed
+    assert INDEX_HTML.count("function renderResultCard(") == 1
+
+
+def test_grid_adapters_feed_the_same_view_and_renderer():
+    for adapter, view in (("applySecurityResult", "kpgSecurityViewModel"),
+                          ("applyMongoliaSecurityResult", "mongoliaSecurityViewModel")):
+        assert f"applySecurityView({view}(result)" in function_body(adapter)
+    for adapter, view in (("applySensitivityResult", "kpgSensitivityViewModel"),
+                          ("applyMongoliaSensitivityResult", "mongoliaSensitivityViewModel")):
+        assert f"applySensitivityView({view}(result))" in function_body(adapter)
+    assert 'renderResultCard(document.getElementById("security-result"), vm);' in function_body("applySecurityView")
+    assert 'renderResultCard(document.getElementById("sensitivity-result"), vm);' in function_body("applySensitivityView")
+    assert "applySecurityOverlay(vm.overlay);" in function_body("applySecurityView")
+    assert "applySensitivityOverlay(vm);" in function_body("applySensitivityView")
+
+
+def test_result_card_uses_kpg_style_fields_and_collapsible_details():
+    card = function_body("renderResultCard")
+    for field in ('"Outage"', '"Status"', '"Violations"', '"Violated Equipment"', '"Loading"', '"Limit"',
+                  '"Post-contingency"', '"Target Line"', '"Top Candidates"', "민감도: "):
+        assert field in card, field
+    assert '<details class="result-details"><summary>상세 결과</summary>' in function_body("renderDetails")
+    # Missing values are dropped, never invented.
+    assert "filter(([, value]) => hasValue(value))" in function_body("detailSection")
+
+
+def test_monitored_line_selection_is_shared_by_both_grids():
+    caps = function_body("updateGridCapabilities")
+    assert 'document.getElementById("monitored-line").hidden = !gridCapability("sensitivity_analysis_available");' in caps
+    assert 'params.set("monitored_line_id", monitoredLineId)' in function_body("runSensitivityAnalysis")
+
+
+def test_legends_are_shared_components():
+    assert 'id="analysis-legend"' in INDEX_HTML and "#map.analysis-hidden .analysis-legend" in INDEX_HTML
+    legend = function_body("renderEquipmentLegend")
+    assert "data.powerplants" in legend and "data.generators" in legend
+    assert "renderEquipmentLegend(data);" in function_body("drawNetwork")
