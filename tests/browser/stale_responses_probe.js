@@ -1,8 +1,9 @@
 // Browser regression probe: late (stale) Security/Sensitivity responses must never be applied.
 //
 // Injected after ui/index.html by tests/test_browser_stale_responses.py. Response order is
-// controlled by intercepting window.fetch from this probe (the application code is untouched):
-// a matching request is held until the probe releases it, or is answered with an HTTP 500.
+// controlled at the HTTP level: the test proxy between Chrome and the app holds the real API
+// response of a registered request until the probe releases it, or then answers HTTP 500.
+// The browser's own fetch and the application code are untouched.
 // Synchronisation is deterministic: the probe calls the app's own async handlers and awaits
 // their promises, so every check runs exactly after the stale response has been processed.
 (async () => {
@@ -11,39 +12,21 @@
   const stopAt = new URLSearchParams(location.search).get("stop");
   const $ = (id) => document.getElementById(id);
   const count = (selector) => document.querySelectorAll(selector).length;
-  // Condition polling yields with setTimeout(0): requestAnimationFrame does not advance Chrome's
-  // headless virtual time, while timers do. This is not a fixed delay.
-  const nextTick = () => new Promise((resolve) => setTimeout(resolve, 0));
+  // Waiting is network-driven: Chrome's headless virtual time stops while a held request is
+  // pending, so timers (setTimeout/rAF) would never fire. Each poll is a round trip to the
+  // test proxy instead; there are no fixed delays.
+  const nextTick = () => fetch("/__probe__/tick").then((res) => res.json());
 
-  // ---- response gates ------------------------------------------------------------------
-  const gates = [];
-  function gate(match, { fail = false } = {}) {
-    let markRequested, release;
-    const g = {
-      match, fail, used: false,
-      requested: new Promise((r) => { markRequested = r; }),
-      released: new Promise((r) => { release = r; }),
-    };
-    g.markRequested = markRequested;
-    g.release = release;
-    gates.push(g);
-    return g;
+  // ---- response gates (held by the test proxy) ------------------------------------------
+  const control = (path, init) => fetch(`/__probe__/${path}`, init).then((res) => res.json());
+  async function gate(match, { fail = false } = {}) {
+    const { id } = await control("gates", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ match, fail }),
+    });
+    // Long-poll: resolves once the proxy has received the matching app request.
+    const requested = control(`gates/${id}?wait=1`);
+    return { id, match, requested, release: () => control(`gates/${id}/release`, { method: "POST" }) };
   }
-  const realFetch = window.fetch.bind(window);
-  window.fetch = async (url, opts) => {
-    const g = gates.find((item) => !item.used && String(url).includes(item.match));
-    if (!g) return realFetch(url, opts);
-    g.used = true;
-    g.markRequested(String(url));
-    const response = await realFetch(url, opts);   // the real server answer, held below
-    await g.released;
-    if (g.fail) {
-      return new Response(JSON.stringify({ detail: "forced late failure (probe)" }), {
-        status: 500, headers: { "Content-Type": "application/json" },
-      });
-    }
-    return response;
-  };
 
   // ---- spies on the apply functions (global function bindings) ------------------------
   const calls = {};
@@ -93,7 +76,7 @@
     // ---- 1. Mongolia Security: A pending, input edited to B, A arrives ----------------
     if (await scenario("mn_security", async () => {
       type("outage-line", "484333456-1_0");                       // A: islanding case (rich overlays)
-      const gateA = gate("/api/grids/mn-osm-35k/security-analysis?outage_line_id=484333456-1_0");
+      const gateA = await gate("/api/grids/mn-osm-35k/security-analysis?outage_line_id=484333456-1_0");
       const before = snapshot();
       const runA = runSecurityAnalysis();
       await gateA.requested;
@@ -116,7 +99,7 @@
     // ---- 2a. Mongolia Sensitivity: pending, monitored line edited ----------------------
     if (await scenario("mn_sensitivity_monitored", async () => {
       type("mn-monitored-line", "303374638-1_0");
-      const gateS = gate("/api/grids/mn-osm-35k/sensitivity-analysis?");
+      const gateS = await gate("/api/grids/mn-osm-35k/sensitivity-analysis?");
       const before = snapshot();
       const runS = runSensitivityAnalysis();
       await gateS.requested;
@@ -137,7 +120,7 @@
 
     // ---- 2b. Mongolia Sensitivity: pending, outage line edited --------------------------
     if (await scenario("mn_sensitivity_outage", async () => {
-      const gateS = gate("/api/grids/mn-osm-35k/sensitivity-analysis?");
+      const gateS = await gate("/api/grids/mn-osm-35k/sensitivity-analysis?");
       const before = snapshot();
       const runS = runSensitivityAnalysis();
       await gateS.requested;
@@ -154,8 +137,8 @@
       type("outage-line", "751261406-1_0");
       await runSecurityAnalysis();
       type("mn-monitored-line", "");
-      const gateSec = gate("/api/grids/mn-osm-35k/security-analysis?outage_line_id=484333456-1_0");
-      const gateSens = gate("/api/grids/mn-osm-35k/sensitivity-analysis?");
+      const gateSec = await gate("/api/grids/mn-osm-35k/security-analysis?outage_line_id=484333456-1_0");
+      const gateSens = await gate("/api/grids/mn-osm-35k/sensitivity-analysis?");
       const before = snapshot();
       const runSens = runSensitivityAnalysis();
       await gateSens.requested;
@@ -175,7 +158,7 @@
 
     // ---- 3a. KPG Security: A pending, input edited, A arrives -----------------------------
     if (await scenario("kpg_security", async () => {
-      const gateA = gate("/api/security-analysis?outage_line_id=LINE-16-28");
+      const gateA = await gate("/api/security-analysis?outage_line_id=LINE-16-28");
       const before = snapshot();
       const runA = runSecurityAnalysis();
       await gateA.requested;
@@ -194,7 +177,7 @@
 
     // ---- 3b. KPG Sensitivity: newer request succeeds, older one fails late -------------
     if (await scenario("kpg_sensitivity", async () => {
-      const gateOld = gate("/api/sensitivity-analysis?outage_line_id=LINE-16-28", { fail: true });
+      const gateOld = await gate("/api/sensitivity-analysis?outage_line_id=LINE-16-28", { fail: true });
       const before = snapshot();
       const runOld = runSensitivityAnalysis();
       await gateOld.requested;
@@ -221,8 +204,8 @@
 
     // ---- 4b. Grid switch while KPG Security and Sensitivity are pending ---------------
     if (await scenario("switch_kpg_to_mn", async () => {
-      const gateSens = gate("/api/sensitivity-analysis?outage_line_id=LINE-16-28");
-      const gateSec = gate("/api/security-analysis?outage_line_id=LINE-16-28");
+      const gateSens = await gate("/api/sensitivity-analysis?outage_line_id=LINE-16-28");
+      const gateSec = await gate("/api/security-analysis?outage_line_id=LINE-16-28");
       const before = snapshot();
       const runSens = runSensitivityAnalysis();
       await gateSens.requested;

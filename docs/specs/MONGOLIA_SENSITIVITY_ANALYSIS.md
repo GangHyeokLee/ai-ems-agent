@@ -90,7 +90,7 @@ cd ~/Projects/ai-ems-agent
 AI_EMS_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests/test_browser_stale_responses.py
 ```
 
-브라우저 회귀(`tests/browser/stale_responses_probe.js`)는 페이지의 `fetch`를 가로채 응답을 붙잡아 두었다가 해제하거나 HTTP 500으로 바꿔 응답 순서를 제어한다. 애플리케이션의 `runSecurityAnalysis()`·`runSensitivityAnalysis()`가 반환하는 Promise를 기다린 뒤 화면을 검증하며, 애플리케이션 코드에 지연을 넣지 않고 고정 sleep도 쓰지 않는다. 검증 대상은 다음과 같다.
+브라우저 회귀(`tests/browser/stale_responses_probe.js`)는 Chrome과 앱 사이의 테스트 프록시에서 실제 API 응답을 HTTP 수준으로 붙잡아 두었다가 해제하거나 HTTP 500으로 바꿔 응답 순서를 제어한다(브라우저 fetch·앱 코드 무변경). 대기는 프록시 왕복으로 처리한다(headless virtual time은 보류 요청 중 타이머를 진행하지 않음). 애플리케이션의 `runSecurityAnalysis()`·`runSensitivityAnalysis()`가 반환하는 Promise를 기다린 뒤 화면을 검증하며, 애플리케이션 코드에 지연을 넣지 않고 고정 sleep도 쓰지 않는다. 검증 대상은 다음과 같다.
 
 - `apply*Result` 호출 횟수
 - 사고 선로·위반 선로·분리 모선/선로 강조

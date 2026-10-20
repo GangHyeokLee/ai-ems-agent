@@ -6,8 +6,10 @@ Opt-in because it needs a real Chrome and starts the full web app:
 
 Chrome is taken from ``AI_EMS_CHROME`` or found automatically (Windows Chrome from WSL, or
 google-chrome / chromium on PATH). The probe ``tests/browser/stale_responses_probe.js`` is appended
-to ``ui/index.html`` by a local proxy; it controls response order by intercepting ``fetch`` and
-awaits the app's own handlers, so no delay is added to application code and no fixed sleeps are used.
+to ``ui/index.html`` by a local proxy. The same proxy delays real API responses on demand: the
+probe registers a gate (``/__probe__/gates``), the proxy forwards the matching request to the app,
+holds the real response until the probe releases it (or then answers HTTP 500), so no delay is
+added to application code. The probe awaits the app's own handlers instead of fixed sleeps.
 Screenshots of selected end states are written to ``outputs/browser_stale_responses/``.
 """
 from __future__ import annotations
@@ -62,13 +64,82 @@ def free_port() -> int:
         return sock.getsockname()[1]
 
 
-def make_proxy(upstream: str):
+class Gates:
+    """Response gates shared by proxy threads: hold or fail the next request matching a substring."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.items: dict[int, dict] = {}
+
+    def reset(self):
+        with self.lock:
+            for item in self.items.values():
+                item["released"].set()       # never leave a thread blocked across page loads
+            self.items.clear()
+
+    def add(self, match: str, fail: bool) -> int:
+        with self.lock:
+            gate_id = len(self.items) + 1
+            self.items[gate_id] = {"match": match, "fail": fail, "used": False,
+                                   "requested": threading.Event(), "released": threading.Event()}
+            return gate_id
+
+    def claim(self, path: str):
+        with self.lock:
+            for item in self.items.values():
+                if not item["used"] and item["match"] in path:
+                    item["used"] = True
+                    item["requested"].set()
+                    return item
+        return None
+
+
+def make_proxy(upstream: str, gates: Gates):
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
 
+        def _json(self, status: int, value: dict):
+            body = json.dumps(value).encode("utf-8")
+            self._send(status, "application/json", body)
+
+        def _send(self, status: int, ctype: str, body: bytes):
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass   # Chrome closed the page (dump/screenshot finished)
+
+        def _control(self, method: str) -> bool:
+            if self.path.startswith("/__probe__/tick"):
+                self._json(200, {"ok": True})
+                return True
+            if not self.path.startswith("/__probe__/gates"):
+                return False
+            parts = self.path.split("?", 1)[0].strip("/").split("/")
+            if method == "POST" and len(parts) == 2:
+                spec = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                self._json(200, {"id": gates.add(str(spec["match"]), bool(spec.get("fail")))})
+            elif method == "GET" and len(parts) == 3:
+                item = gates.items[int(parts[2])]
+                if "wait=1" in self.path:
+                    item["requested"].wait(timeout=120)
+                self._json(200, {"requested": item["requested"].is_set()})
+            elif method == "POST" and len(parts) == 4 and parts[3] == "release":
+                gates.items[int(parts[2])]["released"].set()
+                self._json(200, {"released": True})
+            else:
+                self._json(404, {"detail": "unknown probe control"})
+            return True
+
         def do_GET(self):
+            if self._control("GET"):
+                return
             if self.path == "/" or self.path.startswith("/?"):
+                gates.reset()
                 html = INDEX.read_text(encoding="utf-8").replace(
                     "</body>", f"<script>{PROBE.read_text(encoding='utf-8')}</script></body>")
                 body = html.encode("utf-8")
@@ -81,9 +152,12 @@ def make_proxy(upstream: str):
             self._forward(None)
 
         def do_POST(self):
+            if self._control("POST"):
+                return
             self._forward(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
 
         def _forward(self, data):
+            gate = gates.claim(self.path)
             request = urllib.request.Request(upstream + self.path, data=data,
                                              method="POST" if data is not None else "GET")
             if data is not None:
@@ -93,14 +167,13 @@ def make_proxy(upstream: str):
                     body, status, ctype = resp.read(), resp.status, resp.headers.get("Content-Type", "")
             except urllib.error.HTTPError as err:
                 body, status, ctype = err.read(), err.code, err.headers.get("Content-Type", "")
-            try:
-                self.send_response(status)
-                self.send_header("Content-Type", ctype or "application/octet-stream")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
-                pass   # Chrome closed the page (dump/screenshot finished)
+            if gate is not None:
+                # Real API response computed by the app, delivered only when the probe releases it.
+                gate["released"].wait(timeout=300)
+                if gate["fail"]:
+                    self._json(500, {"detail": "forced late failure (test proxy)"})
+                    return
+            self._send(status, ctype or "application/octet-stream", body)
 
     return Handler
 
@@ -127,7 +200,7 @@ def app_url():
                 if time.time() > deadline or server.poll() is not None:
                     raise RuntimeError("web app did not start")
                 time.sleep(0.5)
-        proxy = http.server.ThreadingHTTPServer(("127.0.0.1", proxy_port), make_proxy(upstream))
+        proxy = http.server.ThreadingHTTPServer(("127.0.0.1", proxy_port), make_proxy(upstream, Gates()))
         threading.Thread(target=proxy.serve_forever, daemon=True).start()
         yield f"http://127.0.0.1:{proxy_port}/", chrome
         proxy.shutdown()
