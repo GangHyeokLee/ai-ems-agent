@@ -398,25 +398,58 @@ class MongoliaSecurityService:
         self._signature = None
         self._model: ValidatedModel | None = None
         self._error: str | None = None
+        self._sensitivity: dict[str, Any] = {"passed": False, "reason": "모델 검증 전"}
 
     def status(self) -> dict[str, Any]:
         model, error = self._ensure()
         if model is None:
-            return {"available": False, "reason": error}
+            return {"available": False, "reason": error, "sensitivity_available": False,
+                    "sensitivity_reason": error}
         return {"available": True, "reason": None, "scenario_id": model.scenario_id,
-                "base_check": model.base_check}
+                "base_check": model.base_check,
+                "sensitivity_available": self._sensitivity["passed"] is True,
+                "sensitivity_reason": self._sensitivity.get("reason"),
+                "sensitivity_self_check": self._sensitivity}
 
     def _ensure(self) -> tuple[ValidatedModel | None, str | None]:
         signature = self.files.signature()
         with self._lock:
             if signature != self._signature:
                 try:
-                    self._model, _ = load_validated_model(self.files)
+                    self._model, net = load_validated_model(self.files)
                     self._error = None
+                    from ai_ems.mongolia_sensitivity import run_self_check
+
+                    self._sensitivity = run_self_check(net, self._model)
                 except MongoliaModelUnavailable as exc:
                     self._model, self._error = None, str(exc)
+                    self._sensitivity = {"passed": False, "reason": str(exc)}
                 self._signature = signature
             return self._model, self._error
+
+    def _validated_outage(self, outage_line_id: str) -> tuple[ValidatedModel, str]:
+        model, error = self._ensure()
+        if model is None:
+            raise MongoliaModelUnavailable(error or "몽골 모델을 사용할 수 없습니다.")
+        line_id = outage_line_id.strip()
+        if line_id in model.excluded_line_ids:
+            raise ExcludedOutageLine(f"선로 {line_id}은(는) 기준 PF 해석 대상에서 제외된 선로입니다.")
+        if line_id not in model.mapping["Line"]:
+            raise UnknownOutageLine(f"몽골 PF 해석 대상에 없는 선로 ID입니다: {line_id}")
+        return model, line_id
+
+    def run_line_sensitivity(self, outage_line_id: str, monitored_line_id: str | None = None,
+                             top_n: int = 10) -> dict[str, Any]:
+        from ai_ems.mongolia_sensitivity import SensitivityVerificationFailed, analyze_line_sensitivity
+
+        model, line_id = self._validated_outage(outage_line_id)
+        if self._sensitivity.get("passed") is not True:
+            raise SensitivityVerificationFailed(self._sensitivity.get("reason") or "Sensitivity 자체 검증 미통과")
+        net = _load_network(model.files.xiidm)
+        _check_structure(net, model)
+        lf = _run_base_lf(net)
+        _compare_base(net, model, lf)
+        return analyze_line_sensitivity(net, model, line_id, monitored_line_id, top_n=top_n)
 
     def run_line_contingency(self, outage_line_id: str) -> dict[str, Any]:
         model, error = self._ensure()

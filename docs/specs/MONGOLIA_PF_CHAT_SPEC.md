@@ -59,7 +59,7 @@ P0/Q0는 bus1 단자, P1/Q1은 bus2 단자 값이며 각 단자에서 모선 →
 
 ## UI
 
-- 몽골 선택 시 채팅은 합성 PF 조회 전용으로 활성화된다. 채팅에서는 N-1을 호출할 수 없으며, 선로 N-1은 Security Analysis 패널에서 실행한다. Sensitivity/Generator Contingency 버튼은 비활성 상태를 유지한다.
+- 몽골 선택 시 채팅은 합성 PF 조회 전용으로 활성화된다. 채팅에서는 N-1·민감도를 호출할 수 없으며, 선로 N-1과 Sensitivity는 Security Analysis 패널에서 실행한다([Sensitivity 사양](MONGOLIA_SENSITIVITY_ANALYSIS.md)). Generator Contingency 버튼은 비활성 상태를 유지한다.
 - 계통 전환 시 채팅 로그와 세션 ID를 초기화하고, 이전 계통의 늦은 응답은 무시한다.
 - 몽골 답변은 지도 분석 강조(`ui_updates`)를 적용하지 않는다.
 

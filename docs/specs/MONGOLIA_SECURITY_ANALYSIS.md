@@ -82,7 +82,7 @@ mongolia-grid-poc `scripts/mn35k_powsybl.py`의 검증된 설정과 같다.
 | `analysis_available` (KPG 전체 분석 묶음, 하위 호환) | true | false |
 | `security_analysis_available` | true | XIIDM 검증 성공 시 true |
 | `security_analysis_note` | – | 비활성 사유 |
-| `sensitivity_analysis_available` | true | false |
+| `sensitivity_analysis_available` | true | 민감도 자체 검증(유한차분) 통과 시 true ([사양](MONGOLIA_SENSITIVITY_ANALYSIS.md)) |
 | `generator_contingency_available` | true | false |
 | `chat_available` / `chat_mode` | true / `analysis` | 지도+PF 파일 존재 시 true / `pf_read_only` |
 | `pf_preview_available` | true | 지도+PF 파일 존재 시 true |
@@ -101,5 +101,5 @@ mongolia-grid-poc `scripts/mn35k_powsybl.py`의 검증된 설정과 같다.
 
 - 합성 부하가 작아(최대 부하율 약 10 %) 위반이 발생하지 않는다. 정격이나 부하를 조정하지 않았다.
 - 병렬 회선은 등가 선로 1개로 표현되어 회선 단위 사고는 계산할 수 없다.
-- 분리 섬 독립 PF, Sensitivity, Redispatch, 발전기 탈락 분석, AI 채팅 N-1 호출은 지원하지 않는다.
+- 분리 섬 독립 PF, Redispatch, 발전기 탈락 분석, AI 채팅 N-1 호출은 지원하지 않는다. Sensitivity는 계통 분리 없는 사고에 한해 지원한다([사양](MONGOLIA_SENSITIVITY_ANALYSIS.md)).
 - 사고 후 발전기 Q는 한계(±100 MVAr)를 적용하지 않고 계산한 뒤 위반 여부만 스크리닝한다(기본 PF 검증 조건과 동일).

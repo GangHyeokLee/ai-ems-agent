@@ -64,3 +64,24 @@ def test_mongolia_result_states_island_pf_not_computed():
     assert "주 계통만 수렴" in body
     assert "분리된 섬의 PF는 실행하지 않았습니다" in body
     assert "실제 몽골 운영 데이터가 아닙니다" in body
+
+
+def test_mongolia_sensitivity_routing_and_request_sequence_guards():
+    body = function_body("runMongoliaSensitivityAnalysis")
+    assert 'gridCapability("sensitivity_analysis_available")' in body
+    assert '"/api/grids/mn-osm-35k/sensitivity-analysis?"' in body
+    assert "seq !== sensitivityRequestSeq" in body
+    assert "latestSecurityResult.island_detected" in body
+    assert "if (isMongoliaGrid()) return runMongoliaSensitivityAnalysis();" in function_body("runSensitivityAnalysis")
+    security = function_body("runSecurityAnalysis")
+    assert "const seq = ++securityRequestSeq;" in security and "seq !== securityRequestSeq" in security
+    assert "sensitivityRequestSeq++" in security          # a new Security run discards pending Sensitivity
+
+
+def test_mongolia_sensitivity_display_rules():
+    assert ":where(#map:not(.analysis-hidden)) .network-line.monitored-line" in INDEX_HTML
+    apply = function_body("applyMongoliaSensitivityResult")
+    assert 'result.analysis_status !== "COMPLETED"' in apply
+    assert "실제 발전소 아님" in apply and "재급전 권고가 아닙니다" in apply
+    security = function_body("applyMongoliaSecurityResult")
+    assert "!result.island_detected" in security and "미평가" in security
