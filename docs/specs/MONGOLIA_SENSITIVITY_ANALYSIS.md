@@ -62,7 +62,8 @@ Refs GangHyeokLee/ai-ems-agent#3
 주요 응답 필드:
 - 상태·선로: `analysis_status`, `sensitivity_available`, `outage_line`, `monitored_line`(구간·kV·정격), `monitored_line_selection`, `monitored_line_radial_after_contingency`, `radial_note`
 - 정의: `function`, `variable`, `unit`, `slack_balance`
-- 조류: `base_flow_mw`, `post_flow_mw`, `post_loading_percent`, `reference_check`
+- 조류: `base_flow_mw`, `post_flow_mw`(side 1 유효전력, 민감도 함수와 같은 정의), `post_terminal_flows`(사고 후 양단 P/Q), `post_loading_percent`, `loading_definition`, `reference_check`
+  - `post_loading_percent` = max(|S1|, |S2|) / s_nom × 100, S = √(P²+Q²)(사고 후 양단, MVA 기준). Security Analysis 선로 부하율과 같은 정의이며, 테스트에서 동일 선로·사고의 Security 결과와 1e-9 이내로 일치함을 확인한다.
 - 순위: `candidates[]`(`rank`, `generator_id`, `bus_id`, `voltage_kv`, `control`, `target_p_mw`, `sensitivity`, `pre_contingency_sensitivity`, `synthetic_generator=true`), `excluded_from_ranking`, `zero_sensitivity_count`
 - 검증·주의: `finite_difference_check`, `model_caveats`
 

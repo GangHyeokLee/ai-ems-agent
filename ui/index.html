@@ -1572,7 +1572,7 @@
       const fdResults = result.finite_difference_check?.results || [];
       const fdMax = Math.max(...fdResults.map((item) => item.abs_diff));
       let html = `<div><strong>감시 선로</strong>: ${escapeHtml(result.monitored_line_id)} (${escapeHtml(mon.bus0 ?? "-")}–${escapeHtml(mon.bus1 ?? "-")}, ${fmt(mon.voltage_kv, 0)} kV, ${result.monitored_line_selection?.mode === "auto" ? "자동 추천" : "사용자 선택"})</div>`
-        + `<div><strong>사고 후 조류</strong>: ${fmt(result.base_flow_mw, 3)} → ${fmt(result.post_flow_mw, 3)} MW (bus ${escapeHtml(mon.bus0 ?? "-")} 단자, 부하율 ${fmt(result.post_loading_percent, 2)} %)</div>`
+        + `<div><strong>사고 후 조류</strong>: ${fmt(result.base_flow_mw, 3)} → ${fmt(result.post_flow_mw, 3)} MW (bus ${escapeHtml(mon.bus0 ?? "-")} 단자 유효전력) · 사고 후 부하율 ${fmt(result.post_loading_percent, 2)} % (양단 피상전력 MVA 기준)</div>`
         + `<div><strong>정의</strong>: ∂P(감시 선로, bus0 단자) / ∂P(합성 발전기 주입) [MW/MW], 변화량은 Slack 모선 25가 흡수</div>`
         + (result.radial_note ? `<div class="security-caveat">${escapeHtml(result.radial_note)}</div>` : "")
         + `<div><strong>민감도 순위</strong> (합성 발전기 ${result.evaluated_generator_count}대 평가, 0인 발전기 ${result.zero_sensitivity_count}대)</div>`;

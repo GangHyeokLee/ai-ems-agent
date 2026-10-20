@@ -154,6 +154,12 @@ def analyze_line_sensitivity(
         if not math.isfinite(post_flows.get(monitored_line_id, math.nan)):
             raise InvalidMonitoredLine(f"감시 선로 {monitored_line_id}의 사고 후 조류가 없습니다.")
         mon_iidm = lines[monitored_line_id]["iidm_id"]
+        # Post-contingency terminal flows of the monitored line (both ends) for the MVA loading.
+        mon_row = net.get_lines().loc[mon_iidm]
+        post_terminals = {"p1_mw": float(mon_row.p1), "q1_mvar": float(mon_row.q1),
+                          "p2_mw": float(mon_row.p2), "q2_mvar": float(mon_row.q2)}
+        if not all(math.isfinite(v) for v in post_terminals.values()):
+            raise InvalidMonitoredLine(f"감시 선로 {monitored_line_id}의 사고 후 양단 조류가 없습니다.")
 
         # AC sensitivity on the base variant (the analysis applies the contingency itself).
         net.set_working_variant(base_variant)
@@ -256,7 +262,11 @@ def analyze_line_sensitivity(
         "slack_balance": "distributed_slack=False: 주입 변화는 Slack 모선 25(SYNTHETIC_SLACK_25)가 흡수",
         "base_flow_mw": base_flows[monitored_line_id],
         "post_flow_mw": post_flow,
-        "post_loading_percent": 100.0 * abs(post_flow) / rating if rating else None,
+        "post_terminal_flows": post_terminals,
+        # Same definition as Security Analysis: max(|S1|, |S2|) / s_nom with S from both ends' P/Q.
+        "post_loading_percent": ms._loading(post_terminals["p1_mw"], post_terminals["q1_mvar"],
+                                            post_terminals["p2_mw"], post_terminals["q2_mvar"], rating),
+        "loading_definition": "max(|S1|, |S2|) / s_nom, S = √(P²+Q²) 사고 후 양단 [MVA 기준]",
         "reference_check": reference_check,
         "candidate_count": len(candidates),
         "evaluated_generator_count": len(ranked),

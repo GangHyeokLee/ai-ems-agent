@@ -214,3 +214,32 @@ def test_kpg_sensitivity_api_contract_unchanged():
     assert body["monitored_line_id"] == "LINE-16-22"
     assert set(body) == {"outage_line_id", "monitored_line_id", "candidate_count", "candidates",
                          "target_selection", "analysis_status"}
+
+
+@pytest.mark.parametrize("monitored", [RADIAL_MONITOR, "484276912-1_0"])
+def test_post_loading_uses_two_terminal_mva_like_security_analysis(service, monitored):
+    result = service.run_line_sensitivity(OUTAGE, monitored, top_n=1)
+    flows = result["post_terminal_flows"]
+    rating = result["monitored_line"]["rating_mva"]
+    expected = 100.0 * max(math.hypot(flows["p1_mw"], flows["q1_mvar"]),
+                           math.hypot(flows["p2_mw"], flows["q2_mvar"])) / rating
+    assert result["post_loading_percent"] == pytest.approx(expected, rel=1e-12)
+    # post_flow_mw keeps its definition (side-1 active power) and is the side-1 terminal P.
+    assert result["post_flow_mw"] == pytest.approx(flows["p1_mw"], abs=1e-12)
+    # MVA loading includes reactive flow, so it can never be below the P-only ratio.
+    assert result["post_loading_percent"] >= 100.0 * abs(result["post_flow_mw"]) / rating - 1e-12
+    # Independent post-contingency AC PF on a separate network object.
+    model, net = ms.load_validated_model(files())
+    net.update_lines(id=[model.mapping["Line"][OUTAGE]["iidm_id"]], connected1=[False], connected2=[False])
+    assert pp.loadflow.run_ac(net, parameters=ms.loadflow_parameters())[0].status.name == "CONVERGED"
+    row = net.get_lines().loc[model.mapping["Line"][monitored]["iidm_id"]]
+    independent = 100.0 * max(math.hypot(row.p1, row.q1), math.hypot(row.p2, row.q2)) / rating
+    assert result["post_loading_percent"] == pytest.approx(independent, abs=1e-9)
+
+
+def test_post_loading_matches_security_analysis_line_loading(service):
+    security = service.run_line_contingency(OUTAGE)
+    from_security = {c["line_id"]: c["post_loading_percent"] for c in security["top_line_flow_changes"]}
+    assert RADIAL_MONITOR in from_security
+    result = service.run_line_sensitivity(OUTAGE, RADIAL_MONITOR, top_n=1)
+    assert result["post_loading_percent"] == pytest.approx(from_security[RADIAL_MONITOR], abs=1e-9)
