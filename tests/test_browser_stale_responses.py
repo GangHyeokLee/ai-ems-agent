@@ -40,8 +40,21 @@ SHOT_DIR = ROOT / "outputs" / "browser_stale_responses"
 WINDOWS_CHROME = Path("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe")
 SCREENSHOT_STOPS = ["mn_security", "mn_sensitivity_monitored", "kpg_sensitivity", "switch_kpg_to_mn"]
 UNIFIED_SHOT_DIR = ROOT / "outputs" / "browser_unified_ui"
-UNIFIED_SCREENSHOT_STOPS = ["kpg_security", "kpg_sensitivity", "mn_security", "mn_sensitivity",
-                            "mn_sensitivity_details", "mn_island"]
+UNIFIED_SCREENSHOT_STOPS = ["kpg_security", "kpg_sensitivity", "mn_security", "mn_security_details",
+                            "mn_sensitivity", "mn_sensitivity_details", "mn_island", "kpg_chat"]
+
+
+def chat_fixture_responses() -> dict[str, dict]:
+    """Real /api/chat responses built from real KPG tool outputs (only the LLM is scripted)."""
+    import importlib.util
+
+    sys.path.insert(0, str(ROOT))
+    import web_app
+
+    spec = importlib.util.spec_from_file_location("chat_fixtures", ROOT / "tests" / "browser" / "chat_fixtures.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return {key: module.build_chat_response(web_app, key)[0] for key in module.SCENARIOS}
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("AI_EMS_BROWSER_TESTS") != "1",
@@ -99,7 +112,7 @@ class Gates:
         return None
 
 
-def make_proxy(upstream: str, gates: Gates):
+def make_proxy(upstream: str, gates: Gates, chat_fixtures: dict[str, dict] | None = None):
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -160,7 +173,14 @@ def make_proxy(upstream: str, gates: Gates):
         def do_POST(self):
             if self._control("POST"):
                 return
-            self._forward(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            data = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            if self.path.startswith("/api/chat") and chat_fixtures:
+                match = re.search(r"\[fixture:(\w+)\]", data.decode("utf-8", "replace"))
+                if match and match.group(1) in chat_fixtures:
+                    # LLM stand-in: the response was produced by the real /api/chat code from real tool output.
+                    self._json(200, chat_fixtures[match.group(1)])
+                    return
+            self._forward(data)
 
         def _forward(self, data):
             gate = gates.claim(self.path)
@@ -206,7 +226,8 @@ def app_url():
                 if time.time() > deadline or server.poll() is not None:
                     raise RuntimeError("web app did not start")
                 time.sleep(0.5)
-        proxy = http.server.ThreadingHTTPServer(("127.0.0.1", proxy_port), make_proxy(upstream, Gates()))
+        proxy = http.server.ThreadingHTTPServer(("127.0.0.1", proxy_port),
+                                                make_proxy(upstream, Gates(), chat_fixture_responses()))
         threading.Thread(target=proxy.serve_forever, daemon=True).start()
         yield f"http://127.0.0.1:{proxy_port}/", chrome
         proxy.shutdown()

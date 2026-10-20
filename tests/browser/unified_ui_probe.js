@@ -161,6 +161,33 @@
     check("Back to KPG: clean state", count(".result-card, .isolated-bus, .candidate-marker") === 0 && $("outage-line").value === "LINE-16-28");
     await runSecurityAnalysis();
     check("Back to KPG: Security works", baseLines("security-result")[2] === "Violations: 1");
+
+    // ---- KPG chat -> UI (ui_updates from real tool outputs; LLM tool choice scripted) -------
+    const sendChat = async (text) => {
+      const before = count("#chat-log .chat-message.agent");
+      $("chat-message").value = text;
+      await sendChatMessage();
+      return count("#chat-log .chat-message.agent") === before + 1;
+    };
+    const restSecurityLines = JSON.stringify(baseLines("security-result"));
+    type("outage-line", "LINE-16-22");                       // chat must set the outage itself
+    check("Chat security: answer appended", await sendChat("[fixture:security] LINE-16-28 사고 분석"));
+    check("Chat security: same card as REST result", JSON.stringify(baseLines("security-result")) === restSecurityLines, baseLines("security-result"));
+    check("Chat security: outage input + overlays", $("outage-line").value === "LINE-16-28" &&
+      lineStroke("LINE-16-28") === norm("#dc2626") && lineStroke("LINE-16-22") === norm("#f59e0b"));
+    check("Chat sensitivity: answer appended", await sendChat("[fixture:sensitivity] 민감도 분석"));
+    const chatSens = baseLines("sensitivity-result");
+    check("Chat sensitivity: shared card", chatSens[0] === "Target Line: LINE-16-22" && chatSens[1] === "Top Candidates: 5" && chatSens[2] === "1. GEN-19#0", chatSens.slice(0, 3));
+    check("Chat sensitivity: same component skeleton as panel run",
+      JSON.stringify([skeleton("sensitivity-result").rows, skeleton("sensitivity-result").item]) === JSON.stringify([kpgSensSkeleton.rows, kpgSensSkeleton.item]));
+    check("Chat sensitivity: monitored ring + rank markers", count(".monitored-marker") === 1 && count(".candidate-marker") > 0);
+    check("Chat generator: answer appended", await sendChat("[fixture:generator] GEN-124#1 탈락 분석"));
+    const generatorText = $("generator-contingency-result").textContent;
+    check("Chat generator: result rendered", generatorText.includes("GEN-124#1") && !/실패/.test(generatorText), generatorText.slice(0, 120));
+    check("Chat generator: outage marker + legend", count(".generator-outage-marker") > 0 && legendKeys().includes("generator-outage"), legendKeys());
+    check("Chat redispatch: workflow answer rendered", await sendChat("[fixture:redispatch] LINE-16-28 대응방안") &&
+      [...document.querySelectorAll("#chat-log .chat-message.agent")].at(-1).textContent.includes("LINE-16-28"));
+    if (stop("kpg_chat")) return finish();
   } catch (error) {
     check("probe exception", false, String(error && error.stack || error));
   }
