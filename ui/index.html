@@ -224,9 +224,8 @@
     .grid-warning { color:var(--warning-strong); }
     #map-panel { display:flex; flex-direction:column; }
     #map { flex:1; min-height:0; height:auto; }
-    #grid-capability-note { padding:6px 14px; border-bottom:1px solid var(--danger-border); font-size:12px; color:var(--danger-text); background:var(--danger-bg); }
-    #pf-preview-panel { display:flex; align-items:center; gap:8px; padding:6px 14px; border-bottom:1px solid var(--notice-border); background:var(--notice-bg); color:var(--notice-text); font-size:12px; line-height:1.5; }
-    #pf-preview-panel[hidden], #pf-preview-toolbar[hidden] { display:none; }
+    .grid-alert { padding:6px 14px; border-bottom:1px solid var(--danger-border); font-size:12px; color:var(--danger-text); background:var(--danger-bg); font-weight:700; }
+    .grid-alert[hidden], .grid-status[hidden], #pf-preview-toolbar[hidden] { display:none; }
     #pf-preview-toolbar { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; padding:7px 14px; border-bottom:1px solid var(--border); color:var(--text-muted); font-size:12px; }
     #pf-preview-toolbar select { padding:5px 8px; border:1px solid var(--border-strong); border-radius:5px; }
     #pf-preview-legend { color:var(--text-muted); }
@@ -251,15 +250,19 @@
     /* ===== Shared help popover (hover / click / keyboard / Escape) ===== */
     .help-trigger { display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: 0 0 auto; min-width: 22px; height: 22px; padding: 0 7px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--text-muted); font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer; }
     .help-trigger:hover, .help-trigger[aria-expanded="true"] { background: var(--hover-bg); color: var(--text); }
-    .help-popover { position: fixed; z-index: 1000; width: min(440px, calc(100vw - 16px)); max-height: min(70vh, calc(100vh - 16px)); overflow: auto; padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--popover-bg); color: var(--text); box-shadow: var(--shadow); font-size: 12.5px; font-weight: normal; line-height: 1.55; }
+    /* Width follows the first (highlighted) sentence so it fits on one line; other blocks do not widen
+       the popover (contain: inline-size) and wrap between Korean words (keep-all). Long file names may
+       still break (overflow-wrap). On narrow screens the first sentence may wrap (see place()). */
+    .help-popover { position: fixed; z-index: 1000; box-sizing: border-box; width: max-content; min-width: min(440px, calc(100vw - 16px)); max-width: min(760px, calc(100vw - 16px)); max-height: min(70vh, calc(100vh - 16px)); overflow: auto; padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--popover-bg); color: var(--text); box-shadow: var(--shadow); font-size: 12.5px; font-weight: normal; line-height: 1.55; word-break: keep-all; overflow-wrap: break-word; }
+    .help-popover > :not(.help-strong) { contain: inline-size; }
+    .help-popover .help-strong { white-space: nowrap; }
+    .help-popover.wrap-first .help-strong { white-space: normal; }
     .help-popover[hidden] { display: none; }
     .help-popover h3 { margin: 0 0 6px; font-size: 13px; }
     .help-popover h4 { margin: 10px 0 3px; font-size: 12px; color: var(--text); }
     .help-popover p { margin: 3px 0; color: var(--text-muted); }
     .help-popover ul { margin: 3px 0; padding-left: 18px; color: var(--text-muted); }
     .help-popover .help-strong { color: var(--notice-text); font-weight: 700; }
-    .model-notice { flex: 1; font-weight: 700; }
-    .model-alert { color: var(--danger-text); font-weight: 700; }
 
   </style>
 </head>
@@ -282,12 +285,6 @@
       <div class="grid-toolbar">
         <label for="grid-select">국가 / 계통</label>
         <select id="grid-select" aria-label="국가 및 계통 선택"><option value="kr-kpg193">KR · KPG-193</option></select>
-        <span id="grid-status" class="grid-status">계통 정보를 확인 중...</span>
-      </div>
-      <div id="grid-capability-note" hidden></div>
-      <div id="pf-preview-panel" hidden>
-        <span id="pf-preview-notice" class="model-notice">합성 시험계통 · 실제 운영 데이터 아님</span>
-        <span id="pf-preview-alert" class="model-alert" role="alert" hidden></span>
         <button type="button" class="help-trigger" id="model-help-trigger" aria-haspopup="dialog" aria-expanded="false" aria-controls="model-help">ⓘ 모델 정보</button>
         <div id="model-help" class="help-popover" role="dialog" aria-labelledby="model-help-title" tabindex="0" hidden>
           <h3 id="model-help-title">모델 정보</h3>
@@ -295,10 +292,16 @@
           <p id="pf-preview-status">계산된 합성 시나리오 결과를 읽는 중...</p>
           <p id="pf-preview-provenance"></p>
           <p id="pf-preview-limit-note"></p>
+          <h4>현재 상태</h4>
+          <p id="grid-status-detail">계통 정보를 확인 중...</p>
           <h4>계통 기능 범위</h4>
           <p id="grid-scope-note"></p>
         </div>
+        <!-- Only abnormal states are shown here (normal status lives in the model help). -->
+        <span id="grid-status" class="grid-status" role="status">계통 정보를 확인 중...</span>
       </div>
+      <div id="grid-capability-note" class="grid-alert" role="alert" hidden></div>
+      <div id="pf-preview-alert" class="grid-alert" role="alert" hidden></div>
       <div id="pf-preview-toolbar" hidden>
         <label for="pf-display-mode">PF 결과 표시</label>
         <select id="pf-display-mode" aria-label="Power Flow 지도 표시 모드" disabled>
@@ -680,18 +683,23 @@
       if (currentMapData) applyPfDisplayMode();
     }
 
+    // Normal status is recorded in the model help only; abnormal states stay visible next to the selector.
+    function setGridStatus(text, abnormal) {
+      const status = document.getElementById("grid-status");
+      status.textContent = abnormal ? text : "";
+      status.hidden = !abnormal;
+      status.classList.toggle("grid-warning", abnormal);
+      document.getElementById("grid-status-detail").textContent = text;
+    }
+
     function updatePfPreviewPanel() {
       const entry = gridEntries.find((item) => item.id === selectedGridId);
       const available = entry?.pf_preview_available === true;
-      const panel = document.getElementById("pf-preview-panel");
       const toolbar = document.getElementById("pf-preview-toolbar");
-      // The one-line notice and the model help are shown for every registered grid; the PF
-      // toolbar only when a PF preview exists. Failures stay visible outside the popover.
-      panel.hidden = !entry;
+      // Model details live only in the help popover; the PF toolbar appears when a PF preview
+      // exists, and a PF failure is the only state shown as a visible alert row.
+      document.getElementById("model-help-trigger").hidden = !entry;
       toolbar.hidden = !available;
-      document.getElementById("pf-preview-notice").textContent = isMongoliaGrid()
-        ? "합성 AC PF 시나리오 · 실제 몽골 운영 데이터 아님"
-        : "KPG-193 합성 시험계통 · 실제 한국 운영 데이터 아님";
       document.getElementById("grid-scope-note").textContent = entry?.note || "";
       const alert = document.getElementById("pf-preview-alert");
       alert.textContent = pfPreviewError ? `PF 미리보기 오류 — 기본 지도와 기존 분석 기능은 유지됩니다: ${pfPreviewError}` : "";
@@ -850,6 +858,9 @@
       const place = () => {
         const rect = trigger.getBoundingClientRect();
         popover.style.maxHeight = "";
+        popover.classList.remove("wrap-first");
+        const first = popover.querySelector(".help-strong");
+        if (first && first.scrollWidth > first.clientWidth + 1) popover.classList.add("wrap-first");
         const width = popover.offsetWidth;
         const below = window.innerHeight - rect.bottom - margin - 6;
         const above = rect.top - margin - 6;
@@ -967,13 +978,13 @@
       warning.textContent = disabledReasons.join(" ");
       renderAssistantHelp(entry);
       document.getElementById("grid-map-title").textContent = entry?.name || selectedGridId;
-      document.getElementById("grid-status").textContent = !entry ? "미등록" :
+      setGridStatus(!entry ? "미등록" :
         !entry.map_available ? "지도 데이터 준비 중" :
         available ? "계통해석 가능" :
         securityAvailable ? (gridCapability("sensitivity_analysis_available")
           ? "합성 PF 조회 · 선로 N-1 Security / Sensitivity Analysis 가능" : "합성 PF 조회 · 선로 N-1 Security Analysis 가능") :
-        chatAvailable ? "합성 PF 조회 전용 · 계통해석 미지원" : "지도 조회 전용 · 계통해석 미검증";
-      document.getElementById("grid-status").classList.toggle("grid-warning", !available);
+        chatAvailable ? "합성 PF 조회 전용 · 계통해석 미지원" : "지도 조회 전용 · 계통해석 미검증",
+        !entry || !entry.map_available || !(available || securityAvailable));
       document.getElementById("pf-display-mode").disabled = !(
         entry?.pf_preview_available === true && pfPreview !== null
       );
@@ -1032,7 +1043,7 @@
         updateGridCapabilities();
         await loadNetworkMap();
       } catch (error) {
-        document.getElementById("grid-status").textContent = "계통 목록 오류: " + error.message;
+        setGridStatus("계통 목록 오류: " + error.message, true);
       }
     }
 
@@ -1064,7 +1075,7 @@
       } catch (error) {
         if (token !== gridSwitchToken) return;
         mapProjection = null;
-        document.getElementById("grid-status").textContent = "지도 오류: " + error.message;
+        setGridStatus("지도 오류: " + error.message, true);
         if (entry?.pf_preview_available) {
           pfPreviewError = error.message;
           updatePfPreviewPanel();
@@ -1090,12 +1101,12 @@
         pfTransformerResultMap = new Map(payload.transformers.map((item) => [String(item.transformer_id), item]));
         document.getElementById("pf-display-mode").disabled = false;
         updatePfPreviewPanel();
-        document.getElementById("grid-status").textContent = isMongoliaGrid()
+        setGridStatus(isMongoliaGrid()
           ? (gridCapability("security_analysis_available")
             ? (gridCapability("sensitivity_analysis_available")
               ? "합성 PF 미리보기 · 선로 N-1 Security / Sensitivity Analysis 가능" : "합성 PF 미리보기 · 선로 N-1 Security Analysis 가능")
             : "지도 조회 · 합성 PF 미리보기 (읽기 전용)")
-          : "KPG-193 지도 · 격리된 기본상태 PF 미리보기";
+          : "KPG-193 지도 · 격리된 기본상태 PF 미리보기", !gridCapability("security_analysis_available"));
         applyPfDisplayMode();
       } catch (error) {
         if (token !== gridSwitchToken) return;
@@ -1106,9 +1117,9 @@
         pfTransformerResultMap.clear();
         document.getElementById("pf-display-mode").value = "base";
         document.getElementById("pf-display-mode").disabled = true;
-        document.getElementById("grid-status").textContent = isMongoliaGrid()
+        setGridStatus(isMongoliaGrid()
           ? "지도 조회 · PF 미리보기 사용 불가"
-          : "KPG-193 지도 · 기본 PF 미리보기 사용 불가";
+          : "KPG-193 지도 · 기본 PF 미리보기 사용 불가", true);
         applyPfDisplayMode();
       }
       updatePfPreviewPanel();

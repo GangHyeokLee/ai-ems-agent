@@ -37,7 +37,8 @@ UNIFIED_PROBE = ROOT / "tests" / "browser" / "unified_ui_probe.js"
 THEME_PROBE = ROOT / "tests" / "browser" / "theme_help_probe.js"
 PROBES = {"stale": PROBE, "unified": UNIFIED_PROBE, "theme": THEME_PROBE}
 THEME_SHOT_DIR = ROOT / "outputs" / "browser_theme_help"
-THEME_SCREENSHOT_STOPS = ["kpg_dark", "help_model_kpg_dark", "mn_dark", "mn_dark_details", "help_assistant_mn_dark"]
+THEME_SCREENSHOT_STOPS = ["kpg_dark", "help_model_light", "help_model_kpg_dark", "help_model_mn_dark", "mn_dark",
+                          "mn_dark_details", "help_assistant_mn_dark"]
 INDEX = ROOT / "ui" / "index.html"
 SHOT_DIR = ROOT / "outputs" / "browser_stale_responses"
 WINDOWS_CHROME = Path("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe")
@@ -283,6 +284,18 @@ def expected_checks(probe: Path) -> int:
     return len(re.findall(r'\bcheck\("(?!probe exception)', source)) + len(re.findall(r'\bcheckText\("', source))
 
 
+def missing_checks(probe: Path, results: list[dict]) -> list[str]:
+    """Names of checks declared in the probe source that did not run (covers helper-generated checks)."""
+    source = probe.read_text(encoding="utf-8")
+    ran = {item["name"] for item in results}
+    missing = [name for name in set(re.findall(r'\bcheck\("([^"]+)"', source)) - {"probe exception"} if name not in ran]
+    missing += [f"contrast {label}" for label in re.findall(r'\bcheckText\("([^"]+)"', source)
+                if not any(name.startswith(f"contrast {label} >=") for name in ran)]
+    missing += [f"{label}: layout" for label in re.findall(r'\bcheckHelpLayout\("([^"]+)"', source)
+                if f"{label}: no line break inside a Korean word" not in ran]
+    return missing
+
+
 def probe_results(dom: str) -> dict:
     match = re.search(r'<pre id="__probe_result">(.*?)</pre>', dom, re.S)
     assert match, "probe did not finish"
@@ -347,7 +360,7 @@ def test_theme_and_help_on_both_grids(app_url):
     (THEME_SHOT_DIR / "results.json").write_text(
         json.dumps({"results": results, "contrast": report["contrast"]}, ensure_ascii=False, indent=2), encoding="utf-8")
     failed = [item for item in results if not item["pass"]]
-    assert len(results) == expected_checks(THEME_PROBE), [item["name"] for item in results]
+    assert not missing_checks(THEME_PROBE, results), missing_checks(THEME_PROBE, results)
     assert not failed, json.dumps(failed, ensure_ascii=False, indent=2)
 
 

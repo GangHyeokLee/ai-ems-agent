@@ -58,6 +58,40 @@
     contrastReport[label] = Number(value.toFixed(2));
     check(`contrast ${label} >= ${min}`, value >= min, value.toFixed(2));
   };
+  // Line breaks between two Hangul syllables inside help text (first sentence excluded).
+  const hangulBreaks = (container) => {
+    const bad = [];
+    const walker = document.createTreeWalker(container, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      if (node.parentElement.closest(".help-strong")) continue;
+      const text = node.textContent;
+      let previousTop = null;
+      for (let i = 0; i < text.length; i += 1) {
+        const range = document.createRange();
+        range.setStart(node, i); range.setEnd(node, i + 1);
+        const rect = range.getClientRects()[0];
+        if (!rect) continue;
+        if (previousTop !== null && rect.top > previousTop + 2 && /[\uac00-\ud7a3]/.test(text[i - 1]) && /[\uac00-\ud7a3]/.test(text[i])) {
+          bad.push(text.slice(Math.max(0, i - 6), i + 6));
+        }
+        previousTop = rect.top;
+      }
+    }
+    return bad;
+  };
+  const lineCount = (el) => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
+  const wide = innerWidth >= 900;
+  const checkHelpLayout = (label, popover) => {
+    const first = popover.querySelector(".help-strong");
+    if (first) {
+      check(`${label}: first sentence ${wide ? "on one line" : "wraps inside the viewport"}`, wide ? lineCount(first) === 1 : first.getBoundingClientRect().right <= innerWidth, [lineCount(first), first.textContent]);
+    }
+    const breaks = hangulBreaks(popover);
+    check(`${label}: no line break inside a Korean word`, breaks.length === 0, breaks.slice(0, 5));
+    const body = popover.querySelector("p:not(.help-strong), li");
+    check(`${label}: keep-all + break-word`, getComputedStyle(body).wordBreak === "keep-all" && getComputedStyle(body).overflowWrap === "break-word");
+    check(`${label}: inside viewport`, inViewport(popover));
+  };
   const inViewport = (el) => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.top >= 0 && r.right <= innerWidth + 0.5 && r.bottom <= innerHeight + 0.5 && r.width > 0; };
   const finish = () => {
     store("results", results);
@@ -87,10 +121,17 @@
 
       // ---- Light theme help popover ----------------------------------------------------------
       const modelTrigger = $("model-help-trigger"), modelHelp = $("model-help");
-      check("Banner: one-line KPG notice visible", $("pf-preview-notice").textContent === "KPG-193 합성 시험계통 · 실제 한국 운영 데이터 아님" && modelHelp.hidden);
+      check("No always-on banner row", !$("pf-preview-notice") && !$("pf-preview-panel") && modelHelp.hidden);
+      const toolbarNext = [...document.querySelectorAll("#map-panel > *")].filter((el) => getComputedStyle(el).display !== "none");
+      check("No empty row: grid toolbar is followed by the PF toolbar", toolbarNext[toolbarNext.indexOf(document.querySelector(".grid-toolbar")) + 1] === $("pf-preview-toolbar"),
+        toolbarNext.map((el) => el.id || el.className));
+      check("Model info button next to the grid selector", modelTrigger.parentElement.classList.contains("grid-toolbar") && !modelTrigger.hidden);
+      check("Normal status not shown permanently", $("grid-status").hidden && $("grid-status").textContent === "" && $("grid-capability-note").hidden && $("pf-preview-alert").hidden);
       modelTrigger.dispatchEvent(new MouseEvent("mouseenter"));
       check("Help: hover opens", !modelHelp.hidden && modelTrigger.getAttribute("aria-expanded") === "true");
       const kpgHelp = modelHelp.textContent;
+      checkHelpLayout("Help KPG (light)", modelHelp);
+      check("Help KPG: normal status moved into help", $("grid-status-detail").textContent === "KPG-193 지도 · 격리된 기본상태 PF 미리보기");
       check("Help KPG: original details preserved", ["실제 한국 운영 데이터가 아닙니다", "AC PF 수렴", "회 반복", "모선", "선로", "발전기", "HVDC", "운영 경보 기준이 아닙니다", "KPG-193 합성 시험계통의 정상상태 PF 미리보기"]
         .every((text) => kpgHelp.includes(text)), kpgHelp.slice(0, 300));
       check("Help: inside viewport", inViewport(modelHelp));
@@ -116,6 +157,8 @@
       const kpgGuide = assistantHelp.textContent;
       check("Assistant help KPG: scope + examples", ["LINE-16-28 사고를 분석해 줘.", "GEN-124#1 발전기 탈락을 분석해 줘.", "최적 Redispatch가 아닙니다", "실제 한국 운영계통 결과가 아닙니다"].every((t) => kpgGuide.includes(t)), kpgGuide.slice(0, 200));
       check("Assistant help: inside viewport + only one open", inViewport(assistantHelp) && modelHelp.hidden);
+      checkHelpLayout("Assistant help KPG", assistantHelp);
+      if (stopAt === "help_model_light") { document.body.click(); modelTrigger.click(); return finish(); }
       document.body.click();
 
       // ---- Dark theme (explicit) ---------------------------------------------------------------
@@ -128,12 +171,19 @@
       // KPG Security + Sensitivity in dark
       type("outage-line", "LINE-16-28");
       await runSecurityAnalysis();
+      // Measured before Sensitivity: LINE-16-22 then also becomes the monitored line (magenta wins).
+      const securityBg = rgba(getComputedStyle(document.querySelector(".country-outline")).fill);
+      for (const [label, selector] of [["outage", ".outage-line"], ["violation", ".violation-line"]]) {
+        const value = ratio(rgba(getComputedStyle(document.querySelector(selector)).stroke), securityBg);
+        contrastReport[`dark overlay ${label} vs map`] = Number(value.toFixed(2));
+        check(`Dark overlay ${label} >= 3:1 against the map`, value >= 3, value.toFixed(2));
+      }
       type("monitored-line", "");
       await runSensitivityAnalysis();
       check("Dark KPG: results rendered", $("security-result").textContent.includes("Violations: 1") && $("sensitivity-result").textContent.includes("Top Candidates: 5"));
       checkText("header", document.querySelector("header h1"));
       checkText("theme label", document.querySelector("#theme-switch label"));
-      checkText("banner notice", $("pf-preview-notice"));
+      checkText("model info button", modelTrigger);
       checkText("security row", $("security-result").querySelector(".result-row"));
       checkText("security sub/notice", $("security-result").querySelector(".result-notice"));
       checkText("sensitivity candidate", $("sensitivity-result").querySelector(".result-item-sub"));
@@ -159,12 +209,16 @@
       check("Dark KPG map: line & bus colours >= 3:1", minLine >= 3 && minBus >= 3, [minLine.toFixed(2), minBus.toFixed(2)]);
       check("Dark KPG overlays: outage solid, violation dashed, monitored dashed", getComputedStyle(document.querySelector(".outage-line")).strokeDasharray === "none"
         && getComputedStyle(document.querySelector(".violation-line")).strokeDasharray !== "none" && getComputedStyle(document.querySelector(".monitored-line")).strokeDasharray !== "none");
+      const darkBg = rgba(getComputedStyle(document.querySelector(".country-outline")).fill);
+      const monitoredValue = ratio(rgba(getComputedStyle(document.querySelector(".monitored-line")).stroke), darkBg);
+      contrastReport["dark overlay monitored vs map"] = Number(monitoredValue.toFixed(2));
+      check("Dark overlay monitored >= 3:1 against the map", monitoredValue >= 3, monitoredValue.toFixed(2));
       if (stopAt === "kpg_dark") return finish();
 
       // Grid switch keeps the theme; Mongolia in dark
       await switchGrid("mn-osm-35k", true);
       check("Theme kept across grid switch", root.dataset.theme === "dark" && document.querySelector('#theme-switch input[value="dark"]').checked);
-      check("Banner: one-line MN notice", $("pf-preview-notice").textContent === "합성 AC PF 시나리오 · 실제 몽골 운영 데이터 아님");
+      check("MN: no banner, normal status hidden", !$("pf-preview-notice") && $("grid-status").hidden && $("grid-capability-note").hidden);
       check("Chat log no longer seeded with the long guide", document.querySelectorAll("#chat-log .chat-message").length === 0);
       assistantTrigger.click();
       const mnGuide = assistantHelp.textContent;
@@ -180,6 +234,9 @@
       check("Help MN: original details preserved", ["실제 몽골 운영 데이터가 아닙니다", "166모선 주 연결요소", "합성 발전기 45대", "합성 리액터 20 MVAr", "실제 측정값이 아닙니다",
         "전기정수 미검증", "모델 신뢰성 검토 필요", "선로 N-1 Security Analysis"].every((t) => mnHelp.includes(t)), mnHelp.slice(0, 300));
       check("Help MN: no KPG text", !mnHelp.includes("HVDC") && !mnHelp.includes("KPG193"));
+      check("Help MN: normal status moved into help", $("grid-status-detail").textContent === "합성 PF 미리보기 · 선로 N-1 Security / Sensitivity Analysis 가능");
+      checkHelpLayout("Help MN (dark)", modelHelp);
+      if (stopAt === "help_model_mn_dark") return finish();
       document.body.click();
       type("outage-line", "484333456-1_0");
       await runSecurityAnalysis();
@@ -201,6 +258,13 @@
       check("Dark MN map: line & power-plant colours >= 3:1", minMnLine >= 3 && minPlant >= 3, [minMnLine.toFixed(2), minPlant.toFixed(2)]);
       if (stopAt === "mn_dark" || stopAt === "mn_dark_details") return finish();
 
+      // Abnormal status stays visible; normal status returns to the help only.
+      const normalStatus = $("grid-status-detail").textContent;
+      setGridStatus("지도 오류: probe-forced", true);
+      check("Abnormal status visible next to the selector", !$("grid-status").hidden && $("grid-status").textContent === "지도 오류: probe-forced" && $("grid-status").classList.contains("grid-warning"));
+      checkText("abnormal status", $("grid-status"));
+      setGridStatus(normalStatus, false);
+      check("Normal status hidden again", $("grid-status").hidden);
       // Visible failure alert stays outside the popover.
       const savedError = pfPreviewError;
       pfPreviewError = "probe-forced error";

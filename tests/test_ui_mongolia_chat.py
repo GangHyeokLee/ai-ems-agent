@@ -181,11 +181,34 @@ def test_help_popovers_are_accessible_and_keep_original_text():
         assert needle in setup, needle
     assert 'event.key !== "Escape"' in INDEX_HTML
     # original banner fields still filled, now inside the popover; failures visible outside it
-    for field in ("pf-preview-disclaimer", "pf-preview-status", "pf-preview-provenance", "pf-preview-limit-note", "grid-scope-note"):
+    for field in ("pf-preview-disclaimer", "pf-preview-status", "pf-preview-provenance", "pf-preview-limit-note",
+                  "grid-status-detail", "grid-scope-note"):
         assert f'id="{field}"' in INDEX_HTML.split('id="model-help"', 1)[1].split("</div>", 1)[0], field
-    assert 'id="pf-preview-alert" class="model-alert" role="alert"' in INDEX_HTML
+    assert 'id="pf-preview-alert" class="grid-alert" role="alert"' in INDEX_HTML
     guides = INDEX_HTML.split("const ASSISTANT_GUIDES", 1)[1].split("};\n", 1)[0]
     for text in ("AI 채팅에서는 N-1 계산을 호출할 수 없습니다", "Redispatch는 지원하지 않습니다.", "Bus 137 전압은?",
                  "부하율이 가장 높은 선로 5개 알려줘.", "몽골 합성 PF 결과에서 전압 위반 모선이 있나?"):
         assert text in guides, text
     assert 'title="' not in INDEX_HTML.split('id="model-help-trigger"', 1)[1].split(">", 1)[0]   # not a bare title tooltip
+
+
+def test_no_always_on_notice_and_status_rules():
+    """PR #8 review: no permanent synthetic-data banner or normal-status text; abnormal states stay visible."""
+    for removed in ('id="pf-preview-notice"', 'id="pf-preview-panel"', "model-notice"):
+        assert removed not in INDEX_HTML, removed
+    toolbar = INDEX_HTML.split('<div class="grid-toolbar">', 1)[1].split('<div id="grid-capability-note"', 1)[0]
+    assert 'id="model-help-trigger"' in toolbar and 'id="grid-status"' in toolbar
+    status = function_body("setGridStatus")
+    assert 'status.textContent = abnormal ? text : "";' in status and "status.hidden = !abnormal;" in status
+    assert 'getElementById("grid-status-detail").textContent = text;' in status
+    assert INDEX_HTML.count('getElementById("grid-status").textContent') == 0      # every write goes through setGridStatus
+    for abnormal in ('setGridStatus("계통 목록 오류: " + error.message, true);', 'setGridStatus("지도 오류: " + error.message, true);'):
+        assert abnormal in INDEX_HTML
+
+
+def test_help_popover_wraps_korean_by_word():
+    css = INDEX_HTML.split(".help-popover { position: fixed;", 1)[1].split("}", 1)[0]
+    assert "word-break: keep-all;" in css and "overflow-wrap: break-word;" in css and "width: max-content;" in css
+    assert ".help-popover > :not(.help-strong) { contain: inline-size; }" in INDEX_HTML
+    assert ".help-popover .help-strong { white-space: nowrap; }" in INDEX_HTML
+    assert 'popover.classList.add("wrap-first")' in INDEX_HTML.split("function setupHelp(", 1)[1]
