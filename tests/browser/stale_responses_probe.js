@@ -57,7 +57,7 @@
   const sensitivityText = () => $("sensitivity-result").textContent;
   const outageHighlighted = (lineId) => !!document.querySelector(`.network-line.outage-line[data-line-id="${lineId}"]`);
   const monitoredHighlighted = (lineId) => !!document.querySelector(`.network-line.monitored-line[data-line-id="${lineId}"]`);
-  const mnOverlayCount = () => count(".outage-line, .violation-line, .isolated-bus, .isolated-line, .monitored-line, .mn-synthetic-gen, .mn-monitored-marker");
+  const mnOverlayCount = () => count(".outage-line, .violation-line, .isolated-bus, .isolated-line, .monitored-line, .candidate-marker, .monitored-marker");
   const finish = () => {
     const pre = document.createElement("pre");
     pre.id = "__probe_result";
@@ -98,24 +98,25 @@
 
     // ---- 2a. Mongolia Sensitivity: pending, monitored line edited ----------------------
     if (await scenario("mn_sensitivity_monitored", async () => {
-      type("mn-monitored-line", "303374638-1_0");
+      type("monitored-line", "303374638-1_0");
       const gateS = await gate("/api/grids/mn-osm-35k/sensitivity-analysis?");
       const before = snapshot();
       const runS = runSensitivityAnalysis();
       await gateS.requested;
-      type("mn-monitored-line", "484276912-1_0");
+      type("monitored-line", "484276912-1_0");
       gateS.release();
       await runS;
       check("MN Sensitivity(monitored edit): stale ranking not applied", delta(before, "applyMongoliaSensitivityResult") === 0);
-      check("MN Sensitivity(monitored edit): no monitored/generator markers", count(".monitored-line, .mn-synthetic-gen, .mn-monitored-marker") === 0);
-      check("MN Sensitivity(monitored edit): no ranking text", !sensitivityText().includes("민감도 순위"), sensitivityText().slice(0, 80));
+      check("MN Sensitivity(monitored edit): no monitored/generator markers", count(".monitored-line, .candidate-marker, .monitored-marker") === 0);
+      check("MN Sensitivity(monitored edit): no ranking text", !sensitivityText().includes("Top Candidates"), sensitivityText().slice(0, 80));
       check("MN Sensitivity(monitored edit): Security overlay kept", outageHighlighted("751261406-1_0"));
       const runNew = runSensitivityAnalysis();
       await runNew;
       check("MN Sensitivity: new request applied once", delta(before, "applyMongoliaSensitivityResult") === 1);
       check("MN Sensitivity: new monitored line highlighted", monitoredHighlighted("484276912-1_0") && !monitoredHighlighted("303374638-1_0"));
-      check("MN Sensitivity: generator rank markers drawn", count(".mn-synthetic-gen") > 0 && count(".mn-monitored-marker") === 1);
-      check("MN Sensitivity: ranking + FD shown", sensitivityText().includes("민감도 순위") && sensitivityText().includes("유한차분 검증: 통과"));
+      check("MN Sensitivity: generator rank markers drawn", count(".candidate-marker") > 0 && count(".monitored-marker") === 1);
+      check("MN Sensitivity: ranking + FD in details", sensitivityText().includes("Top Candidates: 5") &&
+        !!document.querySelector("#sensitivity-result details.result-details") && sensitivityText().includes("유한차분 검증") && sensitivityText().includes("결과: 통과"));
     })) return finish();
 
     // ---- 2b. Mongolia Sensitivity: pending, outage line edited --------------------------
@@ -136,7 +137,7 @@
     if (await scenario("switch_mn_to_kpg", async () => {
       type("outage-line", "751261406-1_0");
       await runSecurityAnalysis();
-      type("mn-monitored-line", "");
+      type("monitored-line", "");
       const gateSec = await gate("/api/grids/mn-osm-35k/security-analysis?outage_line_id=484333456-1_0");
       const gateSens = await gate("/api/grids/mn-osm-35k/sensitivity-analysis?");
       const before = snapshot();
@@ -185,7 +186,7 @@
       await runNew;
       const markersAfterNew = count(".sensitivity-marker");
       check("KPG Sensitivity: newer result applied", delta(before, "applySensitivityResult") === 1 && sensitivityText().includes("LINE-16-22"));
-      check("KPG Sensitivity: KPG generator markers drawn", markersAfterNew > 0 && count(".mn-synthetic-gen") === 0);
+      check("KPG Sensitivity: shared candidate markers + monitored ring drawn", count(".candidate-marker") > 0 && count(".monitored-marker") === 1);
       gateOld.release();
       await runOld;                                               // HTTP 500 for the older request
       check("KPG Sensitivity: late failure ignored", !sensitivityText().includes("실패") && sensitivityText().includes("LINE-16-22"), sensitivityText().slice(0, 80));

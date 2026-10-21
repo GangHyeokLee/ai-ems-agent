@@ -33,10 +33,28 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 PROBE = ROOT / "tests" / "browser" / "stale_responses_probe.js"
+UNIFIED_PROBE = ROOT / "tests" / "browser" / "unified_ui_probe.js"
+PROBES = {"stale": PROBE, "unified": UNIFIED_PROBE}
 INDEX = ROOT / "ui" / "index.html"
 SHOT_DIR = ROOT / "outputs" / "browser_stale_responses"
 WINDOWS_CHROME = Path("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe")
 SCREENSHOT_STOPS = ["mn_security", "mn_sensitivity_monitored", "kpg_sensitivity", "switch_kpg_to_mn"]
+UNIFIED_SHOT_DIR = ROOT / "outputs" / "browser_unified_ui"
+UNIFIED_SCREENSHOT_STOPS = ["kpg_security", "kpg_sensitivity", "mn_security", "mn_security_details",
+                            "mn_sensitivity", "mn_sensitivity_details", "mn_island", "kpg_chat"]
+
+
+def chat_fixture_responses() -> dict[str, dict]:
+    """Real /api/chat responses built from real KPG tool outputs (only the LLM is scripted)."""
+    import importlib.util
+
+    sys.path.insert(0, str(ROOT))
+    import web_app
+
+    spec = importlib.util.spec_from_file_location("chat_fixtures", ROOT / "tests" / "browser" / "chat_fixtures.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return {key: module.build_chat_response(web_app, key)[0] for key in module.SCENARIOS}
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("AI_EMS_BROWSER_TESTS") != "1",
@@ -94,7 +112,7 @@ class Gates:
         return None
 
 
-def make_proxy(upstream: str, gates: Gates):
+def make_proxy(upstream: str, gates: Gates, chat_fixtures: dict[str, dict] | None = None):
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *args):
             pass
@@ -140,8 +158,9 @@ def make_proxy(upstream: str, gates: Gates):
                 return
             if self.path == "/" or self.path.startswith("/?"):
                 gates.reset()
+                probe = PROBES["unified" if "probe=unified" in self.path else "stale"]
                 html = INDEX.read_text(encoding="utf-8").replace(
-                    "</body>", f"<script>{PROBE.read_text(encoding='utf-8')}</script></body>")
+                    "</body>", f"<script>{probe.read_text(encoding='utf-8')}</script></body>")
                 body = html.encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -154,7 +173,14 @@ def make_proxy(upstream: str, gates: Gates):
         def do_POST(self):
             if self._control("POST"):
                 return
-            self._forward(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
+            data = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            if self.path.startswith("/api/chat") and chat_fixtures:
+                match = re.search(r"\[fixture:(\w+)\]", data.decode("utf-8", "replace"))
+                if match and match.group(1) in chat_fixtures:
+                    # LLM stand-in: the response was produced by the real /api/chat code from real tool output.
+                    self._json(200, chat_fixtures[match.group(1)])
+                    return
+            self._forward(data)
 
         def _forward(self, data):
             gate = gates.claim(self.path)
@@ -200,7 +226,8 @@ def app_url():
                 if time.time() > deadline or server.poll() is not None:
                     raise RuntimeError("web app did not start")
                 time.sleep(0.5)
-        proxy = http.server.ThreadingHTTPServer(("127.0.0.1", proxy_port), make_proxy(upstream, Gates()))
+        proxy = http.server.ThreadingHTTPServer(("127.0.0.1", proxy_port),
+                                                make_proxy(upstream, Gates(), chat_fixture_responses()))
         threading.Thread(target=proxy.serve_forever, daemon=True).start()
         yield f"http://127.0.0.1:{proxy_port}/", chrome
         proxy.shutdown()
@@ -245,6 +272,10 @@ def run_chrome(chrome: tuple[Path, bool], url: str, profile: str, screenshot: Pa
     raise RuntimeError(f"Chrome produced no output: {done.stderr[-500:]!r}")
 
 
+def expected_checks(probe: Path) -> int:
+    return len(re.findall(r'\bcheck\("(?!probe exception)', probe.read_text(encoding="utf-8")))
+
+
 def probe_results(dom: str) -> dict:
     match = re.search(r'<pre id="__probe_result">(.*?)</pre>', dom, re.S)
     assert match, "probe did not finish"
@@ -259,7 +290,7 @@ def test_stale_responses_are_never_applied(app_url):
     (SHOT_DIR / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     failed = [item for item in results if not item["pass"]]
     # Every static check in the probe must have run (no scenario silently skipped).
-    expected = len(re.findall(r'\bcheck\("(?!probe exception)', PROBE.read_text(encoding="utf-8")))
+    expected = expected_checks(PROBE)
     assert len(results) == expected, [item["name"] for item in results]
     assert not failed, json.dumps(failed, ensure_ascii=False, indent=2)
 
@@ -271,4 +302,26 @@ def test_screenshots_of_end_states(app_url):
         if shot.exists():
             shot.unlink()
         run_chrome(chrome, f"{url}?stop={stop}", f"stale-shot-{stop}", screenshot=shot)
+        assert shot.is_file() and shot.stat().st_size > 10_000, stop
+
+
+def test_unified_ui_same_components_for_kpg_and_mongolia(app_url):
+    url, chrome = app_url
+    report = probe_results(run_chrome(chrome, f"{url}?probe=unified", "unified-probe"))
+    results = report["results"]
+    UNIFIED_SHOT_DIR.mkdir(parents=True, exist_ok=True)
+    (UNIFIED_SHOT_DIR / "results.json").write_text(
+        json.dumps({"results": results, "visible_text": report["shots"]}, ensure_ascii=False, indent=2), encoding="utf-8")
+    failed = [item for item in results if not item["pass"]]
+    assert len(results) == expected_checks(UNIFIED_PROBE), [item["name"] for item in results]
+    assert not failed, json.dumps(failed, ensure_ascii=False, indent=2)
+
+
+def test_unified_ui_screenshots(app_url):
+    url, chrome = app_url
+    for stop in UNIFIED_SCREENSHOT_STOPS:
+        shot = UNIFIED_SHOT_DIR / f"{stop}.png"
+        if shot.exists():
+            shot.unlink()
+        run_chrome(chrome, f"{url}?probe=unified&stop={stop}", f"unified-shot-{stop}", screenshot=shot)
         assert shot.is_file() and shot.stat().st_size > 10_000, stop
