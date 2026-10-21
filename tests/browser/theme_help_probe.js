@@ -245,9 +245,8 @@
       check("Chat log no longer seeded with the long guide", document.querySelectorAll("#chat-log .chat-message").length === 0);
       assistantTrigger.click();
       const mnGuide = assistantHelp.textContent;
-      check("Assistant help MN: limits + examples preserved", ["합성 PF 조회 전용 AI Assistant입니다", "AI 채팅에서는 N-1 계산을 호출할 수 없습니다",
-        "선로 N-1과 (계통 분리 없는 사고의) Sensitivity는 Security Analysis 패널에서 실행하세요.", "Redispatch는 지원하지 않습니다.",
-        "Bus 137 전압은?", "부하율이 가장 높은 선로 5개 알려줘.", "몽골 합성 PF 결과에서 전압 위반 모선이 있나?"].every((t) => mnGuide.includes(t)), mnGuide.slice(0, 200));
+      check("Assistant help MN: limits + examples preserved", ["합성 PF 조회와 선로 N-1 Security·Sensitivity를 지원합니다", "Redispatch·OPF·발전기 사고",
+        "Bus 137 전압은?", "751261406-1_0 선로 N-1 후 민감도 Top 5", "이어서 민감도 후보 5개", "Security: 검증 완료", "Sensitivity: 검증 완료"].every((t) => mnGuide.includes(t)), mnGuide.slice(0, 200));
       check("Assistant help MN: no KPG text", !mnGuide.includes("LINE-16-28"));
       checkText("assistant help (MN)", assistantHelp.querySelector("li"));
       if (stopAt === "help_assistant_mn_dark") return finish();

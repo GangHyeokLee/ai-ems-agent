@@ -290,7 +290,7 @@ def test_catalog_chat_capability_is_separate_from_analysis(tmp_path, assets):
     assert ready["kr-kpg193"]["chat_available"] is True
     assert ready["kr-kpg193"]["analysis_available"] is True
     assert ready[MONGOLIA_GRID_ID]["chat_available"] is True
-    assert ready[MONGOLIA_GRID_ID]["chat_mode"] == "pf_read_only"
+    assert ready[MONGOLIA_GRID_ID]["chat_mode"] == "mongolia_analysis"
     assert ready[MONGOLIA_GRID_ID]["analysis_available"] is False
     missing = {item["id"]: item for item in list_grids(map_file, tmp_path / "missing.json")}
     assert missing[MONGOLIA_GRID_ID]["chat_available"] is False

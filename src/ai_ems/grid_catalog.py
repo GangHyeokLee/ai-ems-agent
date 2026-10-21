@@ -83,14 +83,14 @@ def list_grids(
             "sensitivity_analysis_note": sensitivity_note,
             "generator_contingency_available": False,
             "chat_available": map_ready and pf_preview_ready,
-            "chat_mode": "pf_read_only",
+            "chat_mode": "mongolia_analysis",
             "status": "map_ready" if map_ready else "preparing",
             "note": (
                 "합성 AC Power Flow 미리보기는 조회 전용이며 웹 요청 시 재계산하지 않습니다. "
                 "실제 몽골 운영 데이터가 아니며, 선로·변압기 정수와 발전소 접속은 일부 미검증입니다. "
                 "선로 N-1 Security Analysis와 계통 분리 없는 사고의 선로 조류 Sensitivity(합성 발전기 주입 민감도)는 "
-                "검증된 PyPowSyBl 합성 모델로 화면에서 실행할 수 있습니다. "
-                "AI Assistant는 합성 PF 결과 조회 전용이며 N-1·민감도 계산을 호출하지 않습니다. "
+                "검증된 PyPowSyBl 합성 모델로 패널과 AI Assistant에서 실행할 수 있습니다. "
+                "Security·Sensitivity는 각각 모델 검증 상태에 따라 제공되며, 분석 불가 시에도 PF 조회는 가능합니다. "
                 "Redispatch·발전기 탈락 분석은 지원하지 않습니다."
             ),
         },

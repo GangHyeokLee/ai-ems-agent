@@ -73,7 +73,8 @@ def mn_env(tmp_path, monkeypatch):
 
     def install(responses):
         model = ScriptedChatModel(responses=list(responses))
-        graph = create_mongolia_agent_graph(web_app._load_validated_mongolia_pf, model=model)
+        graph = create_mongolia_agent_graph(web_app._load_validated_mongolia_pf, model=model,
+                                            load_security=web_app._mongolia_security)
         monkeypatch.setattr(web_app, "mongolia_agent_graph", graph)
         return model
 
@@ -139,7 +140,7 @@ def test_hallucinated_kpg_tool_call_is_rejected(mn_env):
 
 @pytest.mark.parametrize(
     "message",
-    ["몽골에서 N-1 사고 분석해 줘.", "이 발전기의 출력을 20MW 늘려 줘.", "전압 문제 해결을 위한 Redispatch를 계산해 줘."],
+    ["이 발전기의 출력을 20MW 늘려 줘.", "전압 문제 해결을 위한 Redispatch를 계산해 줘.", "GEN-1 발전기 탈락 분석해 줘."],
 )
 def test_unsupported_calculation_is_answered_without_llm_or_tools(mn_env, message):
     model = mn_env["install"]([])

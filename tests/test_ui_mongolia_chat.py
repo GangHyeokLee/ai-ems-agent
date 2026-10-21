@@ -21,8 +21,9 @@ def test_chat_uses_chat_capability_and_grid_specific_endpoint():
 def test_late_or_mongolia_answers_never_apply_kpg_overlays():
     body = function_body("sendChatMessage")
     assert "selectedGridId !== requestGridId" in body
-    guard = body.index('if (requestGridId !== "kr-kpg193" || !gridSupportsAnalysis()) return;')
-    assert guard < body.index("applySecurityResult(")
+    guard = body.index('if (requestGridId === "mn-osm-35k")')
+    assert guard < body.index("applyMongoliaSecurityResult(") < body.index("applySecurityResult(")
+    assert "update.result?.grid_id !== requestGridId" in body
 
 
 def test_analysis_buttons_follow_their_own_capabilities():

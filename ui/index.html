@@ -815,7 +815,7 @@
       return gridEntries.find((item) => item.id === selectedGridId)?.[name] === true;
     }
 
-    // Chat capability is separate from physics analysis: Mongolia allows read-only PF Q&A only.
+    // PF chat remains available independently of each domain analysis validation gate.
     function gridSupportsChat() {
       return gridEntries.find((item) => item.id === selectedGridId)?.chat_available === true;
     }
@@ -832,15 +832,15 @@
 
     // Per-grid AI Assistant guide (scope, limits, example questions) shown in the shared help popover.
     const ASSISTANT_GUIDES = {
-      pf_read_only: {
-        title: "AI Assistant 사용 안내 · 합성 PF 조회 전용",
-        intro: "합성 PF 조회 전용 AI Assistant입니다. 사전 계산된 합성 AC PF 결과만 조회하며, AI 채팅에서는 N-1 계산을 호출할 수 없습니다.",
+      mongolia_analysis: {
+        title: "AI Assistant 사용 안내 · 몽골 합성 계통",
+        intro: "합성 PF 조회와 선로 N-1 Security·Sensitivity를 지원합니다. 자연어 연속 실행 및 후속 요청의 결과를 공통 카드와 지도에 표시합니다.",
         scope: [
-          "선로 N-1과 (계통 분리 없는 사고의) Sensitivity는 Security Analysis 패널에서 실행하세요.",
-          "Redispatch는 지원하지 않습니다.",
+          "선로 N-1 및 계통 분리 없는 사고의 합성 발전기 주입 민감도를 채팅과 패널에서 실행합니다.",
+          "Redispatch·OPF·발전기 사고·출력 변경 재계산·동특성은 지원하지 않습니다.",
           "답변은 합성 시나리오 결과이며 실제 몽골 운영 데이터가 아닙니다.",
         ],
-        examples: ["Bus 137 전압은?", "부하율이 가장 높은 선로 5개 알려줘.", "몽골 합성 PF 결과에서 전압 위반 모선이 있나?"],
+        examples: ["Bus 137 전압은?", "751261406-1_0 선로 N-1 후 민감도 Top 5를 분석해 줘.", "이어서 민감도 후보 5개 알려줘."],
         panel: [
           "Security Analysis: 대표 사고를 고르거나 지도에서 선로를 클릭한 뒤 Analyze를 실행합니다.",
           "Sensitivity Analysis: 계통 분리 없는 사고의 Security Analysis 후 실행합니다(합성 발전기 주입 민감도). 감시 선로를 비우면 사고 후 |ΔP|가 가장 큰 메시 선로를 자동 추천합니다.",
@@ -872,8 +872,13 @@
         popover.innerHTML = `<h3 id="assistant-help-title">AI Assistant 사용 안내</h3><p>현재 계통에서는 AI Assistant를 사용할 수 없습니다.</p>`;
         return;
       }
+      const availability = entry?.chat_mode === "mongolia_analysis" ? [
+        `Security: ${entry.security_analysis_available ? "검증 완료" : "사용 불가 · " + (entry.security_analysis_note || "모델 미검증")}`,
+        `Sensitivity: ${entry.sensitivity_analysis_available ? "검증 완료" : "사용 불가 · " + (entry.sensitivity_analysis_note || "모델 미검증")}`,
+        "PF 조회는 분석 지원 상태와 별개로 사용할 수 있습니다.",
+      ] : [];
       popover.innerHTML = `<h3 id="assistant-help-title">${escapeHtml(guide.title)}</h3><p>${escapeHtml(guide.intro)}</p>`
-        + `<h4>지원 범위 · 제한</h4><ul>${guide.scope.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+        + `<h4>지원 범위 · 제한</h4><ul>${[...guide.scope, ...availability].map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
         + `<h4>예시 질문</h4><ul>${guide.examples.map((item) => `<li>“${escapeHtml(item)}”</li>`).join("")}</ul>`
         + `<h4>분석 패널</h4><ul>${[...guide.panel, "지도의 분석 강조는 PF 색상보다 우선하며, 지도 표시의 ‘분석 결과’를 해제하면 숨겨집니다."]
           .map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
@@ -997,8 +1002,8 @@
         input.disabled = !generatorAvailable;
       });
       document.getElementById("chat-message").disabled = !chatAvailable;
-      document.getElementById("chat-message").placeholder = entry?.chat_mode === "pf_read_only"
-        ? "합성 PF 결과를 질문하세요. (예: Bus 137 전압은?)"
+      document.getElementById("chat-message").placeholder = entry?.chat_mode === "mongolia_analysis"
+        ? (securityAvailable ? "합성 PF · 선로 N-1 · 후속 민감도를 요청하세요." : "합성 PF 결과를 질문하세요. (예: Bus 137 전압은?)")
         : "계통 분석을 요청하세요.";
       document.getElementById("sensitivity-button").disabled = true;
       const warning = document.getElementById("grid-capability-note");
@@ -2253,9 +2258,16 @@
       if (result.outage_line_id) document.getElementById("outage-line").value = result.outage_line_id;
       applySecurityView(kpgSecurityViewModel(result), result);
     }
-    function applyMongoliaSecurityResult(result) { applySecurityView(mongoliaSecurityViewModel(result), result); }
+    function applyMongoliaSecurityResult(result) {
+      if (result.outage_line_id) document.getElementById("outage-line").value = result.outage_line_id;
+      document.getElementById("monitored-line").value = "";
+      applySecurityView(mongoliaSecurityViewModel(result), result);
+    }
     function applySensitivityResult(result) { applySensitivityView(kpgSensitivityViewModel(result)); }
-    function applyMongoliaSensitivityResult(result) { applySensitivityView(mongoliaSensitivityViewModel(result)); }
+    function applyMongoliaSensitivityResult(result) {
+      document.getElementById("monitored-line").value = result.monitored_line_id || "";
+      applySensitivityView(mongoliaSensitivityViewModel(result));
+    }
 
     // One Sensitivity flow for every grid; only the endpoint differs.
     async function runSensitivityAnalysis() {
@@ -2496,11 +2508,22 @@
         if (token !== gridSwitchToken || selectedGridId !== requestGridId) return;
         appendChatMessage("agent", payload.answer || "응답이 없습니다.");
         if (Array.isArray(payload.tools_used) && payload.tools_used.length && requestGridId !== "kr-kpg193") {
-          appendChatMessage("system", `근거: 검증된 합성 PF 조회 Tool (${[...new Set(payload.tools_used)].join(", ")})`);
+          appendChatMessage("system", `근거: 몽골 도메인 Tool (${[...new Set(payload.tools_used)].join(", ")})`);
         }
-        // Analysis overlays exist only for KPG; Mongolia answers never touch the map.
-        if (requestGridId !== "kr-kpg193" || !gridSupportsAnalysis()) return;
+        if (payload.grid_id && payload.grid_id !== requestGridId) return;
         for (const update of payload.ui_updates || []) {
+          if (requestGridId === "mn-osm-35k") {
+            if (update.grid_id !== requestGridId || update.result?.grid_id !== requestGridId) continue;
+            if (update.type === "security" && gridCapability("security_analysis_available")) {
+              securityRequestSeq++; sensitivityRequestSeq++;
+              applyMongoliaSecurityResult(update.result);
+            } else if (update.type === "sensitivity" && gridCapability("sensitivity_analysis_available")) {
+              sensitivityRequestSeq++;
+              applyMongoliaSensitivityResult(update.result);
+            }
+            continue;
+          }
+          if (!gridSupportsAnalysis()) continue;
           if (update.type === "security") applySecurityResult(update.result);
           else if (update.type === "sensitivity") applySensitivityResult(update.result);
           else if (update.type === "generator_contingency") {
