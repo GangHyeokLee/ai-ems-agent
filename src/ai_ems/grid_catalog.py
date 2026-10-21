@@ -10,8 +10,8 @@ Capabilities:
 - sensitivity_analysis_available / generator_contingency_available: per-feature flags.
 - pf_preview_available: a PF preview asset exists for the map (validated on every request).
 - chat_available: the AI Assistant may be used. For KPG this is the existing analysis
-  agent; for Mongolia it is a read-only agent over the validated synthetic PF preview,
-  so it requires the PF preview asset and never enables physics analysis.
+  agent; Mongolia queries the validated PF preview and calls its own Security and
+  Sensitivity services, gated independently by their model validation status.
 """
 
 from __future__ import annotations

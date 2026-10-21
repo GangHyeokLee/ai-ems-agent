@@ -1,7 +1,4 @@
-"""Read-only LangGraph agent for the synthetic Mongolia AC PF preview.
-
-Kept separate from the KPG-193 agent: only the Mongolia query tools are bound,
-so KPG PyPowSyBl security/sensitivity/redispatch tools can never be called here.
+"""Mongolia PF and validated line analysis agent, isolated from all KPG tools.
 """
 
 from __future__ import annotations
@@ -63,7 +60,7 @@ Tool 결과 해석:
 """.strip()
 
 UNSUPPORTED_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("발전기 사고·탈락", re.compile(r"(발전기|generator|GEN[-_])[\s\S]*(사고|탈락|고장|정지|outage|trip)|(?:사고|탈락|outage)[\s\S]*(?:발전기|generator)", re.IGNORECASE)),
+    ("발전기 사고·탈락", re.compile(r"(?:발전기|generator|GEN[-_]\S+)\s*(?:[\w#-]+\s+)?(?:사고|탈락|고장|정지|outage|trip)|(?:사고|탈락|outage)\s*(?:발전기|generator)", re.IGNORECASE)),
     ("Redispatch(재급전)", re.compile(r"re-?dispatch|재급전|리디스패치", re.IGNORECASE)),
     ("OPF(최적조류)", re.compile(r"(?<![A-Za-z])OPF(?![A-Za-z])|최적\s*조류|optimal\s+power\s+flow", re.IGNORECASE)),
     ("동특성·과도안정도 해석", re.compile(r"동특성|과도\s*안정|dynamic\s+simulation|transient", re.IGNORECASE)),
@@ -75,7 +72,7 @@ UNSUPPORTED_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
 
 
 def detect_unsupported_request(message: str) -> list[str]:
-    """Return labels of calculation requests that the Mongolia read-only agent must not attempt."""
+    """Return labels of calculation requests that the Mongolia agent must not attempt."""
     return [label for label, pattern in UNSUPPORTED_PATTERNS if pattern.search(message)]
 
 
@@ -95,7 +92,7 @@ class DisallowedMongoliaTool(ValueError):
 
 
 def requests_analysis(message: str) -> bool:
-    return bool(re.search(r"N\s*[-−]?\s*1|security|sensitivity|민감도|상정|사고|분석|이어서", message, re.I))
+    return bool(re.search(r"N\s*[-−]?\s*1|security|sensitivity|민감도|상정|사고|탈락|contingency", message, re.I))
 
 
 def create_mongolia_agent_graph(
@@ -105,7 +102,7 @@ def create_mongolia_agent_graph(
     model=None,
     load_security: SecurityLoader | None = None,
 ):
-    """Compile an agent ↔ tools loop bound only to the Mongolia read-only tools."""
+    """Compile an agent ↔ tools loop bound only to the Mongolia tools."""
     tools = create_mongolia_tools(load_preview, load_security)
 
     if model is None:

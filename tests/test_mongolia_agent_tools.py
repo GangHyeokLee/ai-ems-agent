@@ -236,11 +236,11 @@ def test_tools_via_langchain_invoke(assets):
 @pytest.mark.parametrize(
     "message",
     [
-        "몽골에서 N-1 사고 분석해 줘.",
+        "발전기 사고 분석해 줘.",
         "이 발전기의 출력을 20MW 늘려 줘.",
         "전압 문제 해결을 위한 Redispatch를 계산해 줘.",
         "OPF 돌려줘",
-        "선로 255335646-1_0 상정사고 결과는?",
+        "발전기 GEN-1 탈락 분석해 줘.",
     ],
 )
 def test_unsupported_calculation_requests_are_detected(message):
@@ -259,6 +259,9 @@ def test_unsupported_calculation_requests_are_detected(message):
         "몽골 합성 PF 결과에서 전압 위반 모선이 있나?",
         "선로 255335646-1_0의 조류 알려줘.",
         "transf_10_0 변압기 부하율은?",
+        "751261406-1_0 선로 N-1 후 민감도 Top 5",
+        "선로 사고 후 발전기 주입 민감도",
+        "이어서 민감도 후보 5개",
         "전압이 가장 낮은 모선 3개는?",
     ],
 )
@@ -276,7 +279,7 @@ def test_system_prompt_keeps_synthetic_data_warnings():
         "45대",
         "27건",
         "전기정수",
-        "N-1, Redispatch, OPF, 동특성",
+        "Redispatch, OPF, 발전기 사고·탈락",
         "추가 데이터가 필요",
         "한국어",
         "EXCLUDED_FROM_ANALYSIS",

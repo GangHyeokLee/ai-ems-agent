@@ -1003,9 +1003,13 @@
       });
       document.getElementById("chat-message").disabled = !chatAvailable;
       document.getElementById("chat-message").placeholder = entry?.chat_mode === "mongolia_analysis"
-        ? (securityAvailable ? "합성 PF · 선로 N-1 · 후속 민감도를 요청하세요." : "합성 PF 결과를 질문하세요. (예: Bus 137 전압은?)")
+        ? (securityAvailable
+          ? (gridCapability("sensitivity_analysis_available") ? "합성 PF · 선로 N-1 · 후속 민감도를 요청하세요." : "합성 PF · 선로 N-1을 요청하세요.")
+          : "합성 PF 결과를 질문하세요. (예: Bus 137 전압은?)")
         : "계통 분석을 요청하세요.";
-      document.getElementById("sensitivity-button").disabled = true;
+      document.getElementById("sensitivity-button").disabled = resetResults
+        || !gridCapability("sensitivity_analysis_available")
+        || latestSecurityView?.gridId !== selectedGridId || latestSecurityView?.sensitivity?.enabled !== true;
       const warning = document.getElementById("grid-capability-note");
       const disabledReasons = [
         !entry ? "등록되지 않은 계통입니다." : "",
@@ -2265,6 +2269,10 @@
     }
     function applySensitivityResult(result) { applySensitivityView(kpgSensitivityViewModel(result)); }
     function applyMongoliaSensitivityResult(result) {
+      if (latestSecurityResult?.outage_line_id !== result.outage_line_id) {
+        invalidateSecurityResult();
+        document.getElementById("outage-line").value = result.outage_line_id || "";
+      }
       document.getElementById("monitored-line").value = result.monitored_line_id || "";
       applySensitivityView(mongoliaSensitivityViewModel(result));
     }

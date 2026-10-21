@@ -36,7 +36,8 @@ PROBE = ROOT / "tests" / "browser" / "stale_responses_probe.js"
 UNIFIED_PROBE = ROOT / "tests" / "browser" / "unified_ui_probe.js"
 THEME_PROBE = ROOT / "tests" / "browser" / "theme_help_probe.js"
 REFERENCE_PROBE = ROOT / "tests" / "browser" / "reference_layers_probe.js"
-PROBES = {"stale": PROBE, "unified": UNIFIED_PROBE, "theme": THEME_PROBE, "reference": REFERENCE_PROBE}
+MONGOLIA_CHAT_PROBE = ROOT / "tests" / "browser" / "mongolia_chat_probe.js"
+PROBES = {"stale": PROBE, "unified": UNIFIED_PROBE, "theme": THEME_PROBE, "reference": REFERENCE_PROBE, "mnchat": MONGOLIA_CHAT_PROBE}
 REFERENCE_SHOT_DIR = ROOT / "outputs" / "browser_reference_layers"
 REFERENCE_SCREENSHOT_STOPS = ["mn_map", "mn_zoom"]
 THEME_SHOT_DIR = ROOT / "outputs" / "browser_theme_help"
@@ -61,7 +62,12 @@ def chat_fixture_responses() -> dict[str, dict]:
     spec = importlib.util.spec_from_file_location("chat_fixtures", ROOT / "tests" / "browser" / "chat_fixtures.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return {key: module.build_chat_response(web_app, key)[0] for key in module.SCENARIOS}
+    responses = {key: module.build_chat_response(web_app, key)[0] for key in module.SCENARIOS}
+    spec = importlib.util.spec_from_file_location("mn_chat_fixtures", ROOT / "tests/browser/mongolia_chat_fixtures.py")
+    mn_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mn_module)
+    responses.update(mn_module.build_mongolia_responses(web_app))
+    return responses
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("AI_EMS_BROWSER_TESTS") != "1",
@@ -182,10 +188,17 @@ def make_proxy(upstream: str, gates: Gates, chat_fixtures: dict[str, dict] | Non
             if self._control("POST"):
                 return
             data = self.rfile.read(int(self.headers.get("Content-Length") or 0))
-            if self.path.startswith("/api/chat") and chat_fixtures:
+            if (self.path.startswith("/api/chat") or self.path == "/api/grids/mn-osm-35k/chat") and chat_fixtures:
                 match = re.search(r"\[fixture:(\w+)\]", data.decode("utf-8", "replace"))
                 if match and match.group(1) in chat_fixtures:
                     # LLM stand-in: the response was produced by the real /api/chat code from real tool output.
+                    gate = gates.claim(self.path)
+                    if gate is not None:
+                        gate["requested"].set()
+                        gate["released"].wait(timeout=120)
+                        if gate["fail"]:
+                            self._json(500, {"detail": "forced late chat failure"})
+                            return
                     self._json(200, chat_fixtures[match.group(1)])
                     return
             self._forward(data)
@@ -409,3 +422,21 @@ def test_reference_ui_removal_screenshots(app_url):
             shot.unlink()
         run_chrome(chrome, f"{url}?probe=reference&stop={stop}", f"reference-shot-{stop}-{int(time.time())}", screenshot=shot)
         assert shot.is_file() and shot.stat().st_size > 10_000, stop
+
+
+def test_mongolia_analysis_chat_cards_maps_and_stale_responses(app_url):
+    url, chrome = app_url
+    report = probe_results(run_chrome(chrome, f"{url}?probe=mnchat", "mn-analysis-chat"))
+    results = report["results"]
+    target = ROOT / "outputs/browser_mongolia_chat"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "results.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    assert not missing_checks(MONGOLIA_CHAT_PROBE, results), missing_checks(MONGOLIA_CHAT_PROBE, results)
+    assert not [r for r in results if not r["pass"]], results
+
+
+def test_mongolia_analysis_chat_screenshot(app_url):
+    url, chrome = app_url
+    shot = ROOT / "outputs/browser_mongolia_chat/chain.png"
+    run_chrome(chrome, f"{url}?probe=mnchat&stop=chain", "mn-analysis-chat-shot", screenshot=shot)
+    assert shot.is_file() and shot.stat().st_size > 10_000

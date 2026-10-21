@@ -591,8 +591,8 @@ def mongolia_chat(request: ChatRequest) -> dict[str, Any]:
     if analysis_notes:
         # Analysis statements and numbers are derived from actual tool artifacts only.
         answer = "\n\n".join(analysis_notes) + "\n\n합성 모델 결과이며 실제 몽골 운영 데이터가 아닙니다."
-    elif requests_analysis(user_message):
-        answer = "이번 요청에서 검증된 분석 Tool 결과가 없습니다. 분석 성공을 확인할 수 없습니다. 사고 선로의 원본 ID와 실행할 분석을 지정해 주세요."
+    elif requests_analysis(user_message) or ("분석" in user_message and not tools_used):
+        answer = "이번 요청에서 검증된 분석 Tool 결과가 없습니다. 계산 수행을 확인할 수 없습니다. 사고 선로의 원본 ID와 실행할 분석을 지정해 주세요."
     output_messages[-1] = AIMessage(content=answer, id=output_messages[-1].id)
     mongolia_agent_sessions[session_id] = output_messages
     return {

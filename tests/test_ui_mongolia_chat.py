@@ -187,8 +187,8 @@ def test_help_popovers_are_accessible_and_keep_original_text():
         assert f'id="{field}"' in INDEX_HTML.split('id="model-help"', 1)[1].split("</div>", 1)[0], field
     assert 'id="pf-preview-alert" class="grid-alert" role="alert"' in INDEX_HTML
     guides = INDEX_HTML.split("const ASSISTANT_GUIDES", 1)[1].split("};\n", 1)[0]
-    for text in ("AI 채팅에서는 N-1 계산을 호출할 수 없습니다", "Redispatch는 지원하지 않습니다.", "Bus 137 전압은?",
-                 "부하율이 가장 높은 선로 5개 알려줘.", "몽골 합성 PF 결과에서 전압 위반 모선이 있나?"):
+    for text in ("합성 PF 조회와 선로 N-1 Security·Sensitivity를 지원합니다", "Redispatch·OPF·발전기 사고",
+                 "Bus 137 전압은?", "751261406-1_0 선로 N-1 후 민감도 Top 5", "이어서 민감도 후보 5개"):
         assert text in guides, text
     assert 'title="' not in INDEX_HTML.split('id="model-help-trigger"', 1)[1].split(">", 1)[0]   # not a bare title tooltip
 

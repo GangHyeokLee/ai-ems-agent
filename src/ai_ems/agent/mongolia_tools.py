@@ -1,9 +1,7 @@
-"""Read-only AI tools over the validated synthetic Mongolia AC PF preview.
+"""Mongolia PF queries and validated line analyses; no tool accepts file paths.
 
-These tools never recalculate power flow and never accept file paths. Every call
-reloads the preview through ``load_mongolia_pf_preview()`` (via the injected
-loader) so the fixed-scenario, fingerprint, convergence, screening and
-finite-number checks cannot be bypassed.
+PF queries reload the validated preview. Analysis tools delegate all model
+validation and calculation to MongoliaSecurityService.
 """
 
 from __future__ import annotations
@@ -350,7 +348,7 @@ ANALYSIS_TOOL_TYPES = {
 
 
 def create_mongolia_tools(load_preview: PreviewLoader, load_security: SecurityLoader | None = None) -> list:
-    """Build the Mongolia-only read-only tool set around a validated-preview loader."""
+    """Build the Mongolia-only tool set around a validated-preview loader."""
 
     def run(query: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
         try:

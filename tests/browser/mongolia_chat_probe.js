@@ -1,0 +1,96 @@
+// Issue #11: responses come from real MN graph/domain ToolMessages with a scripted model.
+(async () => {
+  const results = [];
+  const check = (name, cond, detail) => results.push({name, pass: !!cond, detail: detail ?? null});
+  const $ = (id) => document.getElementById(id);
+  const count = (selector) => document.querySelectorAll(selector).length;
+  const tick = () => fetch('/__probe__/tick').then(r => r.json());
+  const wait = async (f) => { const start = performance.now(); while (!f()) { if (performance.now()-start > 90000) throw Error('timeout'); await tick(); } };
+  const finish = () => { const el = document.createElement('pre'); el.id = '__probe_result'; el.textContent = JSON.stringify({results}); document.body.appendChild(el); };
+  const switchGrid = async (id) => {
+    $('grid-select').value = id; $('grid-select').dispatchEvent(new Event('change'));
+    await wait(() => selectedGridId === id && currentMapData && pfPreview);
+  };
+  const send = async (key) => { $('chat-message').value = `[fixture:${key}]`; await sendChatMessage(); };
+  const gate = async (path, fail=false) => {
+    const {id} = await fetch('/__probe__/gates', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({match:path, fail})}).then(r=>r.json());
+    return {requested:fetch(`/__probe__/gates/${id}?wait=1`).then(r=>r.json()), release:()=>fetch(`/__probe__/gates/${id}/release`,{method:'POST'})};
+  };
+  try {
+    await wait(() => currentMapData && pfPreview);
+    await switchGrid('mn-osm-35k');
+    await send('mn_pf');
+    check('MN PF chat remains available', $('chat-log').textContent.includes('Bus 137 합성 PF 조회'));
+    check('PF chat does not create result cards', !count('.result-card'));
+    await send('mn_security');
+    check('MN chat Security uses shared card', $('security-result').querySelector('.result-card')?.dataset.gridId === 'mn-osm-35k');
+    check('MN chat Security real convergence and zero violations', $('security-result').textContent.includes('CONVERGED') && latestSecurityResult.violated_equipment_count === 0);
+    check('MN chat Security enables sensitivity panel', !$('sensitivity-button').disabled);
+    check('MN chat Security updates outage input', $('outage-line').value === '751261406-1_0');
+    check('MN chat Security highlights outage', !!document.querySelector('.network-line.outage-line[data-line-id="751261406-1_0"]'));
+    await send('mn_followup');
+    check('MN followup uses previous outage', latestSecurityResult.outage_line_id === '751261406-1_0');
+    check('MN followup shows five candidates', count('#sensitivity-result .result-item') === 5);
+    check('MN followup auto selects verified monitored line', $('monitored-line').value === '484276912-1_0');
+    check('MN followup highlights monitored line', !!document.querySelector('.network-line.monitored-line[data-line-id="484276912-1_0"]'));
+    check('MN followup maps synthetic generators', count('.sensitivity-marker') > 0);
+    await send('mn_chain');
+    check('MN single request updates both shared cards', count('#security-result .result-card') === 1 && count('#sensitivity-result .result-card') === 1);
+    check('MN single request returns actual candidate count', count('#sensitivity-result .result-item') === 5);
+    const reveal = (id) => {
+      $(id).scrollIntoView({block:'nearest'});
+      const r = $(id).getBoundingClientRect(), m = $('messages').getBoundingClientRect();
+      return r.top < m.bottom && r.bottom > m.top;
+    };
+    check('MN shared Security card visible after scrolling to analysis', reveal('security-result'));
+    check('MN shared Sensitivity card visible after scrolling to analysis', reveal('sensitivity-result'));
+    if (new URLSearchParams(location.search).get('stop') === 'chain') return finish();
+    const entry = gridEntries.find(e => e.id === 'mn-osm-35k');
+    entry.sensitivity_analysis_available = false; entry.sensitivity_analysis_note = 'test validation failure';
+    updateGridCapabilities(false);
+    check('Sensitivity unavailable keeps PF chat and Security enabled', !$('chat-send').disabled && !$('analyze-button').disabled && $('sensitivity-button').disabled);
+    check('Unavailable sensitivity is reflected in guide and placeholder', $('assistant-help').textContent.includes('Sensitivity: 사용 불가') && !$('chat-message').placeholder.includes('민감도'));
+    entry.sensitivity_analysis_available = true; entry.sensitivity_analysis_note = null;
+    updateGridCapabilities(false);
+    await send('mn_island');
+    check('MN island chat retains eleven isolated buses', latestSecurityResult.isolated_bus_count === 11 && count('.isolated-bus') === 11);
+    check('MN island sensitivity is not evaluated', $('sensitivity-result').textContent.includes('미평가 (계통 분리)'));
+    check('MN island creates no candidate ranking or markers', count('#sensitivity-result .result-item') === 0 && count('.sensitivity-marker') === 0);
+    check('MN island disables sensitivity panel', $('sensitivity-button').disabled);
+    await send('mn_followup');
+    check('Followup for a different outage clears stale Security card', !count('#security-result .result-card') && $('outage-line').value === '751261406-1_0' && count('#sensitivity-result .result-item') === 5);
+    await switchGrid('kr-kpg193');
+    check('MN to KR clears cards and chat', count('.result-card') === 0 && count('#chat-log .chat-message') === 0);
+    await send('security');
+    check('KPG chat still uses KPG card', $('security-result').querySelector('.result-card')?.dataset.gridId === 'kr-kpg193');
+    check('KPG chat Security keeps sensitivity panel enabled', !$('sensitivity-button').disabled);
+    await send('sensitivity');
+    check('KPG chat sensitivity remains available', count('#sensitivity-result .result-item') === 5);
+    await switchGrid('mn-osm-35k');
+    check('KR to MN clears cards and markers', count('.result-card') === 0 && count('.analysis-marker') === 0);
+    const mnGate = await gate('/api/grids/mn-osm-35k/chat');
+    const oldMn = send('mn_chain'); await mnGate.requested;
+    await switchGrid('kr-kpg193'); await send('security');
+    const krCard = $('security-result').innerHTML;
+    await mnGate.release(); await oldMn;
+    check('Late MN answer never changes KR card', $('security-result').innerHTML === krCard && !count('#sensitivity-result .result-card'));
+    check('Late MN answer never appends chat in KR', !$('chat-log').textContent.includes('합성 발전기 주입 민감도'));
+    const krGate = await gate('/api/chat');
+    const oldKr = send('sensitivity'); await krGate.requested;
+    await switchGrid('mn-osm-35k'); await send('mn_island');
+    const mnCards = $('security-result').innerHTML + $('sensitivity-result').innerHTML;
+    await krGate.release(); await oldKr;
+    check('Late KR answer never changes MN cards', $('security-result').innerHTML + $('sensitivity-result').innerHTML === mnCards);
+    const failGate = await gate('/api/grids/mn-osm-35k/chat', true);
+    const oldFail = send('mn_chain'); await failGate.requested;
+    await switchGrid('kr-kpg193');
+    await failGate.release(); await oldFail;
+    check('Late MN failure never appends errors in KR', !$('chat-log').textContent.includes('오류'));
+    await switchGrid('mn-osm-35k');
+    const originalFetch = window.fetch;
+    window.fetch = async (url, opts) => String(url).endsWith('/chat') ? new Response(JSON.stringify({grid_id:'mn-osm-35k', answer:'mismatched update', ui_updates:[{type:'security',grid_id:'kr-kpg193',result:{grid_id:'kr-kpg193',outage_line_id:'LINE-16-28'}}]}), {status:200}) : originalFetch(url,opts);
+    try { await send('wrong_grid'); } finally { window.fetch = originalFetch; }
+    check('MN rejects mismatched update grid ID', count('.result-card') === 0);
+  } catch (e) { check('probe exception', false, e.stack || String(e)); }
+  finish();
+})();
