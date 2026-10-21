@@ -36,10 +36,11 @@ def test_analysis_buttons_follow_their_own_capabilities():
 
 
 def test_grid_switch_resets_chat_session_and_log():
-    reset = function_body("resetChatForGrid")
+    reset = INDEX_HTML.split("function resetChatForGrid(", 1)[1].split("\n    }\n", 1)[0]
     assert "sessionStorage.removeItem(SESSION_STORAGE_KEY)" in reset
     assert 'getElementById("chat-log").replaceChildren()' in reset
-    assert "합성 PF 조회 전용" in reset
+    assert "appendChatMessage" not in reset                  # guide moved to the help popover (Issue #6)
+    assert "renderAssistantHelp(" in reset
     assert "resetChatForGrid();" in INDEX_HTML.split('select.addEventListener("change"', 1)[1]
 
 
@@ -146,3 +147,97 @@ def test_legends_are_shared_components():
     legend = function_body("renderEquipmentLegend")
     assert "data.powerplants" in legend and "data.generators" in legend
     assert "renderEquipmentLegend(data);" in function_body("drawNetwork")
+
+
+# ---------------------------------------------------------------- Issue #6: theme + help popovers
+
+def test_theme_tokens_and_entry_points():
+    assert ':root[data-theme="dark"]' in INDEX_HTML and "color-scheme: dark" in INDEX_HTML
+    head = INDEX_HTML.split("<style>", 1)[0]
+    assert 'localStorage.getItem("ai-ems-theme")' in head and "prefers-color-scheme: dark" in head   # before first paint
+    for value in ("light", "dark", "system"):
+        assert f'<input type="radio" name="theme" value="{value}" />' in INDEX_HTML
+    apply = INDEX_HTML.split("function applyTheme(", 1)[1].split("\n    }\n", 1)[0]
+    assert 'preference === "system" && themeMedia.matches' in apply and "refreshThemedDataColors();" in apply
+    assert 'localStorage.setItem(THEME_STORAGE_KEY, preference)' in INDEX_HTML
+    assert 'themeMedia.addEventListener("change"' in INDEX_HTML
+
+
+def test_data_colours_keep_meaning_and_overlays_not_colour_only():
+    assert "function dataColor(hex)" in INDEX_HTML and "DARK_DATA_TINTS" in INDEX_HTML
+    for fn in ("voltageColor", "lineLoadingColor", "busVoltageColor", "powerplantColor"):
+        assert "dataColor(" in INDEX_HTML.split(f"function {fn}(", 1)[1].split("\n    }\n", 1)[0], fn
+    assert ".network-line.violation-line { stroke: #f59e0b !important; stroke-width: 5 !important; stroke-dasharray: 12 4;" in INDEX_HTML
+    assert ".network-line.monitored-line { stroke: #db2777 !important; stroke-width: 5 !important; stroke-dasharray: 7 3;" in INDEX_HTML
+
+
+def test_help_popovers_are_accessible_and_keep_original_text():
+    for trigger, popover in (("model-help-trigger", "model-help"), ("assistant-help-trigger", "assistant-help")):
+        assert f'id="{trigger}" aria-haspopup="dialog" aria-expanded="false" aria-controls="{popover}"' in INDEX_HTML
+        assert f'id="{popover}" class="help-popover" role="dialog"' in INDEX_HTML
+        assert f'setupHelp("{trigger}", "{popover}");' in INDEX_HTML
+    setup = INDEX_HTML.split("function setupHelp(", 1)[1].split("\n    }\n    document", 1)[0]
+    for needle in ('"mouseenter"', '"mouseleave"', '"click"', "window.innerWidth", "maxHeight"):
+        assert needle in setup, needle
+    assert 'event.key !== "Escape"' in INDEX_HTML
+    # original banner fields still filled, now inside the popover; failures visible outside it
+    for field in ("pf-preview-disclaimer", "pf-preview-status", "pf-preview-provenance", "pf-preview-limit-note",
+                  "grid-status-detail", "grid-scope-note"):
+        assert f'id="{field}"' in INDEX_HTML.split('id="model-help"', 1)[1].split("</div>", 1)[0], field
+    assert 'id="pf-preview-alert" class="grid-alert" role="alert"' in INDEX_HTML
+    guides = INDEX_HTML.split("const ASSISTANT_GUIDES", 1)[1].split("};\n", 1)[0]
+    for text in ("AI 채팅에서는 N-1 계산을 호출할 수 없습니다", "Redispatch는 지원하지 않습니다.", "Bus 137 전압은?",
+                 "부하율이 가장 높은 선로 5개 알려줘.", "몽골 합성 PF 결과에서 전압 위반 모선이 있나?"):
+        assert text in guides, text
+    assert 'title="' not in INDEX_HTML.split('id="model-help-trigger"', 1)[1].split(">", 1)[0]   # not a bare title tooltip
+
+
+def test_no_always_on_notice_and_status_rules():
+    """PR #8 review: no permanent synthetic-data banner or normal-status text; abnormal states stay visible."""
+    for removed in ('id="pf-preview-notice"', 'id="pf-preview-panel"', "model-notice"):
+        assert removed not in INDEX_HTML, removed
+    toolbar = INDEX_HTML.split('<div class="grid-toolbar">', 1)[1].split('<div id="grid-capability-note"', 1)[0]
+    assert 'id="model-help-trigger"' in toolbar and 'id="grid-status"' in toolbar
+    status = function_body("setGridStatus")
+    assert 'status.textContent = abnormal ? text : "";' in status and "status.hidden = !abnormal;" in status
+    assert 'getElementById("grid-status-detail").textContent = text;' in status
+    assert INDEX_HTML.count('getElementById("grid-status").textContent') == 0      # every write goes through setGridStatus
+    for abnormal in ('setGridStatus("계통 목록 오류: " + error.message, true);', 'setGridStatus("지도 오류: " + error.message, true);'):
+        assert abnormal in INDEX_HTML
+
+
+def test_help_popover_wraps_korean_by_word():
+    css = INDEX_HTML.split(".help-popover { position: fixed;", 1)[1].split("}", 1)[0]
+    assert "word-break: keep-all;" in css and "overflow-wrap: break-word;" in css and "width: max-content;" in css
+    assert ".help-popover > :not(.help-strong) { contain: inline-size; }" in INDEX_HTML
+    assert ".help-popover .help-strong { white-space: nowrap; }" in INDEX_HTML
+    assert 'popover.classList.add("wrap-first")' in INDEX_HTML.split("function setupHelp(", 1)[1]
+
+
+def test_quiet_ui_keeps_warnings_and_moves_guidance_to_help():
+    """Always-on guidance/notices removed; errors, non-convergence, islanding and unsupported states kept."""
+    for removed in ('id="pf-overlay-note"', 'class="pf-legend-note"', '<p class="result-notice">',
+                    "지도에서 발전기 행을 클릭하면 자동으로 입력됩니다.</span>", "몽골 합성 시나리오 검증 사례",
+                    '"사고 선로를 입력하고 분석하세요."'):
+        assert removed not in INDEX_HTML, removed
+    help_block = INDEX_HTML.split('id="model-help"', 1)[1].split("</div>", 1)[0]
+    for field in ('id="pf-display-criteria"', 'id="analysis-interpretation"', 'id="equipment-data-note"'):
+        assert field in help_block, field
+    criteria = function_body("renderDisplayCriteria")
+    assert "PoC 시연용 시각화 구간이며 운영사의 공식 경보 기준이 아닙니다." in criteria
+    assert "사고 결과 강조가 PF 색상보다 우선 표시됩니다" in criteria
+    kept = ("현재 계통은 발전기 탈락 분석을 지원하지 않습니다.", "상정사고 분석이 수렴하지 않아 민감도 분석을 수행할 수 없습니다.",
+            "사고 후 PF가 수렴하지 않아 민감도를 계산할 수 없습니다.", "분리 섬 처리 정책이 정해지지 않아 민감도는 미평가입니다",
+            "분리 섬 PF 미실행", "사고 후 PF 비수렴 · 위반 판정 불가", "PF 미리보기 오류")
+    for text in kept:
+        assert text in INDEX_HTML, text
+
+
+def test_map_tooltips_do_not_repeat_model_origin_disclaimers():
+    """Model provenance belongs in ⓘ model info, not each equipment tooltip."""
+    assert "pfSourceLabel" not in INDEX_HTML
+    assert 'id="pf-preview-disclaimer"' in INDEX_HTML
+    for tooltip in ("showBusTooltip", "showLineTooltip", "showTransformerTooltip"):
+        body = function_body(tooltip)
+        assert 'class="map-tooltip-title"' in body
+        assert "pfResultState" in body or "formatPfNumber" in body

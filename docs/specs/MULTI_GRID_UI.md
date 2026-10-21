@@ -17,7 +17,7 @@
 | 요청 | `runSecurityAnalysis()`, `runSensitivityAnalysis()`: 계통별로 엔드포인트만 다르다. 요청 순번(`securityRequestSeq`, `sensitivityRequestSeq`), 계통 전환 토큰, 입력 변경 무효화는 그대로 유지한다 |
 | 어댑터 | `kpgSecurityViewModel` / `mongoliaSecurityViewModel`, `kpgSensitivityViewModel` / `mongoliaSensitivityViewModel`: API 응답을 공통 View Model로 정규화한다. 응답에 없는 값은 행 자체를 만들지 않는다(`hasValue`, `detailSection`) |
 | 진입점 | `applySecurityResult`·`applyMongoliaSecurityResult`·`applySensitivityResult`·`applyMongoliaSensitivityResult`: 어댑터를 호출하는 얇은 함수다(채팅 `ui_updates` 경로 호환) |
-| 렌더러 | `renderResultCard(element, vm)` 하나로 그린다. Security는 Outage / Status / Violations, 위반 설비(Violated Equipment / Loading / Limit / Post-contingency)를, Sensitivity는 Target Line / Top Candidates, 후보(순위·발전기·Bus·민감도)를 표시한다. 상태 알림(계통 분리·미평가)과 짧은 데이터 고지가 이어지고, 진단 정보는 `<details class="result-details">`에 접어 둔다 |
+| 렌더러 | `renderResultCard(element, vm)` 하나로 그린다. Security는 Outage / Status / Violations, 위반 설비(Violated Equipment / Loading / Limit / Post-contingency)를, Sensitivity는 Target Line / Top Candidates, 후보(순위·발전기·Bus·민감도)를 표시한다. 계통 분리·미평가 등 상태 알림은 필요할 때만 표시한다. 모델 출처 고지는 `ⓘ 모델 정보` 도움말에만 두고, 진단 정보는 `<details class="result-details">`에 접어 둔다 |
 | 지도 | `applySecurityOverlay` / `applySensitivityOverlay`: 사고 선로는 빨강, 위반 설비는 주황, 감시 선로는 분홍 점선과 중간점 링, 분리 모선·선로는 보라 점선, 민감도 후보는 청록 순위 사각형으로 그린다 |
 | 범례 | `renderEquipmentLegend(data)`(좌하단): KPG는 모델 발전기, 몽골은 발전소 레코드를 보여 준다. `updateAnalysisLegend()`(좌상단)는 현재 지도에 있는 분석 표시만 나열한다. '분석 결과' 레이어를 끄면 함께 숨는다 |
 
@@ -28,8 +28,8 @@ KPG Security                      몽골 Security
 Outage: LINE-16-28                Outage: 751261406-1_0 (10–25, 220 kV)
 Status: CONVERGED                 Status: CONVERGED
 Violations: 1                     Violations: 0
-Violated Equipment: LINE-16-22    합성 시나리오 · 실제 몽골 운영 데이터가 아닙니다.
-Loading: 103.21 %                 ▸ 상세 결과
+Violated Equipment: LINE-16-22    ▸ 상세 결과
+Loading: 103.21 %
 Limit: 1906.00 MVA
 Post-contingency: 1967.28 MVA
 ```

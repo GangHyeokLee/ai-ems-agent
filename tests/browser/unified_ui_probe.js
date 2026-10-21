@@ -119,7 +119,8 @@
     const mnSecCard = $("security-result").querySelector(".result-card");
     check("MN Security: diagnostics only in collapsed details", !!mnSecCard.querySelector("details.result-details:not([open])") &&
       !baseLines("security-result").join(" ").includes("최대 전압 변화") && mnSecCard.querySelector("details").textContent.includes("최대 전압 변화"));
-    check("MN Security: short synthetic notice visible", visible(mnSecCard.querySelector(".result-notice")) && mnSecCard.querySelector(".result-notice").textContent.includes("실제 몽골 운영 데이터가 아닙니다"));
+    check("MN Security: no repeated notice in the card; disclaimer kept in model info", !mnSecCard.querySelector(".result-notice")
+      && $("analysis-interpretation").textContent.includes("실제 몽골 운영 데이터가 아닙니다") && $("pf-preview-disclaimer").textContent.includes("실제 몽골 운영 데이터가 아닙니다"));
     check("MN Security: outage red, no violation", lineStroke("751261406-1_0") === norm("#dc2626") && count(".violation-line") === 0);
     check("MN Security: analysis legend lists outage only", JSON.stringify(legendKeys()) === JSON.stringify(["outage"]), legendKeys());
     if (stop("mn_security")) return finish();
