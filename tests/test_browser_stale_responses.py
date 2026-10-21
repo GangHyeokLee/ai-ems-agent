@@ -37,7 +37,8 @@ UNIFIED_PROBE = ROOT / "tests" / "browser" / "unified_ui_probe.js"
 THEME_PROBE = ROOT / "tests" / "browser" / "theme_help_probe.js"
 REFERENCE_PROBE = ROOT / "tests" / "browser" / "reference_layers_probe.js"
 MONGOLIA_CHAT_PROBE = ROOT / "tests" / "browser" / "mongolia_chat_probe.js"
-PROBES = {"stale": PROBE, "unified": UNIFIED_PROBE, "theme": THEME_PROBE, "reference": REFERENCE_PROBE, "mnchat": MONGOLIA_CHAT_PROBE}
+CHAT_PANEL_PROBE = ROOT / "tests" / "browser" / "chat_panel_state_probe.js"
+PROBES = {"stale": PROBE, "unified": UNIFIED_PROBE, "theme": THEME_PROBE, "reference": REFERENCE_PROBE, "mnchat": MONGOLIA_CHAT_PROBE, "chatpanels": CHAT_PANEL_PROBE}
 REFERENCE_SHOT_DIR = ROOT / "outputs" / "browser_reference_layers"
 REFERENCE_SCREENSHOT_STOPS = ["mn_map", "mn_zoom"]
 THEME_SHOT_DIR = ROOT / "outputs" / "browser_theme_help"
@@ -440,3 +441,20 @@ def test_mongolia_analysis_chat_screenshot(app_url):
     shot = ROOT / "outputs/browser_mongolia_chat/chain.png"
     run_chrome(chrome, f"{url}?probe=mnchat&stop=chain", "mn-analysis-chat-shot", screenshot=shot)
     assert shot.is_file() and shot.stat().st_size > 10_000
+
+
+def test_chat_preserves_analysis_panel_state_on_both_grids(app_url):
+    url, chrome = app_url
+    report = probe_results(run_chrome(chrome, f"{url}?probe=chatpanels", f"chat-panels-{int(time.time())}"))
+    results = report["results"]
+    target = ROOT / "outputs/browser_chat_panel_state"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "results.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    assert report["cases"] == [
+        f"{grid}:{kind}:{state}"
+        for grid, kinds in [("kr-kpg193", ["security", "sensitivity", "generator"]),
+                            ("mn-osm-35k", ["security", "sensitivity", "chain"])]
+        for state in ["collapsed", "expanded"] for kind in kinds
+    ]
+    assert not missing_checks(CHAT_PANEL_PROBE, results), missing_checks(CHAT_PANEL_PROBE, results)
+    assert not [r for r in results if not r["pass"]], results

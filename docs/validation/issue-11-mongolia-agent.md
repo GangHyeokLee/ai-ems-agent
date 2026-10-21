@@ -173,3 +173,44 @@ skip이 없다. 경고 1건은 기존 Starlette/AnyIO deprecated alias 경고다
 몽골 선로 분석·연속/멀티턴 Sensitivity·분리 사고, KPG 분석·채팅과 공통 UI 회귀를 유지했다.
 최종 로그는 `outputs/mn_agent_analysis/pr12-review-pytest.log`,
 `pr12-review-pytest-browser.log`에 보존했다. PR #12는 Draft로 유지하며 merge·브랜치 삭제는 하지 않는다.
+
+
+## PR #12 UI 수정 — 채팅 결과의 패널 상태 유지 (2026-10-21)
+
+`applySecurityView()`, `applySensitivityView()`, `renderGeneratorContingencyResult()`에서
+패널 자동 펼침을 제거했다. 자동 펼침은 기존 stale-response 검사를 통과한 수동
+Security/Sensitivity/Generator Analyze 응답 경로로 옮겼다. 지도 선로 선택과
+발전기 선택의 펼침 동작은 유지한다. `sendChatMessage()`는 기존 결과 적용 경로를 그대로
+사용하면서 사용자가 지정한 접힘·펼침 상태를 바꾸지 않는다. 결과를 적용한 뒤 강제로
+접거나 이전 상태를 복원하는 방식은 사용하지 않는다.
+
+브라우저 회귀 `tests/browser/chat_panel_state_probe.js`는 실제 도메인 Tool에서 생성한
+기존 채팅 fixture를 사용한다. 한국 Security/Sensitivity/Generator Contingency와 몽골
+Security/Sensitivity/연속 실행의 6종에 대해 접힘·펼침 12개 조합을 확인한다.
+
+- 채팅 결과 적용 중 `setAnalysisBoxCollapsed()` 호출이 없고 두 패널과 ARIA 상태가 유지된다.
+- 접힌 상태에서도 최신 결과 카드·지도 강조가 갱신되며, 사용자가 직접 펼치면 결과가 보인다.
+- 열린 패널은 열린 상태를 유지한다.
+- 응답 대기 중 사용자가 변경한 접힘·펼침 상태도 유지한다.
+- 두 계통의 지도 선로 선택, 수동 Analyze/Sensitivity와 KPG 발전기 선택·수동 Analyze는
+  이전처럼 패널을 펼친다.
+
+새 브라우저 테스트 단독 실행은 `1 passed, 11 deselected` (6.16s)로 통과했다.
+변경 파일은 `ui/index.html`, 브라우저 probe와 harness, 이 검증 문서다.
+계산 엔진·Agent·API·원본 데이터에는 변경이 없다.
+
+
+최종 검증:
+
+```bash
+.venv/bin/python -m pytest -q tests
+# 340 passed, 12 skipped, 1 warning (18.71s)
+
+AI_EMS_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests
+# 352 passed, 1 warning (114.22s)
+```
+
+새 패널 상태 브라우저 probe의 12개 조합·83개 검사가 모두 통과했다. 기존 계통 전환·늦은
+응답 차단·테마·도움말·패널·지도 회귀도 통과했다. 12개 skip은 기본 실행의 opt-in 브라우저
+테스트이며, 경고 1건은 기존 Starlette/AnyIO deprecated alias 경고다.
+로컬 증거: `outputs/browser_chat_panel_state/results.json`, `pytest.log`, `pytest-browser.log`.

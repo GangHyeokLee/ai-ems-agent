@@ -1907,6 +1907,7 @@
         const result = await response.json();
         // Ignore late answers once the user switched grids.
         if (token !== gridSwitchToken || seq !== securityRequestSeq || selectedGridId !== requestGridId || !gridCapability("security_analysis_available")) return;
+        setAnalysisBoxCollapsed("security-analysis-box", false);
         if (isMongoliaRequest) applyMongoliaSecurityResult(result);
         else applySecurityResult(result);
       } catch (error) {
@@ -2230,9 +2231,9 @@
       renderMonitoredLineMarker(vm.overlay.monitoredEnds);
     }
 
-    // ===== Shared apply (adapters keep the per-grid entry names) =====
+    // ===== Shared apply: update results without changing the user's panel state. =====
+    // Manual analysis handlers and map selection expand panels explicitly.
     function applySecurityView(vm, rawResult) {
-      setAnalysisBoxCollapsed("security-analysis-box", false);
       resetSecurityHighlight(); resetSensitivityMarkers(); resetGeneratorContingencyMarkers();
       applySecurityOverlay(vm.overlay);
       renderResultCard(document.getElementById("security-result"), vm);
@@ -2252,7 +2253,6 @@
       updateAnalysisLegend();
     }
     function applySensitivityView(vm) {
-      setAnalysisBoxCollapsed("security-analysis-box", false);
       resetSensitivityMarkers();
       renderResultCard(document.getElementById("sensitivity-result"), vm);
       applySensitivityOverlay(vm);
@@ -2308,6 +2308,7 @@
         const result = await response.json();
         if (token !== gridSwitchToken || seq !== sensitivityRequestSeq || selectedGridId !== requestGridId
             || !gridCapability("sensitivity_analysis_available")) return;
+        setAnalysisBoxCollapsed("security-analysis-box", false);
         if (isMongoliaRequest) applyMongoliaSensitivityResult(result);
         else applySensitivityResult(result);
       } catch (error) {
@@ -2398,6 +2399,7 @@
         const result = await response.json();
         if (!response.ok) throw new Error(result.detail || `HTTP ${response.status}`);
         if (token !== gridSwitchToken || !gridSupportsAnalysis()) return;
+        setAnalysisBoxCollapsed("generator-contingency-box", false);
         renderGeneratorContingencyResult(result);
         applyGeneratorContingencyResult(result);
       } catch (error) {
@@ -2408,7 +2410,6 @@
     }
 
     function renderGeneratorContingencyResult(result) {
-      setAnalysisBoxCollapsed("generator-contingency-box", false);
       const element = document.getElementById("generator-contingency-result");
       const outage = result.outage_generator || {};
       const post = result.post_loadflow || {};
