@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -140,11 +141,25 @@ def test_hallucinated_kpg_tool_call_is_rejected(mn_env):
 
 @pytest.mark.parametrize(
     "message",
-    ["이 발전기의 출력을 20MW 늘려 줘.", "전압 문제 해결을 위한 Redispatch를 계산해 줘.", "GEN-1 발전기 탈락 분석해 줘."],
+    [
+        "이 발전기의 출력을 20MW 늘려 줘.",
+        "전압 문제 해결을 위한 Redispatch를 계산해 줘.",
+        "GEN-1 발전기 탈락 분석해 줘.",
+        "발전기 N-1 분석해 줘",
+        "generator contingency 분석해 줘",
+        "GEN-19#0 N-1 분석해 줘",
+        "발전기 탈락 사고 분석해 줘",
+    ],
 )
-def test_unsupported_calculation_is_answered_without_llm_or_tools(mn_env, message):
+def test_unsupported_calculation_is_answered_without_llm_or_tools(mn_env, message, monkeypatch):
+    service_loader = Mock(side_effect=AssertionError("unsupported request reached domain service"))
+    monkeypatch.setattr(web_app, "_mongolia_security", service_loader)
     model = mn_env["install"]([])
-    body = post_mn(message).json()
+    response = post_mn(message)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ui_updates"] == []
+    service_loader.assert_not_called()
     assert body["tools_used"] == []
     assert body["unsupported_requests"]
     assert "지원하지 않습니다" in body["answer"]

@@ -44,7 +44,7 @@ ToolMessage artifact에서 생성한다. LLM 자유서술의 수치나 JSON은 �
 | 공통 UI | 기존 패널·지도·테마·도움말 검증과 몽골 채팅 검증 통과 |
 | 계통 전환 | 한국↔몽골 카드·지도·채팅 초기화, 양방향 늦은 성공/실패 응답 차단 |
 
-## 전체 테스트
+## 전체 테스트 (초기 구현)
 
 ```bash
 .venv/bin/python -m pytest -q tests
@@ -100,3 +100,76 @@ Redispatch·OPF·발전기 사고·출력 변경 재계산·동특성 신규 구
 `main`, 기준 브랜치와 상위 PR #2는 변경하지 않았다. PR은 Draft 상태이며 merge·브랜치 삭제를 수행하지 않는다.
 
 Refs #11
+
+
+## PR #12 리뷰 반영 — 발전기 사고 요청 사전 차단 (2026-10-21)
+
+`UNSUPPORTED_PATTERNS`의 발전기 사고 분류에 `N-1`(공백·하이픈 표기 변형 포함)과
+`contingency`를 추가했다. 발전기 참조(`발전기`, `generator`, `GEN-…`)와 인접한
+사고 표현을 검사해 선로 N-1 후 발전기 주입 민감도 요청과 구분한다.
+
+다음 네 요청은 LLM과 몽골 도메인 서비스 호출 전에 거부한다.
+
+- “발전기 N-1 분석해 줘”
+- “generator contingency 분석해 줘”
+- “GEN-19#0 N-1 분석해 줘”
+- “발전기 탈락 사고 분석해 줘”
+
+분류 테스트와 API 회귀 테스트에 네 문구를 추가했다. API 테스트는 응답의
+`tools_used`·`ui_updates`가 비어 있고 모델 호출과 도메인 서비스 호출이 모두 0회인지 검사한다.
+반대 사례로 선로 N-1, 선로 사고 후 발전기 주입 민감도, 영어 generator injection sensitivity,
+발전기 ID를 포함한 민감도를 허용하는지 검사한다. 실제 도메인 Tool을 사용하는 API 테스트로
+`751261406-1_0` 선로 분석과 Security → Sensitivity 연속 실행을 확인한다.
+
+리뷰 수정 파일:
+- `src/ai_ems/agent/mongolia_graph.py`
+- `tests/test_mongolia_agent_tools.py`
+- `tests/test_mongolia_chat_api.py`
+- `tests/test_mongolia_analysis_chat.py`
+- 이 검증 문서
+
+### 실제 Ollama 접근 재확인
+
+설정된 모델 `qwen3.8:27b-q4_K_M`의 서버에서 `/api/tags`를 재확인했다.
+클라이언트 인증 설정 검증은 통과했으나 HTTP **502** 응답을 받아 실제 Tool Calling은
+계속 **미검증**이다. 기존 프록시·인증 설정을 유지했으며 인증값은 기록하지 않았다.
+
+실패 단계는 모델 추론 전의 모델 목록 조회다. 이번 관측은 클라이언트 DNS/연결/timeout
+예외가 아닌 HTTP 게이트웨이 또는 upstream 오류로 분류했다. 401/403 인증·권한 응답이나
+404 경로 오류는 관측되지 않았다. 다만 응답에는 원인을 특정할 server/via/proxy-status
+헤더나 알려진 진단 문구가 없어 중간 게이트웨이와 Ollama 원서버 중 어느 쪽의 장애인지는
+확정할 수 없다. 모델 설치·정상 추론·인증정보의 유효성도 이 502 응답만으로 검증하지 않았다.
+
+따라서 리뷰의 실제 자연어 Tool 선택·연속 실행 순서·멀티턴·분리 사고 smoke test는
+접근 복구 후에도 필요하다. 현재 연속 실행·멀티턴 검증 근거는 scripted 모델과 실제
+도메인 Tool을 결합한 테스트다. 발전기 요청의 LLM 이전 차단은 API 회귀 테스트로 확인한다.
+진단 결과: `outputs/mn_agent_analysis/pr12-review-ollama-access.json` (로컬, gitignored).
+
+
+### 리뷰 수정 후 검증
+
+관련 분류·API·실제 도메인 Tool 테스트는 `86 passed`다.
+기본 전체 테스트는 `340 passed, 11 skipped, 1 warning` (19.13s)이다.
+
+브라우저 포함 최초 전체 실행은 `350 passed, 1 failed`였다. 실패는 테마 probe가
+한국 계통으로 돌아가는 중 로컬 `/__probe__/tick` 요청의 `TypeError: Failed to fetch`로
+중단되어 후반 검사에 도달하지 못한 경우다. 테마/라우팅 코드를 변경하지 않고 동일한
+테마 테스트를 단독 재실행한 결과 `1 passed, 10 deselected` (8.26s)였다.
+최초 오류 로그는 `outputs/mn_agent_analysis/pr12-review-browser-first.log`에 보존했다.
+
+동일 코드의 브라우저 포함 전체 재실행은 **351 passed, 1 warning** (112.33s)로 통과했다.
+최종 검증 명령과 결과는 다음과 같다.
+
+```bash
+.venv/bin/python -m pytest -q tests
+# 340 passed, 11 skipped, 1 warning (19.13s)
+
+AI_EMS_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests
+# 351 passed, 1 warning (112.33s)
+```
+
+11개 skip은 기본 실행에서 제외되는 opt-in 브라우저 테스트다. 브라우저 포함 최종 실행에는
+skip이 없다. 경고 1건은 기존 Starlette/AnyIO deprecated alias 경고다. 기존 PF 조회,
+몽골 선로 분석·연속/멀티턴 Sensitivity·분리 사고, KPG 분석·채팅과 공통 UI 회귀를 유지했다.
+최종 로그는 `outputs/mn_agent_analysis/pr12-review-pytest.log`,
+`pr12-review-pytest-browser.log`에 보존했다. PR #12는 Draft로 유지하며 merge·브랜치 삭제는 하지 않는다.

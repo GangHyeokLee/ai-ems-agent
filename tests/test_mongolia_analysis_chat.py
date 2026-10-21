@@ -33,10 +33,14 @@ def post(message="분석해 줘", session="mn-analysis"):
     return client.post("/api/grids/mn-osm-35k/chat", json={"session_id": session, "message": message})
 
 
-def test_chain_matches_actual_service_results_and_ignores_model_numbers(install):
+@pytest.mark.parametrize("question", [
+    f"{OUTAGE} N-1 후 민감도 Top 5",
+    f"{OUTAGE} 선로 N-1 후 합성 발전기 주입 Sensitivity Top 5를 분석해 줘",
+])
+def test_chain_matches_actual_service_results_and_ignores_model_numbers(install, question):
     model = install([call(SECURITY, {"outage_line_id": OUTAGE}), "sensitivity_previous",
                      AIMessage(content="위반 999건, 가짜 발전기 우선순위")])
-    response = post(f"{OUTAGE} N-1 후 민감도 Top 5")
+    response = post(question)
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["tools_used"] == [SECURITY, SENSITIVITY]
@@ -181,3 +185,15 @@ def test_security_nonconvergence_is_not_a_success_claim(install, monkeypatch):
     body = post().json()
     assert "비수렴" in body["answer"] and "위반 0건" not in body["answer"]
     assert body["ui_updates"][0]["result"]["violation_assessment_available"] is False
+
+
+def test_line_n1_request_still_reaches_actual_security_tool(install):
+    model = install([call(SECURITY, {"outage_line_id": OUTAGE}), AIMessage(content="완료")])
+    response = post("751261406-1_0 선로 N-1 분석해 줘")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["unsupported_requests"] == []
+    assert body["tools_used"] == [SECURITY]
+    result = body["ui_updates"][0]["result"]
+    assert result["post_status"] == "CONVERGED" and result["violated_equipment_count"] == 0
+    assert len(model.calls) == 2

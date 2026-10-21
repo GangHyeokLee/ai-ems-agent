@@ -60,7 +60,17 @@ Tool 결과 해석:
 """.strip()
 
 UNSUPPORTED_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
-    ("발전기 사고·탈락", re.compile(r"(?:발전기|generator|GEN[-_]\S+)\s*(?:[\w#-]+\s+)?(?:사고|탈락|고장|정지|outage|trip)|(?:사고|탈락|outage)\s*(?:발전기|generator)", re.IGNORECASE)),
+    (
+        "발전기 사고·탈락",
+        re.compile(
+            # Keep the contingency term next to a generator reference: generator
+            # injection sensitivity after a LINE N-1 remains supported.
+            r"(?:발전기|generators?\b|GEN[-_]\S+)\s*(?:[\w#-]+\s+)?"
+            r"(?:N\s*[-−]?\s*1(?![0-9])|contingency\b|사고|탈락|고장|정지|outage|trip)"
+            r"|(?:사고|탈락|outage)\s*(?:발전기|generator)",
+            re.IGNORECASE,
+        ),
+    ),
     ("Redispatch(재급전)", re.compile(r"re-?dispatch|재급전|리디스패치", re.IGNORECASE)),
     ("OPF(최적조류)", re.compile(r"(?<![A-Za-z])OPF(?![A-Za-z])|최적\s*조류|optimal\s+power\s+flow", re.IGNORECASE)),
     ("동특성·과도안정도 해석", re.compile(r"동특성|과도\s*안정|dynamic\s+simulation|transient", re.IGNORECASE)),
