@@ -301,7 +301,7 @@ python app.py
 ### Agent Web UI
 
 ```bash
-python -m uvicorn web_app:app --host 127.0.0.1 --port 8000 --log-level info
+./run_agent.sh
 ```
 
 브라우저:
@@ -313,7 +313,7 @@ http://127.0.0.1:8000/
 ### Standalone Physics API
 
 ```bash
-python -m uvicorn ai_ems.api.app:app --host 127.0.0.1 --port 8001 --log-level info
+./run_api.sh
 ```
 
 Swagger UI:
