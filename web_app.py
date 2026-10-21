@@ -17,6 +17,7 @@ from ai_ems.grid_catalog import (
     KPG_GRID_ID, MONGOLIA_GRID_ID, list_grids, load_mongolia_map,
 )
 from ai_ems.pf_preview import load_mongolia_pf_preview
+from ai_ems.reference_layers import load_mongolia_reference_layers
 from ai_ems.kpg_pf_preview import (
     KpgPreviewUnavailable,
     get_kpg_pf_preview,
@@ -57,6 +58,8 @@ from ai_ems.mongolia_sensitivity import InvalidMonitoredLine, SensitivityVerific
 UI_DIR = Path("ui")
 MONGOLIA_MAP_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-map.json"
 MONGOLIA_PF_PREVIEW_FILE = PROJECT_ROOT / "data" / "grids" / "mn35k-synthetic-pf-preview.json"
+# Reference-only display layers; deliberately separate from the hash-bound base map.
+MONGOLIA_REFERENCE_LAYERS_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-reference-layers.json"
 KPG_GEOGRAPHY_FILE = PROJECT_ROOT / "data" / "grids" / "kr-geography.json"
 
 network = load_network(CASE_FILE)
@@ -165,6 +168,16 @@ def mongolia_pf_preview():
             MONGOLIA_PF_PREVIEW_FILE,
             MONGOLIA_MAP_FILE,
         )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/grids/mn-osm-35k/reference-layers")
+def mongolia_reference_layers():
+    try:
+        return load_mongolia_reference_layers(MONGOLIA_REFERENCE_LAYERS_FILE, MONGOLIA_MAP_FILE)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
