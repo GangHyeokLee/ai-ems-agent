@@ -2516,9 +2516,6 @@
         // Ignore late answers from a grid the user has already left.
         if (token !== gridSwitchToken || selectedGridId !== requestGridId) return;
         appendChatMessage("agent", payload.answer || "응답이 없습니다.");
-        if (Array.isArray(payload.tools_used) && payload.tools_used.length && requestGridId !== "kr-kpg193") {
-          appendChatMessage("system", `근거: 몽골 도메인 Tool (${[...new Set(payload.tools_used)].join(", ")})`);
-        }
         if (payload.grid_id && payload.grid_id !== requestGridId) return;
         for (const update of payload.ui_updates || []) {
           if (requestGridId === "mn-osm-35k") {

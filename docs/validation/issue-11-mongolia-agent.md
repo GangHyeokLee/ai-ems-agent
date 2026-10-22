@@ -1,6 +1,7 @@
 # Issue #11 — 몽골 Agent 분석 연계 검증
 
 - 검증일: 2026-10-21 (Asia/Seoul)
+- 최종 정리일: 2026-10-22 (Asia/Seoul)
 - Issue: https://github.com/GangHyeokLee/ai-ems-agent/issues/11
 - Draft PR: https://github.com/GangHyeokLee/ai-ems-agent/pull/12
 - 기준: `feature/kems-multi-grid` / `e8687171d2e6d5d018c5f3d20fd179387dbeef60`
@@ -74,8 +75,10 @@ API·브라우저 인수 검증은 scripted 모델과 **실제 LangGraph 및 도
 정상/분리 사고는 실제 PyPowSyBl 계산을 사용했다. 비수렴·provider 오류 일부는 장애 주입으로
 검증했다. 브라우저 fixture는 실제 채팅 핸들러가 만든 응답을 테스트 proxy로 전달한다.
 
-실제 Ollama 서버의 `/api/tags` 접근이 HTTP 502로 실패했다. 따라서 실제 LLM의 자연어
-Tool 선택, 연속 호출 및 멀티턴 추론은 미검증이다. 접근 복구 후 다음 smoke test가 남는다.
+초기 검증 당시 실제 Ollama 서버의 `/api/tags` 접근이 HTTP 502로 실패해 실제 LLM의
+자연어 Tool 선택, 연속 호출 및 멀티턴 추론을 확인하지 못했다. 당시 후속 검증 대상으로
+남겼던 smoke test는 다음과 같다. 이후 사용자 확인 결과는 아래 「실제 Ollama 검증 결과」에
+기록했으며, 초기 502 기록은 현재의 미검증 상태를 뜻하지 않는다.
 
 1. “751261406-1_0 선로 N-1 후 민감도 Top 5를 분석해 줘.”
 2. 새 세션에서 같은 선로의 N-1을 요청한 뒤 “이어서 민감도 후보 5개 알려줘.”
@@ -128,11 +131,11 @@ Refs #11
 - `tests/test_mongolia_analysis_chat.py`
 - 이 검증 문서
 
-### 실제 Ollama 접근 재확인
+### 실제 Ollama 접근 재확인 (2026-10-21 당시 기록)
 
 설정된 모델 `qwen3.8:27b-q4_K_M`의 서버에서 `/api/tags`를 재확인했다.
-클라이언트 인증 설정 검증은 통과했으나 HTTP **502** 응답을 받아 실제 Tool Calling은
-계속 **미검증**이다. 기존 프록시·인증 설정을 유지했으며 인증값은 기록하지 않았다.
+클라이언트 인증 설정 검증은 통과했으나 HTTP **502** 응답을 받아 당시 실제 Tool Calling은
+확인하지 못했다. 기존 프록시·인증 설정을 유지했으며 인증값은 기록하지 않았다.
 
 실패 단계는 모델 추론 전의 모델 목록 조회다. 이번 관측은 클라이언트 DNS/연결/timeout
 예외가 아닌 HTTP 게이트웨이 또는 upstream 오류로 분류했다. 401/403 인증·권한 응답이나
@@ -140,9 +143,9 @@ Refs #11
 헤더나 알려진 진단 문구가 없어 중간 게이트웨이와 Ollama 원서버 중 어느 쪽의 장애인지는
 확정할 수 없다. 모델 설치·정상 추론·인증정보의 유효성도 이 502 응답만으로 검증하지 않았다.
 
-따라서 리뷰의 실제 자연어 Tool 선택·연속 실행 순서·멀티턴·분리 사고 smoke test는
-접근 복구 후에도 필요하다. 현재 연속 실행·멀티턴 검증 근거는 scripted 모델과 실제
-도메인 Tool을 결합한 테스트다. 발전기 요청의 LLM 이전 차단은 API 회귀 테스트로 확인한다.
+이 단계의 연속 실행·멀티턴 검증 근거는 scripted 모델과 실제 도메인 Tool을 결합한
+테스트였다. 발전기 요청의 LLM 이전 차단은 API 회귀 테스트로 확인했다.
+이후 실제 Ollama 성공 결과는 아래에 별도로 기록한다.
 진단 결과: `outputs/mn_agent_analysis/pr12-review-ollama-access.json` (로컬, gitignored).
 
 
@@ -214,3 +217,47 @@ AI_EMS_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests
 응답 차단·테마·도움말·패널·지도 회귀도 통과했다. 12개 skip은 기본 실행의 opt-in 브라우저
 테스트이며, 경고 1건은 기존 Starlette/AnyIO deprecated alias 경고다.
 로컬 증거: `outputs/browser_chat_panel_state/results.json`, `pytest.log`, `pytest-browser.log`.
+
+
+## 실제 Ollama 검증 결과 및 PR #12 최종 정리 (2026-10-22 기록)
+
+사용자가 확인한 실제 Ollama 모델 `qwen3.8:27b-q4_K_M`의 검증 결과는 다음과 같다.
+이번 정리에서 실제 LLM을 다시 호출한 결과가 아니라, 사용자가 전달한 실검증 결과를
+기록한 것이다. 위의 HTTP 502는 초기 접근 실패 이력으로 보존한다.
+
+| 시나리오 | 사용자 확인 결과 |
+| --- | --- |
+| 단일 요청 선로 N-1 → Sensitivity Top 5 | 연속 실행 성공, N-1 및 후보 5개 결과 표시 |
+| 멀티턴 N-1 → 후속 Sensitivity | 이전 N-1에 대한 후속 민감도 실행 성공 |
+| Islanding | 분리 11모선 감지, `NOT_EVALUATED_ISLANDING` 정상 표시 |
+| 발전기 N-1 미지원 요청 | 지원 범위 밖 요청 거부 |
+| KPG ↔ 몽골 전환 | 양방향 전환 확인 |
+| 채팅 결과 적용 | 사용자가 지정한 분석 패널 접힘 상태 유지 |
+
+계통 전환 시 화면의 채팅 기록은 현재 초기화된다. `resetChatForGrid()`는 채팅 로그를
+비우고 저장된 세션 ID를 제거하므로, 이전 계통으로 돌아와도 기존 대화를 복원하지 않는다.
+계통별 채팅 기록·세션 복원은 후속 작업으로 남긴다. 이번 변경에는 포함하지 않았다.
+
+몽골 AI 답변 아래의 주황색 `근거: 몽골 도메인 Tool (...)` 메시지를 추가하던 렌더링
+코드 3줄을 제거했다. 문구와 박스 DOM 모두 생성하지 않는다. `system` 메시지 CSS는
+`Agent 오류` 표시에도 사용되므로 유지했다. N-1·민감도 등 분석 결과, AI 답변과 합성 모델
+안내 본문, Tool Calling 실행·분석 데이터·내부 로그·오류 처리는 변경하지 않았다.
+
+이번 커밋 대상은 `ui/index.html`과 이 문서뿐이다. Caddy 자동화 관련 로컬 수정은
+수정·삭제·스테이징하지 않고 별도 작업으로 남긴다. PR #12의 병합과 브랜치 삭제는
+사용자가 최신 원격 커밋 및 변경 파일을 확인한 뒤 진행한다.
+
+최종 정리 후 관련 자동 회귀 테스트:
+
+```bash
+.venv/bin/python -m pytest -q tests/test_ui_mongolia_chat.py tests/test_mongolia_agent_tools.py tests/test_mongolia_chat_api.py tests/test_mongolia_analysis_chat.py tests/test_chat_ui_updates.py
+# 114 passed, 1 warning (6.13s)
+
+AI_EMS_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests/test_browser_stale_responses.py::test_mongolia_analysis_chat_cards_maps_and_stale_responses tests/test_browser_stale_responses.py::test_chat_preserves_analysis_panel_state_on_both_grids
+# 2 passed (8.81s)
+```
+
+경고 1건은 기존 Starlette/AnyIO deprecated alias 경고다. 브라우저 테스트는 scripted
+모델과 실제 도메인 Tool 결과를 사용하며, 몽골·KPG 채팅 결과/지도, 계통 전환 시 초기화와
+지연 응답 차단, 두 계통의 분석 패널 상태 유지를 확인했다. 이 자동 테스트 결과를 실제
+Ollama 호출 결과로 간주하지 않는다. `git diff --check`도 통과했다.
