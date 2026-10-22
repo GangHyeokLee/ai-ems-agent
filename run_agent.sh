@@ -4,9 +4,15 @@ set -euo pipefail
 PROJECT_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 cd "$PROJECT_ROOT"
 
-if [[ -f "$PROJECT_ROOT/.venv/bin/activate" ]]; then
-    source "$PROJECT_ROOT/.venv/bin/activate"
+if [[ -x "$PROJECT_ROOT/.venv/bin/python" ]]; then
+    AGENT_PYTHON="$PROJECT_ROOT/.venv/bin/python"
+else
+    AGENT_PYTHON="$(command -v python3 || command -v python || true)"
+fi
+if [[ -z "$AGENT_PYTHON" ]]; then
+    echo 'Python을 찾을 수 없습니다. 가상환경과 requirements.txt를 먼저 설치하세요.' >&2
+    exit 1
 fi
 
 export PYTHONPATH="$PROJECT_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
-exec python -m uvicorn web_app:app --host 127.0.0.1 --port 8000 --log-level info
+exec "$AGENT_PYTHON" "$PROJECT_ROOT/scripts/run_agent.py"

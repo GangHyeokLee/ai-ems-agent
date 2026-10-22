@@ -332,14 +332,84 @@ tool calls; model validation on initialization is not enabled.
 Other paths/methods, including model management and /api/generate, return 403.
 Missing/invalid Bearer credentials return 401 before any upstream request.
 
-Install Windows Caddy and copy deploy/ollama-proxy to a local Windows directory.
-Set OLLAMA_PROXY_TOKEN in the launching process (64 lowercase hex characters,
-generated with a cryptographic RNG); never save the real token to files/Git or
-pass it on the command line. Start with:
+Install Windows Caddy and copy the repository's `deploy/ollama-proxy` sources to a
+Windows directory of your choice. The PowerShell launcher may be renamed; keep its
+supporting module beside it. Add these two entries to the existing local `.env`,
+keeping all other settings, and specify the full Windows path:
+
+```ini
+AI_EMS_CADDY_SCRIPT_WIN=%LOCALAPPDATA%\YourApp\Proxy\launch.ps1
+AI_EMS_CADDY_AUTOSTART=false
+```
+
+Replace the example with your own path and filename. The path is configuration,
+not authentication or access control. Keep `.env` out of Git. Existing LLM
+credentials and other project settings remain unchanged. Do not put real tokens
+in source, documentation, script arguments, or runtime-config logs.
+
+To enable automatic startup, set `AI_EMS_CADDY_AUTOSTART=true`, then run:
+
+```bash
+./run_agent.sh
+```
+
+The web app stays on WSL loopback; `AI_EMS_WEB_PORT` selects its port (default
+8000). For example, use `AI_EMS_WEB_PORT=8010 ./run_agent.sh` to avoid an app
+already using the default port.
+
+The launcher parses `.env` with `python-dotenv` as data (`interpolate=False`),
+never `source` or `eval`. Exported process variables override the two dotenv
+settings. `%LOCALAPPDATA%` and other Windows environment variables are expanded
+by PowerShell with `ExpandEnvironmentVariables`; the path is invoked literally.
+With autostart disabled or unspecified, the web app remains available for manual
+proxy operation. With `AI_EMS_CADDY_AUTOSTART=true`, invalid settings stop the
+launcher with exit code 2; failed Windows interop, missing/invalid server token,
+port conflict or Caddy startup failure stops it with exit code 3 **before Uvicorn
+starts**. An owned proxy is cleaned up on failure. Set `false` to use your usual
+foreground PowerShell launcher manually. In PowerShell, after setting the
+configured path as a process variable, invoke any chosen filename safely:
 
 ```powershell
-.\Start-OllamaProxy.ps1
+& ([Environment]::ExpandEnvironmentVariables($env:AI_EMS_CADDY_SCRIPT_WIN))
 ```
+
+A new proxy needs `OLLAMA_PROXY_TOKEN` in the launching Windows process or WSL
+process (64 lowercase hex characters, generated with a cryptographic RNG).
+An explicit WSL process token takes precedence and travels over stdin; otherwise
+the Windows PowerShell process's existing token is used. Only the source name is
+reported. This adds no credential store, registry lookup, command-line secret or
+plaintext token file. A running Caddy needs no server token to be reused; client
+credentials are checked separately. Use your approved method to inject process
+credentials; never save real tokens to Git.
+
+The complete TCP listener list for port 18080 must contain exactly one entry,
+bound to IPv4 `127.0.0.1`, owned by Caddy before reuse is allowed. Wildcard
+`0.0.0.0`/`::`, IPv6 `::1`, other interface addresses, and multiple entries
+(including a valid IPv4 entry mixed with any other listener) return `occupied`.
+The same address check runs after a new proxy starts, before reporting `started`.
+A rejected owned proxy is cleaned up; existing processes and configurations are
+preserved, and no alternate port is selected automatically.
+
+A Caddy listener is only a reuse candidate. After startup/reuse, the launcher
+requests `/api/tags` at the existing `AI_EMS_LLM_BASE_URL`, using the app's shared
+Bearer/Cloudflare authentication rules and existing dotenv/process credentials.
+Redirects are not followed. HTTP 200 must contain an Ollama `models` list.
+HTTP 401/403, gateway/upstream 502, connection failure, timeout and invalid
+configuration/response are reported separately, without URLs, headers or bodies.
+These API failures leave the web UI available with an explicit warning that AI
+may be unavailable. They do not trigger a Caddy restart, including while Ollama
+is temporarily down. The configured URL may be remote: its successful response
+validates that route, not the local proxy's routing configuration.
+
+On Ctrl+C, SIGTERM, normal exit or application failure, only a Caddy descendant
+started by this invocation is cleaned up using its retained process handle.
+Existing Caddy and other listeners are never terminated. The app gets 10 seconds
+to handle its first signal, then 5 seconds after SIGTERM and up to 5 seconds after
+SIGKILL; the controller cleanup wait is bounded to 25 seconds (about 46 seconds
+total including polling). App termination errors still enter Caddy cleanup.
+A controller timeout produces a manual-check warning instead of killing an
+unverified process. Abrupt host/WSL shutdown or SIGKILL of the launcher cannot
+guarantee cleanup. No name-based `taskkill` or Windows installation changes occur.
 
 The launcher refuses missing/invalid tokens before starting Caddy.
 Runtime JSON containing the token is sent via stdin only.
@@ -364,9 +434,62 @@ The proxy removes Authorization before forwarding to Ollama.
 
 This stage does not enable Tailscale Serve/Funnel, change OLLAMA_HOST, open
 firewall/router ports, or expose AI-EMS ports 8000/8001.
-WSL localhost differs from Windows localhost under NAT: do not change the
-existing WSL .env to this test URL until an actual network path is verified.
-The later tailnet/Funnel stage will use HTTPS and requires separate validation.
+WSL localhost differs from Windows localhost under NAT. Keep the deployment's
+existing Tailscale HTTPS 8443 route in `.env`; these tests do not change it.
+The user confirmed `/api/tags` HTTP 200 while AI-EMS owns a running proxy and
+HTTP 502 after Ctrl+C stops it. The latter is expected with Caddy absent.
+A 502 during an Ollama update is also an API/upstream condition; listener
+addresses are checked separately through Windows TCP state.
+
+Final local launcher security validation (Windows PowerShell 5.1 + WSL2, 2026-10-21):
+
+```bash
+.venv/bin/python tests/windows_caddy_lifecycle_probe.py
+.venv/bin/python -m pytest -q tests
+AI_EMS_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests
+```
+
+The actual WSL process had no `OLLAMA_PROXY_TOKEN`; a fresh Windows PowerShell
+process inherited a valid-format token. With no listener on an isolated Windows
+port, the real launcher used that Windows credential, received Ollama tags HTTP
+200, started real Uvicorn, and cleaned its owned Caddy after Ctrl+C. The existing
+WSL `.env` LLM route initially returned HTTP 200 with an Ollama `models` list.
+Agent-run checks observed HTTP 502 with no default listener and HTTP 403 after
+startup, including in this final probe. Earlier focused checks returned HTTP 200
+from Windows localhost using the existing dotenv client key; in-memory comparison
+confirmed that key matches the Windows-inherited server token. The agent-run
+HTTPS 403 remains distinct from the user's subsequently confirmed 200/502
+lifecycle above. It does not identify a listener binding failure. No credential
+storage or network settings were changed to work around it.
+
+Binding validation executes the production PowerShell `Listener` function with
+12 mocked address lists. Whole-manager tests use a real Caddy PID to verify all
+10 rejected address combinations cannot enter reuse, preserving that process.
+Three post-start tests inject wildcard/IPv6/mixed snapshots while actual Caddy
+stays bound to loopback, then verify rejection and owned-process cleanup.
+No wildcard or externally reachable test listener is opened.
+
+Real Windows cases cover existing-Caddy reuse, missing/invalid credentials,
+missing path, another process occupying the port, Bearer rejection (401), the
+unchanged API allowlist (403), and unavailable upstream (502) without restarting
+Caddy. The 502 case uses a temporary proxy pointing to a closed port; the real
+Ollama process stays running. A real child that ignores SIGINT/SIGTERM verifies
+bounded escalation and owned Windows Caddy cleanup; unit tests cover both signal
+entries and the UI continuation policy after API failures.
+
+`./run_agent.sh` was checked both with an existing default listener and with
+that port free, using the Windows-inherited token. Reuse preserves the listener's
+PID/start time through Ctrl+C and app failure. Isolated ports also exercise owned
+startup with the same Python launcher, keeping baseline listeners untouched.
+Probe scripts are temporary source copies; installed Windows files, credential
+storage and Tailscale settings stay unchanged.
+Generated test tokens remain in memory and captured logs are checked for leaks.
+
+Results: Windows lifecycle probe **20 PASS** checks; default pytest **381 passed,
+12 skipped**; browser-enabled pytest **393 passed**. Both pytest runs reported
+one existing Starlette/AnyIO deprecation warning. The skipped tests in the default
+run are the opt-in browser suite. The probe reports configured-route failures as
+observations separately from its lifecycle assertions.
 
 ### Remote Ollama via Cloudflare Tunnel + Access
 

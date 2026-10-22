@@ -87,11 +87,12 @@ LOG_LEVEL = os.getenv(
 )
 
 
-def get_llm_client_kwargs(base_url: str) -> dict:
+def get_llm_client_kwargs(base_url: str, *, environ=None) -> dict:
     """Return optional authentication headers for both Ollama HTTP clients."""
-    api_key = os.getenv("AI_EMS_LLM_API_KEY", "").strip()
-    client_id = os.getenv("AI_EMS_CF_ACCESS_CLIENT_ID", "").strip()
-    client_secret = os.getenv("AI_EMS_CF_ACCESS_CLIENT_SECRET", "").strip()
+    settings = os.environ if environ is None else environ
+    api_key = settings.get("AI_EMS_LLM_API_KEY", "").strip()
+    client_id = settings.get("AI_EMS_CF_ACCESS_CLIENT_ID", "").strip()
+    client_secret = settings.get("AI_EMS_CF_ACCESS_CLIENT_SECRET", "").strip()
     if api_key and (client_id or client_secret):
         raise ValueError(
             "AI_EMS_LLM_API_KEY and Cloudflare Access credentials cannot be set together."
