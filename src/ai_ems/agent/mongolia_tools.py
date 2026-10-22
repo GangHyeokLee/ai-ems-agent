@@ -1,9 +1,7 @@
-"""Read-only AI tools over the validated synthetic Mongolia AC PF preview.
+"""Mongolia PF queries and validated line analyses; no tool accepts file paths.
 
-These tools never recalculate power flow and never accept file paths. Every call
-reloads the preview through ``load_mongolia_pf_preview()`` (via the injected
-loader) so the fixed-scenario, fingerprint, convergence, screening and
-finite-number checks cannot be bypassed.
+PF queries reload the validated preview. Analysis tools delegate all model
+validation and calculation to MongoliaSecurityService.
 """
 
 from __future__ import annotations
@@ -12,6 +10,12 @@ import re
 from typing import Any, Callable, Literal
 
 from langchain_core.tools import tool
+from pydantic import BaseModel, ConfigDict, Field
+
+from ai_ems.mongolia_security import (
+    MongoliaSecurityService, MongoliaModelUnavailable, UnknownOutageLine, ExcludedOutageLine,
+)
+from ai_ems.mongolia_sensitivity import InvalidMonitoredLine, SensitivityVerificationFailed
 
 PreviewLoader = Callable[[], dict[str, Any]]
 
@@ -29,7 +33,7 @@ MODEL_CAVEATS = [
     "합성 발전기 45대는 실제 몽골 발전소 45곳이 아닙니다.",
     "지도에 표시된 발전소 데이터 27건은 실제 계통 접속이 검증되지 않았습니다.",
     "선로·변압기 전기정수와 일부 길이·회선수는 실설비로 검증되지 않았습니다.",
-    "이 합성 PF 결과에는 N-1, Redispatch, OPF, 동특성 해석 결과가 포함되지 않습니다(선로 N-1은 화면 Security Analysis 패널에서 별도 실행).",
+    "PF 조회 결과에는 N-1·민감도가 포함되지 않습니다. 별도 분석 Tool로 실행해야 합니다. Redispatch·OPF·동특성은 미지원입니다.",
 ]
 
 SIGN_CONVENTION = (
@@ -326,8 +330,25 @@ def _unavailable(error: Exception) -> dict[str, Any]:
     }
 
 
-def create_mongolia_tools(load_preview: PreviewLoader) -> list:
-    """Build the Mongolia-only read-only tool set around a validated-preview loader."""
+class OutageInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    outage_line_id: str = Field(min_length=1, max_length=128, description="몽골 모델 원본 사고 선로 ID")
+
+
+class SensitivityInput(OutageInput):
+    monitored_line_id: str | None = Field(default=None, max_length=128, description="생략 시 도메인 서비스가 자동 선택")
+    top_n: int = Field(default=5, ge=1, le=10, strict=True)
+
+
+SecurityLoader = Callable[[], MongoliaSecurityService]
+ANALYSIS_TOOL_TYPES = {
+    "run_mongolia_line_contingency": "security",
+    "run_mongolia_line_sensitivity": "sensitivity",
+}
+
+
+def create_mongolia_tools(load_preview: PreviewLoader, load_security: SecurityLoader | None = None) -> list:
+    """Build the Mongolia-only tool set around a validated-preview loader."""
 
     def run(query: Callable[[dict[str, Any]], dict[str, Any]]) -> dict[str, Any]:
         try:
@@ -369,17 +390,55 @@ def create_mongolia_tools(load_preview: PreviewLoader) -> list:
         transformer_loading_high(변압기 부하율 높은 순) 중 하나다. top_n 기본 5, 최대 10."""
         return run(lambda preview: pf_ranking(preview, metric, top_n))
 
+    def analysis(method: str, **kwargs) -> tuple[dict, dict]:
+        try:
+            if load_security is None:
+                raise MongoliaModelUnavailable("몽골 분석 서비스가 연결되지 않았습니다.")
+            result = getattr(load_security(), method)(**kwargs)
+        except Exception as exc:
+            status = {
+                UnknownOutageLine: NOT_FOUND,
+                ExcludedOutageLine: EXCLUDED,
+                InvalidMonitoredLine: "INVALID_MONITORED_LINE",
+                MongoliaModelUnavailable: DATA_UNAVAILABLE,
+                SensitivityVerificationFailed: "VERIFICATION_FAILED",
+            }.get(type(exc), "TOOL_ERROR")
+            result = {"grid_id": "mn-osm-35k", "status": status, "error": str(exc),
+                      "outage_line_id": kwargs["outage_line_id"],
+                      "message": "분석 결과를 제공하지 않습니다. 계산 성공을 주장하지 마세요."}
+        # Artifact is carried by ToolNode, independent of the model's free-form text.
+        return result, result
+
+    @tool(args_schema=OutageInput, response_format="content_and_artifact")
+    def run_mongolia_line_contingency(outage_line_id: str) -> tuple[dict, dict]:
+        """몽골 원본 선로 ID의 N-1 Security를 검증된 합성 모델로 실행한다.
+        수렴, 위반, 계통 분리와 모델 주의사항을 반환한다. KPG 설비는 허용하지 않는다."""
+        return analysis("run_line_contingency", outage_line_id=outage_line_id)
+
+    @tool(args_schema=SensitivityInput, response_format="content_and_artifact")
+    def run_mongolia_line_sensitivity(outage_line_id: str, monitored_line_id: str | None = None,
+                                      top_n: int = 5) -> tuple[dict, dict]:
+        """몽골 선로 사고 후 합성 발전기 주입 민감도를 실행한다. outage_line_id는 직전
+        Security Tool 결과의 사고 선로를 사용할 수 있다. 감시 선로 생략 시 자동 선택,
+        후보 기본 5/최대 10. 계통 분리 시 NOT_EVALUATED_ISLANDING이며 순위가 없다.
+        재급전·발전기 출력 변경 계산이나 실제 발전소 순위가 아니다."""
+        return analysis("run_line_sensitivity", outage_line_id=outage_line_id,
+                        monitored_line_id=monitored_line_id, top_n=top_n)
+
     return [
         get_mongolia_pf_summary,
         get_mongolia_bus_pf,
         get_mongolia_line_pf,
         get_mongolia_transformer_pf,
         get_mongolia_pf_ranking,
+        run_mongolia_line_contingency,
+        run_mongolia_line_sensitivity,
     ]
 
 
 MONGOLIA_TOOL_NAMES = frozenset(
     {
+        *ANALYSIS_TOOL_TYPES,
         "get_mongolia_pf_summary",
         "get_mongolia_bus_pf",
         "get_mongolia_line_pf",

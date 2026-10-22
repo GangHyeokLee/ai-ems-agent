@@ -27,11 +27,13 @@ from ai_ems import load_network
 from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph
 from ai_ems.agent.mongolia_graph import (
     MONGOLIA_SYSTEM_PROMPT,
+    DisallowedMongoliaTool,
+    requests_analysis,
     create_mongolia_agent_graph,
     detect_unsupported_request,
     unsupported_request_answer,
 )
-from ai_ems.agent.mongolia_tools import MONGOLIA_TOOL_NAMES
+from ai_ems.agent.mongolia_tools import ANALYSIS_TOOL_TYPES, MONGOLIA_TOOL_NAMES
 from ai_ems.agent.tools import create_agent_tools
 from ai_ems.tools.security_tools import (
     get_limit_unit,
@@ -76,8 +78,6 @@ def _load_validated_mongolia_pf() -> dict[str, Any]:
     return load_mongolia_pf_preview(MONGOLIA_PF_PREVIEW_FILE, MONGOLIA_MAP_FILE)
 
 
-# Separate read-only agent and session store: Mongolia never reaches KPG tools/history.
-mongolia_agent_graph = create_mongolia_agent_graph(_load_validated_mongolia_pf)
 mongolia_agent_sessions: dict[str, list[Any]] = {}
 
 # Mongolia PyPowSyBl Security Analysis: separate model, never the KPG `network`.
@@ -95,6 +95,11 @@ def _mongolia_security() -> MongoliaSecurityService:
     if key not in _mongolia_security_services:
         _mongolia_security_services[key] = MongoliaSecurityService(files)
     return _mongolia_security_services[key]
+
+# Resolve the service lazily; each domain call uses its own validated network.
+mongolia_agent_graph = create_mongolia_agent_graph(
+    _load_validated_mongolia_pf, load_security=_mongolia_security,
+)
 
 bus_locations = pd.read_csv(BUS_LOCATION_FILE)
 
@@ -556,6 +561,8 @@ def mongolia_chat(request: ChatRequest) -> dict[str, Any]:
 
     try:
         result = mongolia_agent_graph.invoke({"messages": input_messages})
+    except DisallowedMongoliaTool as exc:
+        raise HTTPException(status_code=502, detail=f"몽골 Agent가 허용되지 않은 Tool 호출을 시도했습니다: {exc}") from exc
     except Exception as exc:
         raise HTTPException(
             status_code=503,
@@ -580,15 +587,75 @@ def mongolia_chat(request: ChatRequest) -> dict[str, Any]:
     if not answer.strip():
         raise HTTPException(status_code=502, detail="몽골 AI Agent가 빈 응답을 반환했습니다.")
 
+    ui_updates, analysis_notes = _mongolia_analysis_evidence(generated_messages)
+    if analysis_notes:
+        # Analysis statements and numbers are derived from actual tool artifacts only.
+        answer = "\n\n".join(analysis_notes) + "\n\n합성 모델 결과이며 실제 몽골 운영 데이터가 아닙니다."
+    elif requests_analysis(user_message) or ("분석" in user_message and not tools_used):
+        answer = "이번 요청에서 검증된 분석 Tool 결과가 없습니다. 계산 수행을 확인할 수 없습니다. 사고 선로의 원본 ID와 실행할 분석을 지정해 주세요."
+    output_messages[-1] = AIMessage(content=answer, id=output_messages[-1].id)
     mongolia_agent_sessions[session_id] = output_messages
     return {
         "session_id": session_id,
         "grid_id": MONGOLIA_GRID_ID,
         "answer": answer,
-        "ui_updates": [],
+        "ui_updates": ui_updates,
         "tools_used": tools_used,
         "unsupported_requests": [],
     }
+
+
+def _mongolia_analysis_evidence(messages: list[Any]) -> tuple[list[dict], list[str]]:
+    """Only paired, successful domain ToolMessage artifacts can update Mongolia UI.
+
+    Do not pass these results through the KPG network/generator adapters.
+    Failures override model claims even if it says the computation succeeded.
+    """
+    pending: dict[str, dict] = {}
+    updates, notes = [], []
+    for message in messages:
+        if isinstance(message, AIMessage):
+            pending.update({c["id"]: c for c in message.tool_calls if c["name"] in ANALYSIS_TOOL_TYPES})
+        elif isinstance(message, ToolMessage) and message.tool_call_id in pending:
+            call = pending.pop(message.tool_call_id)
+            kind = ANALYSIS_TOOL_TYPES[call["name"]]
+            payload = message.artifact
+            valid = (
+                message.name == call["name"] and message.status != "error"
+                and isinstance(payload, dict) and payload.get("grid_id") == MONGOLIA_GRID_ID
+                and payload.get("outage_line_id") == call["args"].get("outage_line_id", "").strip()
+                and not payload.get("error")
+            )
+            if valid and kind == "security" and "post_status" in payload:
+                updates.append({"type": kind, "grid_id": MONGOLIA_GRID_ID, "result": payload})
+                note = f"선로 {payload['outage_line_id']} N-1: {payload['post_status']}."
+                if payload.get("violation_assessment_available") is True:
+                    note += f" 위반 {payload['violated_equipment_count']}건(합성 스크리닝 기준)."
+                else:
+                    note += " 사고 후 PF 비수렴: 위반 판정 불가."
+                if payload.get("island_detected"):
+                    note += f" 분리 {payload['isolated_bus_count']}모선, 주 계통만 계산하며 분리 섬 PF는 미실행."
+                notes.append(note)
+            elif valid and kind == "sensitivity" and payload.get("analysis_status") in {
+                "COMPLETED", "NOT_EVALUATED_ISLANDING", "POST_CONTINGENCY_NOT_CONVERGED",
+            }:
+                updates.append({"type": kind, "grid_id": MONGOLIA_GRID_ID, "result": payload})
+                if payload["analysis_status"] == "COMPLETED":
+                    selection = payload["monitored_line_selection"]["mode"]
+                    note = (f"사고 선로 {payload['outage_line_id']}의 주입 민감도: 감시 선로 "
+                            f"{payload['monitored_line_id']} ({'자동 선택' if selection == 'auto' else '사용자 선택'}), "
+                            f"후보 {payload['candidate_count']}개.")
+                    for c in payload["candidates"]:
+                        note += f"\n{c['rank']}. {c['generator_id']} (모선 {c['bus_id']}): {c['sensitivity']:.6f} MW/MW"
+                    notes.append(note + "\n합성 발전기 주입 민감도이며 실제 발전소·재급전 권고가 아닙니다.")
+                else:
+                    notes.append(f"{payload['analysis_status']}: {payload['message']} 후보 0개, 순위 없음.")
+            else:
+                reason = payload.get("error") if isinstance(payload, dict) else "Tool 호출 또는 입력 검증 오류"
+                notes.append(f"{call['name']} 실패: {reason or '결과 검증 실패'}. 검증된 분석 결과를 제공하지 않습니다.")
+    if pending:
+        notes.append("분석 Tool의 실제 실행 결과가 없어 성공을 확인할 수 없습니다.")
+    return updates, notes
 
 
 def _security_result_for_ui(
