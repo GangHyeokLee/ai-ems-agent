@@ -1,6 +1,6 @@
 # ai-ems-agent
 
-Local LLM + LangGraph + PyPowSyBl 기반 **AI-EMS Agent PoC** 프로젝트.
+로컬 LLM + LangGraph + PyPowSyBl 기반 **AI-EMS Agent PoC** 프로젝트.
 
 이 프로젝트의 목적은 LLM이 전력계통 물리해석을 대체하는 것이 아니라, 사용자의 자연어 요청을 해석하고 적절한 PyPowSyBl 기반 Tool을 선택·호출한 뒤 실제 계산 결과를 운영자 관점에서 설명하는 흐름을 검증하는 것이다.
 
@@ -9,56 +9,56 @@ Local LLM + LangGraph + PyPowSyBl 기반 **AI-EMS Agent PoC** 프로젝트.
 
 ---
 
-## Current Capabilities
+## 현재 지원 기능
 
-### Power-system analysis
+### 전력계통 해석
 
-- KPG-193 기반 PyPowSyBl network load
-- AC Load Flow
-- Line N-1 Security Analysis
-- Generator N-1 Security Analysis
-- Generator N-1 full-batch screening
-- Single / Distributed slack 발전기 사고 비교
+- KPG-193 기반 PyPowSyBl 계통 모델 로드
+- AC 조류계산 (Load Flow)
+- 선로 N-1 안전도 해석 (Security Analysis)
+- 발전기 N-1 안전도 해석
+- 발전기 전체 N-1 일괄 스크리닝
+- 단일 / 분산 슬랙 (Single / Distributed slack) 발전기 사고 비교
 - 발전기 N-1 balancing 메커니즘 분석
-- pre / post contingency 위반 비교
-- Generator Sensitivity Analysis
-- line-outage Sensitivity 기반 balanced redispatch 후보 생성
-- generator-outage post-contingency Sensitivity 기반 balanced redispatch 후보 생성
-- 동일 Bus pair 중복 후보 제거
-- 발전기 출력 범위 guardrail
-- Redispatch 후 AC Power Flow 검증
-- PyPowSyBl Operator Strategy 기반 whole-network Security 재검증
-- 발전기 사고 후 Security → Sensitivity → Redispatch 후보 → AC/Security 재검증 workflow
+- 사고 전후 위반 비교
+- 발전기 민감도 해석 (Sensitivity Analysis)
+- 선로 사고 후 민감도 기반 균형 재급전 (balanced redispatch) 후보 생성
+- 발전기 사고 후 민감도 기반 균형 재급전 후보 생성
+- 동일 모선 쌍의 중복 후보 제거
+- 발전기 출력 범위 제약 검사
+- 재급전 후 AC 조류계산 검증
+- PyPowSyBl Operator Strategy 기반 전체 계통 안전도 재검증
+- 발전기 사고 후 안전도 → 민감도 → 재급전 후보 → AC/안전도 재검증 흐름
 
-### AI / Agent
+### AI / 에이전트
 
 - 자연어 요청 → Tool 선택
-- LangGraph ToolNode 기반 Local LLM Tool Calling
-- line-outage corrective-action workflow
-- generator-outage 개별 분석 / slack 비교 / batch screening
-- generator-outage corrective-action high-level workflow
-- 발전기 N-1 Screening 결과를 이용한 멀티턴 후속 분석
-- 고위험 계통 결과의 deterministic formatter
-- Tool error의 자연어 설명
+- LangGraph ToolNode 기반 로컬 LLM 도구 호출 (Tool Calling)
+- 선로 사고 후 대응방안 분석 흐름
+- 발전기 사고 개별 분석 / 슬랙 비교 / 일괄 스크리닝
+- 발전기 사고 후 대응방안 분석을 연결하는 고수준 도구
+- 발전기 N-1 스크리닝 결과를 이용한 멀티턴 후속 분석
+- 고위험 계통 결과의 결정적 포매터 (deterministic formatter)
+- 도구 오류의 자연어 설명
 - 멀티턴 분석 요청
 - 몽골 합성 AC PF 결과 읽기 전용 질의응답 (별도 Agent·Tool, [사양](docs/specs/MONGOLIA_PF_CHAT_SPEC.md))
 - 몽골 합성 계통 선로 N-1 Security Analysis와 계통 분리 표시 (PyPowSyBl XIIDM, [사양](docs/specs/MONGOLIA_SECURITY_ANALYSIS.md))
 - 몽골 계통 분리 없는 N-1 후 선로 조류 Sensitivity (유한차분 검증, [사양](docs/specs/MONGOLIA_SENSITIVITY_ANALYSIS.md))
 
-### Web UI
+### 웹 UI
 
-- FastAPI 기반 Web UI
+- FastAPI 기반 웹 UI
 - KPG 계통 지도
-- 선로 / 버스 / 발전기 선택
-- Security / Sensitivity 직접 실행
-- Generator Contingency 직접 실행
+- 선로 / 모선 / 발전기 선택
+- 안전도 / 민감도 해석 직접 실행
+- 발전기 상정사고 해석 직접 실행
 - 분석 패널 접기 / 펼치기
 - 사고·위반·민감도·발전기 변화 시각화
 - AI 채팅 Markdown 렌더링
 
-### Physics API
+### 물리해석 API
 
-Agent와 별도로 외부 Simulator / EMS Tester가 LLM 없이 물리해석 기능을 호출할 수 있는 REST API를 제공한다.
+에이전트와 별도로 외부 시뮬레이터 / EMS 테스터가 LLM 없이 물리해석 기능을 호출할 수 있는 REST API를 제공한다.
 
 ```text
 External Simulator
@@ -72,7 +72,7 @@ PyPowSyBl Domain Tools
 
 ---
 
-## Architecture
+## 구조
 
 ```text
 src/ai_ems/
@@ -107,25 +107,25 @@ src/ai_ems/
    └─ adapters.py
 ```
 
-### Domain Layer
+### 도메인 계층
 
 LLM과 독립적인 Python / PyPowSyBl 계층이다.
 
-- `network.py`: 계통 load 및 공통 AC Load Flow
+- `network.py`: 계통 로드 및 공통 AC 조류계산
 - `network_tools.py`: 계통 요약 / 선로 / 발전기 조회
-- `security_tools.py`: line / generator contingency Security Analysis 지원 기능
-- `generator_contingency_tools.py`: 발전기 탈락 AC Load Flow, slack balancing 비교 및 Security Analysis
-- `generator_screening_tools.py`: 연결 발전기 전체 N-1 batch screening
-- `sensitivity_tools.py`: line / generator outage 이후 발전기 injection 변화에 대한 선로 유효전력 조류 민감도
-- `control_tools.py`: line-outage balanced redispatch 후보 / 제약 guardrail / AC·Security 재검증
-- `generator_control_tools.py`: generator-outage Sensitivity 기반 Redispatch 후보 생성 / 후보 다양화 / AC·Security 재검증
-- `workflow_tools.py`: line-outage 및 generator-outage Security → Sensitivity → Redispatch 후보 → 물리 재검증 workflow
+- `security_tools.py`: 선로 / 발전기 상정사고 안전도 해석 지원 기능
+- `generator_contingency_tools.py`: 발전기 탈락 AC 조류계산, 슬랙 보상 비교 및 안전도 해석
+- `generator_screening_tools.py`: 연결 발전기 전체 N-1 일괄 스크리닝
+- `sensitivity_tools.py`: 선로 / 발전기 사고 이후 발전기 주입량 변화에 대한 선로 유효전력 조류 민감도
+- `control_tools.py`: 선로 사고 후 균형 재급전 후보 / 제약 검사 / AC·안전도 재검증
+- `generator_control_tools.py`: 발전기 사고 후 민감도 기반 재급전 후보 생성 / 후보 다양화 / AC·안전도 재검증
+- `workflow_tools.py`: 선로 / 발전기 사고의 안전도 → 민감도 → 재급전 후보 → 물리 재검증 흐름
 
-### Agent Layer
+### 에이전트 계층
 
-`src/ai_ems/agent/tools.py`는 Domain function을 LLM-facing Tool schema로 노출한다.
+`src/ai_ems/agent/tools.py`는 도메인 함수를 LLM이 호출할 수 있는 도구 스키마로 노출한다.
 
-현재 Agent Tool:
+현재 에이전트 도구:
 
 ```text
 network_summary
@@ -142,7 +142,7 @@ contingency_response_analysis
 generator_outage_response_analysis
 ```
 
-고위험 계산 결과는 LLM이 수치를 다시 자유롭게 해석하지 않도록 deterministic formatter를 사용한다.
+고위험 계산 결과는 LLM이 수치를 다시 자유롭게 해석하지 않도록 결정적 포매터를 사용한다.
 
 ```text
 User
@@ -158,11 +158,11 @@ Deterministic Formatter
 Operator-facing Response
 ```
 
-발전기 사고 대응방안 분석에서는 Agent가 `generator_outage_response_analysis`를 선택하고, 해당 고수준 Tool 내부 workflow에서 Security Analysis, Sensitivity Analysis, Redispatch 후보 생성, AC Load Flow 및 whole-network Security 재검증을 수행한다.
+발전기 사고 대응방안 분석에서는 에이전트가 `generator_outage_response_analysis`를 선택하고, 해당 고수준 도구 내부에서 안전도 해석, 민감도 해석, 재급전 후보 생성, AC 조류계산 및 전체 계통 안전도 재검증을 수행한다.
 
-### Public Physics API Layer
+### 외부 물리해석 API 계층
 
-현재 endpoint:
+현재 엔드포인트:
 
 ```text
 GET  /api/health
@@ -176,9 +176,9 @@ POST /api/v1/contingency-response
 
 ---
 
-## Main Workflows
+## 주요 분석 흐름
 
-### Line-outage corrective-action workflow
+### 선로 사고 후 대응방안 분석
 
 ```text
 Line Contingency
@@ -202,7 +202,7 @@ Candidate Ranking
 
 `best_tested_candidate`는 **시험한 후보 중 최선의 결과**이며 OPF / SCED 기반 최적해를 의미하지 않는다.
 
-### Generator-outage analysis workflow
+### 발전기 사고 분석
 
 ```text
 Specific Generator Outage
@@ -214,9 +214,9 @@ Security Analysis
 Deterministic Result Explanation
 ```
 
-Single / Distributed slack은 Load Flow balancing 가정이며 운영자 Redispatch가 아니다.
+단일 / 분산 슬랙은 조류계산의 전력 균형 가정이며 운영자 재급전이 아니다.
 
-### Generator-outage corrective-action workflow
+### 발전기 사고 후 대응방안 분석
 
 ```text
 Specific Generator Outage
@@ -238,11 +238,11 @@ Whole-network Security Re-validation
 Validated Candidate Ranking
 ```
 
-기본 제어 후보는 한 발전기 `+10 MW`, 다른 발전기 `-10 MW`의 balanced Redispatch이며, 민감도는 후보 우선순위 선별에 사용한다. 실제 효과는 AC Load Flow와 whole-network Security Analysis로 다시 검증한다.
+기본 제어 후보는 한 발전기 `+10 MW`, 다른 발전기 `-10 MW`의 균형 재급전이며, 민감도는 후보 우선순위 선별에 사용한다. 실제 효과는 AC 조류계산과 전체 계통 안전도 해석으로 다시 검증한다.
 
 `best_tested_candidate`는 **시험한 후보 중 최선의 결과**이며 OPF / SCED 기반 최적해나 위반 해소를 보장하는 제어안이 아니다.
 
-### Generator N-1 batch screening
+### 발전기 N-1 일괄 스크리닝
 
 ```text
 All Connected Generators
@@ -256,13 +256,13 @@ Physics-first Deterministic Ranking
 Top-N Review Candidates
 ```
 
-Screening ranking은 AI score나 고장 확률이 아니라 물리해석 결과 기반 **review priority**다.
+스크리닝 순위는 AI 점수나 고장 확률이 아니라 물리해석 결과 기반 **검토 우선순위**다.
 
-Screening 결과는 같은 대화의 후속 요청에서 특정 순위의 발전기 사고 상세분석 또는 대응방안 분석으로 연결할 수 있다.
+스크리닝 결과는 같은 대화의 후속 요청에서 특정 순위의 발전기 사고 상세분석 또는 대응방안 분석으로 연결할 수 있다.
 
 ---
 
-## Environment
+## 환경 구성
 
 Python 3.11 기준.
 
@@ -273,7 +273,7 @@ python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-프로젝트 설정은 repository root의 `.env`를 사용하며 `src/ai_ems/config.py`가 자동 로드한다.
+프로젝트 설정은 저장소 루트의 `.env`를 사용하며 `src/ai_ems/config.py`가 자동 로드한다.
 
 주요 설정:
 
@@ -290,15 +290,15 @@ AI_EMS_PHYSICS_PORT=8001
 
 ---
 
-## Run
+## 실행
 
-### CLI Agent
+### CLI 에이전트
 
 ```bash
 python app.py
 ```
 
-### Agent Web UI
+### 에이전트 웹 UI
 
 ```bash
 ./run_agent.sh
@@ -310,7 +310,7 @@ python app.py
 http://127.0.0.1:8000/
 ```
 
-### Standalone Physics API
+### 독립 물리해석 API
 
 ```bash
 ./run_api.sh
@@ -323,125 +323,114 @@ http://127.0.0.1:8001/docs
 ```
 
 
-### Bearer-authenticated local Ollama proxy (Windows)
+### Bearer 인증을 사용하는 로컬 Ollama 프록시 (Windows)
 
-Windows Caddy listens only on 127.0.0.1:18080 and forwards only GET /api/tags
-and POST /api/chat to the fixed upstream 127.0.0.1:11434.
-The installed ChatOllama uses POST /api/chat for sync, async, streaming and
-tool calls; model validation on initialization is not enabled.
-Other paths/methods, including model management and /api/generate, return 403.
-Missing/invalid Bearer credentials return 401 before any upstream request.
+Windows Caddy는 `127.0.0.1:18080`에서만 요청을 수신하며, `GET /api/tags`와
+`POST /api/chat`만 고정된 업스트림 `127.0.0.1:11434`로 전달한다.
+설치된 ChatOllama는 동기·비동기·스트리밍·도구 호출에 `POST /api/chat`을 사용하며,
+초기화 시 모델 검증은 활성화하지 않는다. 모델 관리와 `/api/generate`를 포함한
+다른 경로·메서드는 403을 반환한다. Bearer 인증 정보가 없거나 잘못되면 업스트림에
+요청하기 전에 401을 반환한다.
 
-Install Windows Caddy and copy the repository's `deploy/ollama-proxy` sources to a
-Windows directory of your choice. The PowerShell launcher may be renamed; keep its
-supporting module beside it. Add these two entries to the existing local `.env`,
-keeping all other settings, and specify the full Windows path:
+Windows에 Caddy를 설치하고 저장소의 `deploy/ollama-proxy` 소스를 원하는 Windows
+디렉터리에 복사한다. PowerShell 실행 스크립트는 이름을 바꿔도 되지만, 지원 모듈은
+같은 디렉터리에 둬야 한다. 기존 로컬 `.env`의 다른 설정을 유지하면서 다음 두 항목을
+추가하고 Windows 전체 경로를 지정한다.
 
 ```ini
 AI_EMS_CADDY_SCRIPT_WIN=%LOCALAPPDATA%\YourApp\Proxy\launch.ps1
 AI_EMS_CADDY_AUTOSTART=false
 ```
 
-Replace the example with your own path and filename. The path is configuration,
-not authentication or access control. Keep `.env` out of Git. Existing LLM
-credentials and other project settings remain unchanged. Do not put real tokens
-in source, documentation, script arguments, or runtime-config logs.
+예시 경로와 파일명은 실제 설치 위치로 바꾼다. 이 경로는 실행 설정이며 인증·접근 제어를
+제공하지 않는다. `.env`는 Git에 포함하지 않고 기존 LLM 인증 정보와 프로젝트 설정은
+유지한다. 실제 토큰을 소스·문서·스크립트 인자·실행 설정 로그에 넣지 않는다.
 
-To enable automatic startup, set `AI_EMS_CADDY_AUTOSTART=true`, then run:
+자동 실행을 사용하려면 `AI_EMS_CADDY_AUTOSTART=true`로 설정한 뒤 실행한다.
 
 ```bash
 ./run_agent.sh
 ```
 
-The web app stays on WSL loopback; `AI_EMS_WEB_PORT` selects its port (default
-8000). For example, use `AI_EMS_WEB_PORT=8010 ./run_agent.sh` to avoid an app
-already using the default port.
+웹 앱은 WSL 루프백에서 실행되며, `AI_EMS_WEB_PORT`로 포트를 선택한다(기본 8000).
+기본 포트를 이미 사용 중이라면 `AI_EMS_WEB_PORT=8010 ./run_agent.sh`처럼 실행한다.
 
-The launcher parses `.env` with `python-dotenv` as data (`interpolate=False`),
-never `source` or `eval`. Exported process variables override the two dotenv
-settings. `%LOCALAPPDATA%` and other Windows environment variables are expanded
-by PowerShell with `ExpandEnvironmentVariables`; the path is invoked literally.
-With autostart disabled or unspecified, the web app remains available for manual
-proxy operation. With `AI_EMS_CADDY_AUTOSTART=true`, invalid settings stop the
-launcher with exit code 2; failed Windows interop, missing/invalid server token,
-port conflict or Caddy startup failure stops it with exit code 3 **before Uvicorn
-starts**. An owned proxy is cleaned up on failure. Set `false` to use your usual
-foreground PowerShell launcher manually. In PowerShell, after setting the
-configured path as a process variable, invoke any chosen filename safely:
+실행기는 `.env`를 `python-dotenv`의 데이터로 읽는다(`interpolate=False`). `source`나
+`eval`로 실행하지 않으며, 위 두 설정은 내보낸 프로세스 환경변수가 `.env`보다 우선한다.
+`%LOCALAPPDATA%` 등 Windows 환경변수는 PowerShell의 `ExpandEnvironmentVariables`로
+확장하고 경로 자체를 그대로 호출한다.
+
+자동 실행을 끄거나 지정하지 않으면 프록시를 수동으로 실행하는 방식으로 웹 앱을 사용할
+수 있다. `AI_EMS_CADDY_AUTOSTART=true`일 때 설정이 잘못되면 종료 코드 2로 중단한다.
+Windows 상호운용 실패, 서버 토큰 누락·형식 오류, 포트 충돌, Caddy 시작 실패는
+**Uvicorn 실행 전에** 종료 코드 3으로 중단하며, 이번 실행에서 소유한 프록시는 정리한다.
+기존 PowerShell 실행기를 포그라운드에서 직접 사용하려면 `false`로 설정한다.
+PowerShell에서 설정 경로를 프로세스 환경변수로 지정한 뒤 다음과 같이 호출할 수 있다.
 
 ```powershell
 & ([Environment]::ExpandEnvironmentVariables($env:AI_EMS_CADDY_SCRIPT_WIN))
 ```
 
-A new proxy needs `OLLAMA_PROXY_TOKEN` in the launching Windows process or WSL
-process (64 lowercase hex characters, generated with a cryptographic RNG).
-An explicit WSL process token takes precedence and travels over stdin; otherwise
-the Windows PowerShell process's existing token is used. Only the source name is
-reported. This adds no credential store, registry lookup, command-line secret or
-plaintext token file. A running Caddy needs no server token to be reused; client
-credentials are checked separately. Use your approved method to inject process
-credentials; never save real tokens to Git.
+새 프록시는 실행하는 Windows 또는 WSL 프로세스에 `OLLAMA_PROXY_TOKEN`이 필요하다.
+값은 암호학적 난수 생성기로 만든 소문자 16진수 64자리다. WSL 프로세스가 토큰을
+명시하면 우선 사용하고 표준입력으로 전달한다. 그렇지 않으면 Windows PowerShell
+프로세스의 기존 토큰을 사용한다. 로그에는 출처 이름만 기록한다. 인증 저장소·레지스트리
+조회·명령행 비밀값·평문 토큰 파일은 추가하지 않는다. 실행 중인 Caddy를 재사용할 때는
+서버 토큰이 필요하지 않으며, 클라이언트 인증은 별도로 확인한다. 승인된 방식으로
+프로세스에 인증 정보를 주입하고 실제 토큰은 Git에 저장하지 않는다.
 
-The complete TCP listener list for port 18080 must contain exactly one entry,
-bound to IPv4 `127.0.0.1`, owned by Caddy before reuse is allowed. Wildcard
-`0.0.0.0`/`::`, IPv6 `::1`, other interface addresses, and multiple entries
-(including a valid IPv4 entry mixed with any other listener) return `occupied`.
-The same address check runs after a new proxy starts, before reporting `started`.
-A rejected owned proxy is cleaned up; existing processes and configurations are
-preserved, and no alternate port is selected automatically.
+포트 18080의 전체 TCP 리스너가 정확히 하나이고 Caddy 소유의 IPv4 `127.0.0.1`에
+바인딩된 경우에만 재사용한다. 와일드카드 `0.0.0.0`/`::`, IPv6 `::1`, 다른 인터페이스,
+여러 리스너(정상 IPv4와 다른 리스너의 혼합 포함)는 `occupied`로 거부한다. 새 프록시도
+`started`를 알리기 전에 같은 주소 검사를 수행한다. 거부된 소유 프록시는 정리하되
+기존 프로세스·설정은 보존하며, 다른 포트를 자동 선택하지 않는다.
 
-A Caddy listener is only a reuse candidate. After startup/reuse, the launcher
-requests `/api/tags` at the existing `AI_EMS_LLM_BASE_URL`, using the app's shared
-Bearer/Cloudflare authentication rules and existing dotenv/process credentials.
-Redirects are not followed. HTTP 200 must contain an Ollama `models` list.
-HTTP 401/403, gateway/upstream 502, connection failure, timeout and invalid
-configuration/response are reported separately, without URLs, headers or bodies.
-These API failures leave the web UI available with an explicit warning that AI
-may be unavailable. They do not trigger a Caddy restart, including while Ollama
-is temporarily down. The configured URL may be remote: its successful response
-validates that route, not the local proxy's routing configuration.
+Caddy 리스너 확인은 재사용 가능 여부만 판정한다. 시작·재사용 후 기존
+`AI_EMS_LLM_BASE_URL`의 `/api/tags`에 앱의 공통 Bearer/Cloudflare 인증 규칙과
+기존 `.env`·프로세스 인증 정보를 적용해 요청한다. 리디렉션은 따라가지 않으며,
+HTTP 200 응답에 Ollama `models` 목록이 있어야 한다. HTTP 401/403, 게이트웨이·업스트림
+502, 연결 실패, 시간 초과, 잘못된 설정·응답은 URL·헤더·본문을 노출하지 않고 구분한다.
+이러한 API 오류에서는 AI를 사용하지 못할 수 있음을 안내하고 웹 UI를 계속 실행한다.
+Ollama 일시 중단을 포함해 API 오류로 기존 Caddy를 재시작하지 않는다. 설정 URL이
+원격 주소라면 성공 응답은 해당 경로의 확인이며, 로컬 프록시 라우팅 검증은 아니다.
 
-On Ctrl+C, SIGTERM, normal exit or application failure, only a Caddy descendant
-started by this invocation is cleaned up using its retained process handle.
-Existing Caddy and other listeners are never terminated. The app gets 10 seconds
-to handle its first signal, then 5 seconds after SIGTERM and up to 5 seconds after
-SIGKILL; the controller cleanup wait is bounded to 25 seconds (about 46 seconds
-total including polling). App termination errors still enter Caddy cleanup.
-A controller timeout produces a manual-check warning instead of killing an
-unverified process. Abrupt host/WSL shutdown or SIGKILL of the launcher cannot
-guarantee cleanup. No name-based `taskkill` or Windows installation changes occur.
+Ctrl+C, SIGTERM, 정상 종료, 앱 오류 시 보관한 프로세스 핸들로 이번 실행에서 시작한
+Caddy 하위 프로세스만 정리한다. 기존 Caddy와 다른 리스너는 종료하지 않는다.
+앱의 첫 시그널 처리에 10초, 이후 SIGTERM에 5초, SIGKILL 후 최대 5초를 기다린다.
+컨트롤러 정리 대기는 최대 25초이며 폴링을 포함한 전체 대기는 약 46초다. 앱 종료 처리에
+오류가 생겨도 Caddy 정리를 진행한다. 컨트롤러 시간 초과 시 확인되지 않은 프로세스를
+강제 종료하는 대신 수동 확인을 안내한다. 호스트·WSL의 갑작스러운 종료나 실행기의
+SIGKILL에서는 정리를 보장할 수 없다. 프로세스 이름 기반 `taskkill`이나 Windows 설치
+설정 변경은 수행하지 않는다.
 
-The launcher refuses missing/invalid tokens before starting Caddy.
-Runtime JSON containing the token is sent via stdin only.
-Admin API, config persistence, automatic HTTPS and runtime logging are disabled;
-access logging is not configured. Responses flush at 10ms intervals.
-Stop the foreground launcher with Ctrl+C. No Windows service is installed.
+토큰이 없거나 형식이 잘못되면 Caddy 시작 전에 거부한다. 토큰을 포함한 실행용 JSON은
+표준입력으로만 전달한다. 관리 API, 설정 영속화, 자동 HTTPS, 실행 로그는 비활성화하며,
+접근 로그는 설정하지 않는다. 응답은 10ms 간격으로 플러시한다. 포그라운드 실행기는
+Ctrl+C로 종료한다. Windows 서비스는 설치하지 않는다.
 
-AI-EMS clients can set these process environment variables:
+AI-EMS 클라이언트에서는 다음 프로세스 환경변수를 사용할 수 있다.
 
 ```dotenv
 AI_EMS_LLM_BASE_URL=http://127.0.0.1:18080
 AI_EMS_LLM_API_KEY=<same-token>
 ```
 
-AI_EMS_LLM_API_KEY sends Authorization: Bearer on both sync/async clients.
-Remote authentication requires HTTPS. The only HTTP exception is the exact
-local test URL http://127.0.0.1:18080 (optional trailing slash).
-localhost aliases, other ports, userinfo and remote HTTP are rejected.
-Set neither authentication mode to preserve existing unauthenticated local calls.
-Bearer and Cloudflare credentials cannot be combined.
-The proxy removes Authorization before forwarding to Ollama.
+`AI_EMS_LLM_API_KEY`는 동기·비동기 클라이언트 모두에 Authorization: Bearer 헤더를
+설정한다. 원격 인증에는 HTTPS가 필요하다. HTTP 예외는 정확히
+`http://127.0.0.1:18080`인 로컬 테스트 URL뿐이다(마지막 `/` 허용). localhost 별칭,
+다른 포트, 사용자 정보가 포함된 URL, 원격 HTTP 주소는 거부한다. 기존의 인증 없는 로컬
+호출을 유지하려면 두 인증 방식을 모두 설정하지 않는다. Bearer와 Cloudflare 인증 정보는
+함께 사용할 수 없다. 프록시는 Ollama에 전달하기 전에 Authorization 헤더를 제거한다.
 
-This stage does not enable Tailscale Serve/Funnel, change OLLAMA_HOST, open
-firewall/router ports, or expose AI-EMS ports 8000/8001.
-WSL localhost differs from Windows localhost under NAT. Keep the deployment's
-existing Tailscale HTTPS 8443 route in `.env`; these tests do not change it.
-The user confirmed `/api/tags` HTTP 200 while AI-EMS owns a running proxy and
-HTTP 502 after Ctrl+C stops it. The latter is expected with Caddy absent.
-A 502 during an Ollama update is also an API/upstream condition; listener
-addresses are checked separately through Windows TCP state.
+이 단계에서는 Tailscale Serve/Funnel 활성화, `OLLAMA_HOST` 변경, 방화벽·라우터 포트
+개방, AI-EMS의 8000/8001 포트 노출을 수행하지 않는다.
+NAT 환경에서 WSL과 Windows의 localhost는 다르다. 배포 환경의 기존 Tailscale
+HTTPS 8443 경로는 `.env`에서 유지하며 테스트로 변경하지 않는다. 사용자는 AI-EMS가
+소유한 프록시가 실행 중일 때 `/api/tags` HTTP 200, Ctrl+C로 종료한 뒤 HTTP 502를
+확인했다. Caddy가 없을 때의 502는 예상된 동작이다. Ollama 업데이트 중의 502도
+API·업스트림 상태이며, 리스너 주소는 Windows TCP 상태로 별도 확인한다.
 
-Final local launcher security validation (Windows PowerShell 5.1 + WSL2, 2026-10-21):
+기존 로컬 실행기 보안 검증 기록(Windows PowerShell 5.1 + WSL2, 2026-10-21):
 
 ```bash
 .venv/bin/python tests/windows_caddy_lifecycle_probe.py
@@ -449,62 +438,59 @@ Final local launcher security validation (Windows PowerShell 5.1 + WSL2, 2026-10
 AI_EMS_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests
 ```
 
-The actual WSL process had no `OLLAMA_PROXY_TOKEN`; a fresh Windows PowerShell
-process inherited a valid-format token. With no listener on an isolated Windows
-port, the real launcher used that Windows credential, received Ollama tags HTTP
-200, started real Uvicorn, and cleaned its owned Caddy after Ctrl+C. The existing
-WSL `.env` LLM route initially returned HTTP 200 with an Ollama `models` list.
-Agent-run checks observed HTTP 502 with no default listener and HTTP 403 after
-startup, including in this final probe. Earlier focused checks returned HTTP 200
-from Windows localhost using the existing dotenv client key; in-memory comparison
-confirmed that key matches the Windows-inherited server token. The agent-run
-HTTPS 403 remains distinct from the user's subsequently confirmed 200/502
-lifecycle above. It does not identify a listener binding failure. No credential
-storage or network settings were changed to work around it.
+당시 WSL 프로세스에는 `OLLAMA_PROXY_TOKEN`이 없었고, 새 Windows PowerShell
+프로세스가 올바른 형식의 토큰을 상속했다. 분리된 Windows 포트에 리스너가 없는 상태에서
+실제 실행기가 Windows 인증 정보를 사용해 Ollama tags HTTP 200을 확인하고 실제
+Uvicorn을 시작한 뒤 Ctrl+C에서 소유한 Caddy를 정리했다. 기존 WSL `.env`의 LLM 경로도
+초기에는 HTTP 200과 Ollama `models` 목록을 반환했다.
 
-Binding validation executes the production PowerShell `Listener` function with
-12 mocked address lists. Whole-manager tests use a real Caddy PID to verify all
-10 rejected address combinations cannot enter reuse, preserving that process.
-Three post-start tests inject wildcard/IPv6/mixed snapshots while actual Caddy
-stays bound to loopback, then verify rejection and owned-process cleanup.
-No wildcard or externally reachable test listener is opened.
+당시 에이전트 실행에서는 기본 리스너가 없을 때 HTTP 502, 시작 후에는 최종 probe를
+포함해 HTTP 403을 관측했다. 앞선 개별 검증에서는 기존 `.env`의 클라이언트 키로
+Windows localhost에서 HTTP 200을 받았고, 메모리 내 비교로 Windows가 상속한 서버
+토큰과 일치함을 확인했다. 당시 에이전트의 HTTPS 403은 사용자가 이후 확인한 위의
+200/502 수명주기 결과와 구분하며, 리스너 바인딩 실패를 뜻하지 않는다. 우회 목적으로
+인증 저장소나 네트워크 설정을 변경하지 않았다.
 
-Real Windows cases cover existing-Caddy reuse, missing/invalid credentials,
-missing path, another process occupying the port, Bearer rejection (401), the
-unchanged API allowlist (403), and unavailable upstream (502) without restarting
-Caddy. The 502 case uses a temporary proxy pointing to a closed port; the real
-Ollama process stays running. A real child that ignores SIGINT/SIGTERM verifies
-bounded escalation and owned Windows Caddy cleanup; unit tests cover both signal
-entries and the UI continuation policy after API failures.
+바인딩 검증은 운영 PowerShell `Listener` 함수에 모의 주소 목록 12개를 전달한다.
+수명 관리 스크립트 전체 검증에서는 실제 Caddy PID로 거부 대상 주소 조합 10개가 모두 재사용을
+막는지 확인하고 해당 프로세스를 보존한다. 시작 후 검사 3개는 실제 Caddy를 루프백에
+유지한 채 와일드카드·IPv6·혼합 주소 스냅샷을 주입해 거부와 소유 프로세스 정리를
+확인한다. 와일드카드나 외부 접근이 가능한 테스트 리스너는 열지 않는다.
 
-`./run_agent.sh` was checked both with an existing default listener and with
-that port free, using the Windows-inherited token. Reuse preserves the listener's
-PID/start time through Ctrl+C and app failure. Isolated ports also exercise owned
-startup with the same Python launcher, keeping baseline listeners untouched.
-Probe scripts are temporary source copies; installed Windows files, credential
-storage and Tailscale settings stay unchanged.
-Generated test tokens remain in memory and captured logs are checked for leaks.
+실제 Windows 검증은 기존 Caddy 재사용, 인증 정보 누락·오류, 경로 누락, 다른 프로세스의
+포트 점유, Bearer 거부(401), 기존 API 허용 목록(403), 업스트림 미응답(502)에서 Caddy를
+재시작하지 않는 동작을 포함한다. 502 검증은 닫힌 포트로 연결하는 임시 프록시를 사용해
+실제 Ollama를 계속 실행한다. SIGINT/SIGTERM을 무시하는 실제 하위 프로세스로 제한
+시간 내 강제 종료와 소유한 Windows Caddy 정리를 확인한다. 단위 테스트는 두 시그널
+경로와 API 오류 후 UI 실행 유지 정책을 검증한다.
 
-Results: Windows lifecycle probe **20 PASS** checks; default pytest **381 passed,
-12 skipped**; browser-enabled pytest **393 passed**. Both pytest runs reported
-one existing Starlette/AnyIO deprecation warning. The skipped tests in the default
-run are the opt-in browser suite. The probe reports configured-route failures as
-observations separately from its lifecycle assertions.
+`./run_agent.sh`는 기본 리스너가 있는 경우와 포트가 비어 있는 경우 모두 Windows에서
+상속한 토큰으로 검증했다. 재사용 시 Ctrl+C와 앱 오류 이후에도 리스너 PID·시작 시간을
+유지한다. 분리 포트에서도 같은 Python 실행기로 소유 프록시 시작을 검증하며 기존
+리스너는 보존한다. Probe는 임시 소스 복사본을 사용하고, 설치된 Windows 파일·인증
+저장소·Tailscale 설정은 변경하지 않는다. 생성한 테스트 토큰은 메모리에만 두고 수집한
+로그에 노출되지 않았는지 확인한다.
 
-### Remote Ollama via Cloudflare Tunnel + Access
+당시 결과는 Windows 수명주기 probe **20 PASS**, 기본 pytest **381 passed,
+12 skipped**, 브라우저 포함 pytest **393 passed**다. 두 pytest 실행에 기존
+Starlette/AnyIO 폐기 예정 별칭 경고가 1건씩 있었다. 기본 실행에서 제외된 테스트는
+선택 실행 방식의 브라우저 테스트다. Probe는 설정된 경로의 API 오류 관측과 수명주기
+검증 결과를 구분해 보고한다.
 
-Run AI-EMS Web UI and Physics API on each user's localhost.
-Only Windows Ollama on the GPU PC is shared remotely.
 
-Run cloudflared on Windows with origin http://127.0.0.1:11434 and
-origin HTTP Host header localhost:11434. Do not add routes for ports 8000/8001.
-Cloudflare account/domain configuration, cloudflared installation, Tunnel
-creation/startup, and automatic startup are separate system operations.
-Before enabling the public route, protect the entire Ollama hostname with
-an Access self-hosted application and a **Service Auth** policy allowing
-the selected Service Token.
+### Cloudflare Tunnel + Access를 사용하는 원격 Ollama
 
-Set these in each client's ignored local .env or process environment:
+AI-EMS 웹 UI와 물리해석 API는 사용자별 localhost에서 실행하고,
+GPU PC의 Windows Ollama만 원격으로 공유한다.
+
+Windows에서 cloudflared의 원본 주소를 `http://127.0.0.1:11434`, 원본 HTTP Host
+헤더를 `localhost:11434`로 설정해 실행한다. 8000/8001 포트의 경로는 추가하지 않는다.
+Cloudflare 계정·도메인 설정, cloudflared 설치, Tunnel 생성·시작·자동 실행은 별도
+시스템 작업이다. 공개 경로를 활성화하기 전에 Ollama 호스트 이름 전체를 Access의
+자체 호스팅 애플리케이션과 지정한 Service Token을 허용하는 **Service Auth** 정책으로
+보호한다.
+
+각 클라이언트에서 Git에 포함하지 않는 로컬 `.env` 또는 프로세스 환경변수를 설정한다.
 
 ```dotenv
 AI_EMS_LLM_BASE_URL=https://ollama.example.com
@@ -513,27 +499,28 @@ AI_EMS_CF_ACCESS_CLIENT_ID=<service-token-client-id>
 AI_EMS_CF_ACCESS_CLIENT_SECRET=<service-token-client-secret>
 ```
 
-Replace the example hostname and restart AI-EMS after configuration changes.
-The two Access variables become CF-Access-Client-Id and CF-Access-Client-Secret
-headers on both synchronous and asynchronous ChatOllama requests.
-If both are unset/empty, existing local behavior is preserved.
-Setting only one raises an error; credentials require an HTTPS base URL.
-Existing process environment variables take precedence over .env.
+예시 호스트 이름을 실제 주소로 바꾸고 설정 변경 후 AI-EMS를 재시작한다.
+두 Access 환경변수는 ChatOllama의 동기·비동기 요청 모두에서
+`CF-Access-Client-Id`와 `CF-Access-Client-Secret` 헤더로 전달된다.
+두 값이 모두 없거나 비어 있으면 기존 로컬 호출 동작을 유지한다. 하나만 설정하면
+오류가 발생하며, 인증 정보를 사용하려면 HTTPS 기본 URL이 필요하다.
+기존 프로세스 환경변수가 `.env`보다 우선한다.
 
-Keep real credentials in the ignored local .env or secret environment variables.
-Never put them in .env.example, code, logs, or command-line URLs.
-Access Service Tokens and Tunnel connector tokens are separate credentials.
+실제 인증 정보는 Git에서 제외한 로컬 `.env` 또는 비밀 환경변수에만 둔다.
+`.env.example`, 코드, 로그, 명령행 URL에 넣지 않는다.
+Access Service Token과 Tunnel 커넥터 토큰은 서로 다른 인증 정보다.
 
-Local tests verify authenticated and unauthenticated sync/async requests using
-mock HTTP transport. After Tunnel/Access setup, verify rejection of missing
-and invalid tokens, then test model listing, inference, AI-EMS tool calls and
-long responses with valid credentials. Check latency under concurrent GPU use.
+로컬 테스트는 모의 HTTP 전송으로 인증이 있는 경우와 없는 경우의 동기·비동기 요청을
+검증한다. Tunnel/Access 설정 후에는 누락·오류 토큰 거부를 확인한 뒤 유효한 인증
+정보로 모델 목록, 추론, AI-EMS 도구 호출과 긴 응답을 시험한다.
+GPU 동시 사용 시 지연 시간도 확인한다.
 
-References:
-- [Ollama Tunnel configuration](https://docs.ollama.com/faq)
-- [Cloudflare Service Tokens](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)
+참고 자료:
 
-### Full-batch study
+- [Ollama Tunnel 설정](https://docs.ollama.com/faq)
+- [Cloudflare Service Token](https://developers.cloudflare.com/cloudflare-one/access-controls/service-credentials/service-tokens/)
+
+### 전체 일괄 분석
 
 ```bash
 python scripts/run_kpg193_full_batch.py \
@@ -543,25 +530,42 @@ python scripts/run_kpg193_full_batch.py \
   --no-sensitivity
 ```
 
-`contingency_summary.csv`에는 deterministic review ranking이 포함되어 있으므로 별도 중복 ranking CSV는 생성하지 않는다. Sensitivity 결과가 없으면 빈 `topn_sensitivity.csv`도 생성하지 않는다.
+`contingency_summary.csv`에는 결정적 검토 순위가 포함되어 있으므로 별도의 중복 순위 CSV는 생성하지 않는다. 민감도 결과가 없으면 빈 `topn_sensitivity.csv`도 생성하지 않는다.
 
 ---
 
-## Test
+## 테스트
 
-Regression test:
+회귀 테스트:
 
 ```bash
 python -m pytest -q
 ```
 
-최신 검증 상태:
+최신 검증 결과(2026-10-22, PR #12 병합본 `8ef4f03` + Caddy 자동 실행 변경):
 
 ```text
-59 passed
+관련 실행기·인증 테스트: 70 passed
+전체 기본 회귀: 381 passed, 12 skipped, 1 warning
+브라우저 포함 전체 회귀: 393 passed, 1 warning
+실제 Windows Caddy 수명주기 probe: 20 PASS
 ```
 
-브라우저 지연 응답 회귀 테스트 (KPG·몽골 Security/Sensitivity, 계통 전환; Chrome 필요, opt-in):
+전체 검증 명령:
+
+```bash
+.venv/bin/python -m pytest -q tests/test_run_agent.py tests/test_llm_access.py
+.venv/bin/python -m pytest -q tests
+AI_EMS_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests
+.venv/bin/python tests/windows_caddy_lifecycle_probe.py
+```
+
+기본 실행의 skip 12개는 선택 실행 방식의 브라우저 테스트다. 경고 1건은 기존
+Starlette/AnyIO 폐기 예정 별칭 경고다. Windows 통합 probe는 기존 리스너를 보존하면서
+자동 시작·재사용·종료·인증·포트 충돌을 검증했다. 이번 실행에서 설정된 LLM의
+`/api/tags`도 HTTP 200과 Ollama 형식을 확인했다. 이 검사는 추론 검증과 구분한다.
+
+브라우저 지연 응답 회귀 테스트 (KPG·몽골 Security/Sensitivity, 계통 전환; Chrome 필요, 선택 실행):
 
 ```bash
 AI_EMS_BROWSER_TESTS=1 python -m pytest -q tests/test_browser_stale_responses.py
@@ -572,30 +576,30 @@ Chrome은 `AI_EMS_CHROME` 또는 WSL의 Windows Chrome / PATH의 Chrome·Chromiu
 같은 명령으로 KPG·몽골 공통 UI 비교(`tests/browser/unified_ui_probe.js`, [사양](docs/specs/MULTI_GRID_UI.md))도 실행되며 결과는 `outputs/browser_unified_ui/`에 저장된다.
 테마·도움말 검증(`tests/browser/theme_help_probe.js`, [사양](docs/specs/THEME_AND_HELP.md)) 결과는 `outputs/browser_theme_help/`에 저장된다.
 
-실제 KPG case smoke test:
+실제 KPG 계통 모델 스모크 테스트:
 
 ```bash
 python tests/smoke_test.py
 ```
 
-실험용 probe 스크립트는 `tests/`와 repository root에 남아 있으며, 자동 regression test와 달리 특정 통합 흐름을 수동 확인하는 용도다.
+실험용 probe 스크립트는 `tests/`와 저장소 루트에 있으며, 자동 회귀 테스트와 달리 특정 통합 흐름을 수동 확인하는 용도다.
 
 ---
 
-## Documentation
+## 문서
 
-### Specifications
+### 사양
 
-- [Physics API Specification](docs/specs/API_SPEC.md)
-- [Physics Module Specification](docs/specs/MODULE_SPEC.md)
-- [KPG-193 PyPowSyBl Adapter Specification](docs/specs/KPG_POWSYBL_ADAPTER_SPEC.md)
+- [물리해석 API 사양](docs/specs/API_SPEC.md)
+- [물리해석 모듈 사양](docs/specs/MODULE_SPEC.md)
+- [KPG-193 PyPowSyBl 어댑터 사양](docs/specs/KPG_POWSYBL_ADAPTER_SPEC.md)
 - [몽골 합성 AC PF 읽기 전용 AI 질의응답](docs/specs/MONGOLIA_PF_CHAT_SPEC.md)
 - [몽골 합성 계통 선로 N-1 Security Analysis](docs/specs/MONGOLIA_SECURITY_ANALYSIS.md)
 - [몽골 합성 계통 N-1 후 선로 조류 Sensitivity](docs/specs/MONGOLIA_SENSITIVITY_ANALYSIS.md)
 - [멀티 계통 공통 UI (KPG·몽골)](docs/specs/MULTI_GRID_UI.md)
 - [Light/Dark 테마 · 모델/AI Assistant 도움말](docs/specs/THEME_AND_HELP.md)
 
-### Experiment Records
+### 실험 기록
 
 - [KPG-193 기반 PyPowSyBl 계통해석 및 제어 후보 검증](docs/experiments/KPG-193%20기반%20PyPowSyBl%20계통해석%20및%20제어%20후보%20검증.md)
 - [PyPowSyBl Physics API 및 AI-EMS Agent 연계 PoC](docs/experiments/PyPowSyBl%20Physics%20API%20%EB%B0%8F%20AI-EMS%20Agent%20%EC%97%B0%EA%B3%84%20PoC.md)
@@ -608,13 +612,13 @@ python tests/smoke_test.py
 
 ---
 
-## KPG-193 Data Policy
+## KPG-193 데이터 정책
 
 테스트 계통은 **KPG-193 v2.0**을 기반으로 한다.
 
-실제 실습용 MATPOWER case와 위치 CSV는 public repository에 포함하지 않는다.
+실제 실습용 MATPOWER 계통 모델과 위치 CSV는 공개 저장소에 포함하지 않는다.
 
-Local-only files:
+로컬 전용 파일:
 
 ```text
 data/KPG193_ver2_0_powsybl_full.mat
@@ -627,17 +631,17 @@ PyPowSyBl에서는 `src/ai_ems/utils/kpg_powsybl_adapter.py`를 통해 KPG 병�
 
 ---
 
-## Limitations
+## 한계
 
 현재 구현은 연구 / PoC 목적이다.
 
-- 발전기 사고 후 corrective-action workflow는 구현되어 있으나, 현재 제어 후보는 기본적으로 고정된 `±10 MW` balanced Redispatch 조합을 민감도 기반으로 선별하는 heuristic이다.
-- Redispatch 후보 다양화는 동일 Up Bus / Down Bus pair 중복 제거 기준을 사용하며, 전역 최적화나 운전비용 최소화를 수행하지 않는다.
-- Redispatch 후보 생성은 OPF / SCED optimization이 아니다.
+- 발전기 사고 후 대응방안 분석은 구현되어 있으나, 현재 제어 후보는 기본적으로 고정된 `±10 MW` 균형 재급전 조합을 민감도 기반으로 선별하는 휴리스틱 방식이다.
+- 재급전 후보 다양화는 출력을 늘릴 모선 / 줄일 모선 쌍의 중복 제거 기준을 사용하며, 전역 최적화나 운전비용 최소화를 수행하지 않는다.
+- 재급전 후보 생성은 OPF / SCED 최적화가 아니다.
 - `best_tested_candidate`는 시험한 후보 중 최선이며 전역 최적해 또는 위반 해소를 의미하지 않는다.
-- Sensitivity Analysis는 local linearization이며 실제 제어 효과는 AC Load Flow / Security Analysis로 재검증한다.
-- Single / Distributed slack은 Load Flow balancing 가정이며 운영자 Redispatch가 아니다.
-- 실제 EMS 운영 절차, 경제성, 발전기 ramp, 예비력, AGC 상태, 제어 권한 등 운영제약은 현재 corrective-action 후보 생성에 포함하지 않는다.
-- 정적 AC Load Flow / Security Analysis는 transient, frequency, rotor-angle 등 동특성 안정도를 검증하지 않는다.
-- Agent는 사전에 정의된 Tool과 workflow를 선택·연결하는 PoC 수준이며, 다양한 자연어 표현과 모든 후속 문맥에 대한 routing 안정성을 포괄적으로 검증한 것은 아니다.
-- 반복 batch / contingency 호출의 성능 최적화는 향후 과제다.
+- 민감도 해석은 국소 선형화이며 실제 제어 효과는 AC 조류계산 / 안전도 해석으로 재검증한다.
+- 단일 / 분산 슬랙은 조류계산의 전력 균형 가정이며 운영자 재급전이 아니다.
+- 실제 EMS 운영 절차, 경제성, 발전기 출력 변화율, 예비력, AGC 상태, 제어 권한 등 운영제약은 현재 대응방안 후보 생성에 포함하지 않는다.
+- 정적 AC 조류계산 / 안전도 해석은 과도·주파수·회전자각 등 동특성 안정도를 검증하지 않는다.
+- 에이전트는 사전에 정의된 도구와 분석 흐름을 선택·연결하는 PoC 수준이며, 다양한 자연어 표현과 모든 후속 문맥에 대한 요청 분류 안정성을 포괄적으로 검증한 것은 아니다.
+- 반복 일괄 / 상정사고 호출의 성능 최적화는 향후 과제다.
