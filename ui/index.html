@@ -403,7 +403,8 @@
 
   <script>
     const SVG_NS = "http://www.w3.org/2000/svg";
-    const SESSION_STORAGE_KEY = "ai-ems-agent-session-id";
+    // Conversations live only in this page, keyed by the full grid ID.
+    const gridChats = new Map();
     const WORKSPACE_RATIO_STORAGE_KEY = "ai-ems-workspace-map-ratio";
     const WORKSPACE_SPLITTER_WIDTH = 12;
     const DEFAULT_MAP_RATIO = 0.52;
@@ -440,7 +441,6 @@
       voltageCautionMarginPu: 0.02,
     });
     let gridSwitchToken = 0;
-    let chatBusy = false;
     // Per-request sequence numbers: a slower earlier response must not overwrite a newer result.
     let securityRequestSeq = 0;
     let sensitivityRequestSeq = 0;
@@ -537,13 +537,15 @@
       });
     }
 
-    function getSessionId() {
-      let sessionId = sessionStorage.getItem(SESSION_STORAGE_KEY);
-      if (!sessionId) {
-        sessionId = crypto.randomUUID();
-        sessionStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+    function getChatState(gridId = selectedGridId) {
+      if (!gridChats.has(gridId)) {
+        gridChats.set(gridId, { sessionId: crypto.randomUUID(), messages: [], pending: false });
       }
-      return sessionId;
+      return gridChats.get(gridId);
+    }
+
+    function getSessionId(gridId = selectedGridId) {
+      return getChatState(gridId).sessionId;
     }
 
     function isMongoliaGrid() { return selectedGridId === "mn-osm-35k"; }
@@ -824,9 +826,10 @@
       return gridId === "kr-kpg193" ? "/api/chat" : `/api/grids/${encodeURIComponent(gridId)}/chat`;
     }
 
-    function resetChatForGrid() {
-      sessionStorage.removeItem(SESSION_STORAGE_KEY);
+    function restoreChatForGrid() {
       document.getElementById("chat-log").replaceChildren();
+      for (const message of getChatState().messages) renderChatMessage(message.role, message.text);
+      document.getElementById("chat-message").value = "";
       renderAssistantHelp(gridEntries.find((item) => item.id === selectedGridId));
     }
 
@@ -997,11 +1000,12 @@
       document.getElementById("mn-contingency-examples").hidden = !(isMongoliaGrid() && securityAvailable);
       document.getElementById("monitored-line").hidden = !gridCapability("sensitivity_analysis_available");
       const chatAvailable = entry?.chat_available === true;
+      const chatBusy = getChatState().pending;
       document.getElementById("chat-send").disabled = !chatAvailable || chatBusy;
       document.querySelectorAll('input[name="generator-slack-mode"]').forEach((input) => {
         input.disabled = !generatorAvailable;
       });
-      document.getElementById("chat-message").disabled = !chatAvailable;
+      document.getElementById("chat-message").disabled = !chatAvailable || chatBusy;
       document.getElementById("chat-message").placeholder = entry?.chat_mode === "mongolia_analysis"
         ? (securityAvailable
           ? (gridCapability("sensitivity_analysis_available") ? "합성 PF · 선로 N-1 · 후속 민감도를 요청하세요." : "합성 PF · 선로 N-1을 요청하세요.")
@@ -1064,7 +1068,6 @@
         select.addEventListener("change", async () => {
           selectedGridId = select.value;
           gridSwitchToken++;
-          chatBusy = false;
           latestSecurityResult = null;
           latestSecurityView = null;
           mapProjection = null;
@@ -1073,7 +1076,7 @@
           generatorStateMap.clear();
           document.getElementById("network-map").replaceChildren();
           hideMapTooltip();
-          resetChatForGrid();
+          restoreChatForGrid();
           document.getElementById("outage-line").value = isMongoliaGrid() ? "" : "LINE-16-28";
           document.getElementById("mn-contingency-examples").value = "";
           document.getElementById("monitored-line").value = "";
@@ -2492,7 +2495,12 @@
       }
     }
 
-    function appendChatMessage(role, text) {
+    function appendChatMessage(role, text, gridId = selectedGridId) {
+      getChatState(gridId).messages.push({ role, text });
+      if (gridId === selectedGridId) renderChatMessage(role, text);
+    }
+
+    function renderChatMessage(role, text) {
       const log = document.getElementById("chat-log");
       const el = document.createElement("div");
       el.className = `chat-message ${role}`;
@@ -2504,19 +2512,23 @@
 
     async function sendChatMessage() {
       if (!gridSupportsChat()) return;
-      if (chatBusy) return;
       const token = gridSwitchToken;
       const requestGridId = selectedGridId;
+      const conversation = getChatState(requestGridId);
+      if (conversation.pending) return;
       const input = document.getElementById("chat-message"); const button = document.getElementById("chat-send"); const message = input.value.trim();
       if (!message) return;
-      appendChatMessage("user", message); input.value = ""; chatBusy = true; button.disabled = true; input.disabled = true;
+      conversation.pending = true;
+      appendChatMessage("user", message, requestGridId); input.value = "";
+      button.disabled = true; input.disabled = true;
       try {
-        const response = await fetch(chatEndpoint(requestGridId), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: getSessionId(), message }) });
+        const response = await fetch(chatEndpoint(requestGridId), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: getSessionId(requestGridId), message }) });
         const payload = await response.json(); if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
-        // Ignore late answers from a grid the user has already left.
+        if (payload.grid_id && payload.grid_id !== requestGridId) throw new Error("다른 계통의 채팅 응답을 받았습니다.");
+        // Keep the valid conversation even when its analysis view has been left.
+        appendChatMessage("agent", payload.answer || "응답이 없습니다.", requestGridId);
+        // Analysis cards, map and inputs still require the original view token.
         if (token !== gridSwitchToken || selectedGridId !== requestGridId) return;
-        appendChatMessage("agent", payload.answer || "응답이 없습니다.");
-        if (payload.grid_id && payload.grid_id !== requestGridId) return;
         for (const update of payload.ui_updates || []) {
           if (requestGridId === "mn-osm-35k") {
             if (update.grid_id !== requestGridId || update.result?.grid_id !== requestGridId) continue;
@@ -2540,10 +2552,10 @@
           }
         }
       } catch (error) {
-        if (token === gridSwitchToken) appendChatMessage("system", `Agent 오류: ${error.message}`);
+        appendChatMessage("system", `Agent 오류: ${error.message}`, requestGridId);
       } finally {
-        if (token === gridSwitchToken) {
-          chatBusy = false;
+        conversation.pending = false;
+        if (selectedGridId === requestGridId) {
           updateGridCapabilities(false);
           input.focus();
         }

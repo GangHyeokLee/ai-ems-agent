@@ -33,16 +33,20 @@ def test_analysis_buttons_follow_their_own_capabilities():
     assert "entry?.security_analysis_available === true" in body
     assert "entry?.generator_contingency_available === true" in body
     assert 'document.getElementById("chat-send").disabled = !chatAvailable || chatBusy;' in body
-    assert 'document.getElementById("chat-message").disabled = !chatAvailable;' in body
+    assert 'document.getElementById("chat-message").disabled = !chatAvailable || chatBusy;' in body
+    assert "const chatBusy = getChatState().pending;" in body
 
 
-def test_grid_switch_resets_chat_session_and_log():
-    reset = INDEX_HTML.split("function resetChatForGrid(", 1)[1].split("\n    }\n", 1)[0]
-    assert "sessionStorage.removeItem(SESSION_STORAGE_KEY)" in reset
-    assert 'getElementById("chat-log").replaceChildren()' in reset
-    assert "appendChatMessage" not in reset                  # guide moved to the help popover (Issue #6)
-    assert "renderAssistantHelp(" in reset
-    assert "resetChatForGrid();" in INDEX_HTML.split('select.addEventListener("change"', 1)[1]
+def test_grid_switch_restores_page_local_chat_without_reapplying_analysis():
+    restore = function_body("restoreChatForGrid")
+    assert 'getElementById("chat-log").replaceChildren()' in restore
+    assert "getChatState().messages" in restore and "renderChatMessage(" in restore
+    assert "appendChatMessage" not in restore
+    assert "applySecurity" not in restore and "applySensitivity" not in restore
+    assert "renderAssistantHelp(" in restore
+    assert "restoreChatForGrid();" in INDEX_HTML.split('select.addEventListener("change"', 1)[1]
+    assert "SESSION_STORAGE_KEY" not in INDEX_HTML
+    assert "sessionStorage" not in function_body("getSessionId")
 
 
 def test_security_analysis_routes_by_grid_and_ignores_late_answers():

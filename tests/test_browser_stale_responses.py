@@ -38,7 +38,8 @@ THEME_PROBE = ROOT / "tests" / "browser" / "theme_help_probe.js"
 REFERENCE_PROBE = ROOT / "tests" / "browser" / "reference_layers_probe.js"
 MONGOLIA_CHAT_PROBE = ROOT / "tests" / "browser" / "mongolia_chat_probe.js"
 CHAT_PANEL_PROBE = ROOT / "tests" / "browser" / "chat_panel_state_probe.js"
-PROBES = {"stale": PROBE, "unified": UNIFIED_PROBE, "theme": THEME_PROBE, "reference": REFERENCE_PROBE, "mnchat": MONGOLIA_CHAT_PROBE, "chatpanels": CHAT_PANEL_PROBE}
+CHAT_RESTORE_PROBE = ROOT / "tests" / "browser" / "chat_session_restore_probe.js"
+PROBES = {"stale": PROBE, "unified": UNIFIED_PROBE, "theme": THEME_PROBE, "reference": REFERENCE_PROBE, "mnchat": MONGOLIA_CHAT_PROBE, "chatpanels": CHAT_PANEL_PROBE, "chatrestore": CHAT_RESTORE_PROBE}
 REFERENCE_SHOT_DIR = ROOT / "outputs" / "browser_reference_layers"
 REFERENCE_SCREENSHOT_STOPS = ["mn_map", "mn_zoom"]
 THEME_SHOT_DIR = ROOT / "outputs" / "browser_theme_help"
@@ -226,15 +227,17 @@ def make_proxy(upstream: str, gates: Gates, chat_fixtures: dict[str, dict] | Non
     return Handler
 
 
-@pytest.fixture(scope="module")
-def app_url():
+def browser_app_url(session_context=False):
     chrome = find_chrome()
     if chrome is None:
         pytest.skip("Chrome not found (set AI_EMS_CHROME)")
     app_port, proxy_port = free_port(), free_port()
+    command = ([sys.executable, str(ROOT / "tests/browser/chat_session_app.py"), str(app_port)]
+               if session_context else
+               [sys.executable, "-m", "uvicorn", "web_app:app", "--host", "127.0.0.1", "--port", str(app_port),
+                "--log-level", "warning"])
     server = subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "web_app:app", "--host", "127.0.0.1", "--port", str(app_port),
-         "--log-level", "warning"],
+        command,
         cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
     )
     upstream = f"http://127.0.0.1:{app_port}"
@@ -256,6 +259,16 @@ def app_url():
     finally:
         server.terminate()
         server.wait(timeout=30)
+
+
+@pytest.fixture(scope="module")
+def app_url():
+    yield from browser_app_url()
+
+
+@pytest.fixture(scope="module")
+def chat_session_app_url():
+    yield from browser_app_url(session_context=True)
 
 
 def run_chrome(chrome: tuple[Path, bool], url: str, profile: str, screenshot: Path | None = None,
@@ -457,4 +470,15 @@ def test_chat_preserves_analysis_panel_state_on_both_grids(app_url):
         for state in ["collapsed", "expanded"] for kind in kinds
     ]
     assert not missing_checks(CHAT_PANEL_PROBE, results), missing_checks(CHAT_PANEL_PROBE, results)
+    assert not [r for r in results if not r["pass"]], results
+
+
+def test_grid_chat_restores_history_and_real_server_context(chat_session_app_url):
+    url, chrome = chat_session_app_url
+    report = probe_results(run_chrome(chrome, f"{url}?probe=chatrestore", f"chat-restore-{int(time.time())}"))
+    results = report["results"]
+    target = ROOT / "outputs/browser_chat_session_restore"
+    target.mkdir(parents=True, exist_ok=True)
+    (target / "results.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    assert not missing_checks(CHAT_RESTORE_PROBE, results), missing_checks(CHAT_RESTORE_PROBE, results)
     assert not [r for r in results if not r["pass"]], results
