@@ -4,70 +4,173 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI-EMS Agent</title>
+  <script>
+    // Apply the stored theme before first paint. Preference: light | dark | system (default).
+    (() => {
+      let preference = "system";
+      try {
+        const stored = localStorage.getItem("ai-ems-theme");
+        if (["light", "dark", "system"].includes(stored)) preference = stored;
+      } catch (error) { /* storage unavailable: follow the OS */ }
+      const dark = preference === "dark" || (preference === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+      document.documentElement.dataset.themePreference = preference;
+    })();
+  </script>
   <style>
+    /* ===== Design tokens: one theme system for every grid (Issue #6) =====
+       UI chrome uses tokens; data colours (voltage levels, PF bands, outage/violation/monitored/
+       island/candidate overlays, fuel types) keep the same hue in both themes so their meaning
+       never changes. */
+    :root {
+      color-scheme: light;
+      --bg: #f4f6f8; --surface: #ffffff; --surface-2: #f8fafc; --surface-3: #e2e8f0;
+      --border: #e5e7eb; --border-strong: #cbd5e1; --input-border: #d1d5db;
+      --text: #0f172a; --text-muted: #475569; --text-subtle: #64748b; --text-faint: #94a3b8;
+      --header-bg: #1f2937; --header-text: #ffffff; --header-muted: #cbd5e1;
+      --input-bg: #ffffff; --button-bg: #e2e8f0; --button-text: #0f172a; --button-hover: #cbd5e1;
+      --hover-bg: #eef2ff; --focus-ring: #2563eb;
+      --overlay-bg: rgba(255,255,255,.96); --popover-bg: #ffffff; --shadow: 0 8px 24px rgba(15,23,42,.18);
+      --map-bg: transparent; --map-country-fill: #f1f5f9; --map-country-stroke: #94a3b8; --map-admin-stroke: #b7c4d4;
+      --line-opacity: .65; --marker-stroke: #ffffff; --selection-stroke: #0f172a;
+      --transformer-fill: #fff7ed; --transformer-active-fill: #fed7aa; --transformer-active-stroke: #7c2d12;
+      --notice-bg: #fff7ed; --notice-text: #7c2d12; --notice-border: #fed7aa;
+      --warning-bg: #fffbeb; --warning-text: #92400e; --warning-strong: #a16207;
+      --danger-bg: #fef2f2; --danger-text: #b91c1c; --danger-border: #fecaca;
+      --alert-bg: #f5f3ff; --alert-text: #3b0764; --alert-border: #7c3aed;
+      --chat-user-bg: #dbeafe; --chat-agent-bg: #f1f5f9; --chat-system-bg: #fff7ed; --chat-system-text: #9a3412;
+      --code-inline-bg: #e2e8f0; --code-block-bg: #0f172a; --code-block-text: #e2e8f0;
+    }
+    :root[data-theme="dark"] {
+      color-scheme: dark;
+      --bg: #0b1120; --surface: #111827; --surface-2: #172033; --surface-3: #243045;
+      --border: #273449; --border-strong: #3b4a62; --input-border: #475569;
+      --text: #e5e7eb; --text-muted: #b6c2d2; --text-subtle: #94a3b8; --text-faint: #7b8aa0;
+      --header-bg: #020617; --header-text: #f8fafc; --header-muted: #94a3b8;
+      --input-bg: #0f172a; --button-bg: #243045; --button-text: #e5e7eb; --button-hover: #334155;
+      --hover-bg: #1e293b; --focus-ring: #60a5fa;
+      --overlay-bg: rgba(17,24,39,.95); --popover-bg: #111827; --shadow: 0 10px 28px rgba(0,0,0,.55);
+      --map-bg: #0b1120; --map-country-fill: #1a2436; --map-country-stroke: #64748b; --map-admin-stroke: #3b4a62;
+      --line-opacity: .9; --marker-stroke: #0b1120; --selection-stroke: #f8fafc;
+      --transformer-fill: #1f2937; --transformer-active-fill: #78350f; --transformer-active-stroke: #fdba74;
+      --notice-bg: #2a1a0e; --notice-text: #fdba74; --notice-border: #7c2d12;
+      --warning-bg: #2a2109; --warning-text: #fcd34d; --warning-strong: #fbbf24;
+      --danger-bg: #2b1215; --danger-text: #fca5a5; --danger-border: #7f1d1d;
+      --alert-bg: #221a3d; --alert-text: #ddd6fe; --alert-border: #a78bfa;
+      --chat-user-bg: #1e3a5f; --chat-agent-bg: #1a2436; --chat-system-bg: #2a1a0e; --chat-system-text: #fdba74;
+      --code-inline-bg: #243045; --code-block-bg: #020617; --code-block-text: #e2e8f0;
+    }
+    input, select, textarea { background: var(--input-bg); color: var(--text); border: 1px solid var(--input-border); border-radius: 5px; }
+    button { color: var(--button-text); background: var(--button-bg); }
+    button:not(:disabled):hover { background: var(--button-hover); }
+    :focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: Arial, sans-serif; background: #f4f6f8; }
-    header { height: 64px; padding: 0 24px; display: flex; align-items: center; background: #1f2937; color: white; }
+    body { margin: 0; font-family: Arial, sans-serif; background: var(--bg); color: var(--text); }
+    header { height: 64px; padding: 0 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--header-bg); color: var(--header-text); }
     header h1 { margin: 0; font-size: 22px; }
     main { height: calc(100vh - 64px); padding: 16px; display: grid; grid-template-columns: minmax(360px, 52fr) 12px minmax(520px, 48fr); gap: 0; }
-    .panel { min-width: 0; background: white; border-radius: 8px; border: 1px solid #d1d5db; overflow: hidden; }
+    .panel { min-width: 0; background: var(--surface); border-radius: 8px; border: 1px solid var(--input-border); overflow: hidden; }
     .workspace-splitter { position: relative; cursor: col-resize; touch-action: none; user-select: none; }
-    .workspace-splitter::before { content: ""; position: absolute; top: 10px; bottom: 10px; left: 50%; width: 2px; border-radius: 999px; background: #cbd5e1; transform: translateX(-50%); transition: width .15s ease, background .15s ease; }
-    .workspace-splitter:hover::before, .workspace-splitter.active::before { width: 4px; background: #64748b; }
+    .workspace-splitter::before { content: ""; position: absolute; top: 10px; bottom: 10px; left: 50%; width: 2px; border-radius: 999px; background: var(--border-strong); transform: translateX(-50%); transition: width .15s ease, background .15s ease; }
+    .workspace-splitter:hover::before, .workspace-splitter.active::before { width: 4px; background: var(--text-subtle); }
     body.is-resizing { cursor: col-resize; user-select: none; }
-    .panel-title { padding: 12px 16px; font-weight: bold; border-bottom: 1px solid #e5e7eb; }
-    #map { position: relative; height: calc(100% - 46px); display: flex; align-items: center; justify-content: center; color: #6b7280; }
+    .panel-title { padding: 12px 16px; font-weight: bold; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+    #map { position: relative; height: calc(100% - 46px); display: flex; align-items: center; justify-content: center; color: var(--text-subtle); background: var(--map-bg); }
     #network-map { width: 100%; height: 100%; }
+    #network-map { display:block; }
 
-    .map-layer-control { position: absolute; z-index: 15; top: 12px; right: 12px; min-width: 132px; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: rgba(255,255,255,.94); box-shadow: 0 4px 16px rgba(15,23,42,.12); color: #334155; font-size: 12px; }
-    .map-layer-control strong { display: block; margin-bottom: 7px; color: #0f172a; }
+    .map-layer-control { position: absolute; z-index: 15; top: 12px; right: 12px; min-width: 132px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--overlay-bg); box-shadow: var(--shadow); color: var(--text-muted); font-size: 12px; }
+    .map-layer-control strong { display: block; margin-bottom: 7px; color: var(--text); }
     .map-layer-option { display: flex; align-items: center; gap: 7px; margin-top: 5px; cursor: pointer; user-select: none; }
     .map-layer-option input { margin: 0; }
 
-    .network-line { stroke: #94a3b8; stroke-width: 1; opacity: .65; pointer-events: none; }
-    .network-line.hover-line, .network-line.selected-line { stroke: #475569; stroke-width: 3; opacity: 1; }
-    .network-line.outage-line { stroke: #dc2626; stroke-width: 5; opacity: 1; }
-    .network-line.violation-line { stroke: #f59e0b; stroke-width: 5; opacity: 1; }
+    .admin-outline { fill:none; stroke:var(--map-admin-stroke); stroke-width:0.85; stroke-linejoin:round; pointer-events:none; }
+    .powerplant-marker.selected-powerplant { stroke:var(--selection-stroke); stroke-width:3px; }
+    .country-outline { fill:var(--map-country-fill); stroke:var(--map-country-stroke); stroke-width:1.4; stroke-linejoin:round; pointer-events:none; }
+    .network-line { stroke: #94a3b8; stroke-width: 1; opacity: var(--line-opacity); pointer-events: none; }
+    /* :where() keeps specificity unchanged; hidden analysis falls back to the inline PF/base stroke. */
+    :where(#map:not(.analysis-hidden)) .network-line.violation-line { stroke: #f59e0b !important; stroke-width: 5 !important; stroke-dasharray: 12 4; opacity: 1; }
+    :where(#map:not(.analysis-hidden)) .network-line.outage-line { stroke: #dc2626 !important; stroke-width: 5 !important; opacity: 1; }
+    :where(#map:not(.analysis-hidden)) .network-line.monitored-line { stroke: #db2777 !important; stroke-width: 5 !important; stroke-dasharray: 7 3; opacity: 1; }
+    .network-line.hover-line, .network-line.selected-line { stroke: var(--selection-stroke) !important; stroke-width: 3.5 !important; opacity: 1; }
     .network-line-hit { stroke: transparent; stroke-width: 14; fill: none; pointer-events: stroke; cursor: pointer; }
-    .network-bus { fill: #2563eb; stroke: white; stroke-width: .6; cursor: pointer; }
+    .network-bus { fill: #2563eb; stroke: var(--marker-stroke); stroke-width: 1.2; cursor: pointer; }
     .network-bus:hover, .network-bus.selected-bus { r: 5; }
-    .network-bus.selected-bus { fill: #0f172a; }
+    .network-bus.selected-bus { fill: var(--selection-stroke); }
+    .network-transformer-link { stroke:#b45309; stroke-width:2; stroke-dasharray:3 2; pointer-events:none; }
+    .network-transformer-marker { fill:var(--transformer-fill); stroke:#b45309; stroke-width:2; pointer-events:none; }
+    .network-transformer-hit { fill:transparent; stroke:transparent; stroke-width:1; cursor:pointer; pointer-events:all; }
+    .network-transformer-hit:hover + .network-transformer-marker,
+    .network-transformer-hit.selected-transformer + .network-transformer-marker { fill:var(--transformer-active-fill); stroke:var(--transformer-active-stroke); stroke-width:3; }
+    /* Mongolia-only zoom: initial view is unchanged; when zoomed, strokes and markers keep their screen size. */
+    #network-map.map-zoomed :is(.network-line, .network-line-hit, .network-transformer-link, .country-outline, .admin-outline) { vector-effect:non-scaling-stroke; }
+    #network-map.map-zoomed :is(.network-bus, .network-transformer-hit, .network-transformer-marker, .powerplant-marker, .analysis-marker) { transform-box:fill-box; transform-origin:center; transform:scale(calc(1 / var(--map-zoom, 1))); }
+    #network-map.map-panning { cursor:grabbing; }
+    .map-zoom-reset { position:absolute; z-index:15; right:12px; bottom:12px; padding:5px 10px; border:1px solid var(--border-strong); border-radius:6px; background:var(--overlay-bg); color:var(--text); font-size:12px; cursor:pointer; }
+    .map-zoom-reset[hidden] { display:none; }
+
 
     .network-generator { cursor: pointer; }
-    .network-generator path { fill: #16a34a; stroke: white; stroke-width: 1.4; }
+    .network-generator.selected-generator circle { stroke:var(--selection-stroke); stroke-width:3px; }
+    .network-generator path { fill: #16a34a; stroke: var(--marker-stroke); stroke-width: 1.4; }
     .network-generator text { fill: white; font-size: 8px; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
-    .network-generator.selected-generator path { fill: #0f172a; stroke-width: 2.5; }
+    .network-generator.selected-generator path { fill: var(--selection-stroke); stroke-width: 2.5; }
 
     .analysis-marker { cursor: pointer; }
     .generator-outage-marker path { fill: #dc2626; stroke: white; stroke-width: 2; }
     .generator-outage-marker text, .generator-change-marker text { fill: white; font-size: 8px; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
-    .generator-change-marker circle, .sensitivity-marker circle { fill: #7c3aed; stroke: white; stroke-width: 2; }
+    .generator-change-marker circle { fill: #7c3aed; stroke: white; stroke-width: 2; }
     .sensitivity-marker text { fill: white; font-size: 9px; font-weight: bold; text-anchor: middle; dominant-baseline: middle; pointer-events: none; }
 
+    .powerplant-marker { cursor:pointer; stroke:var(--marker-stroke); stroke-width:1.2px; }
+    .plant-legend { position:absolute; left:12px; bottom:12px; padding:9px 12px; background:var(--overlay-bg); border:1px solid var(--border-strong); border-radius:7px; color:var(--text-muted); font-size:11px; z-index:10; width:max-content; max-width:calc(100% - 24px); }
+    .plant-legend[hidden] { display:none; }
+    .plant-legend-items { display:flex; flex-wrap:nowrap; gap:8px; margin-top:5px; overflow-x:auto; }
+    .plant-legend-item { display:inline-flex; flex:0 0 auto; align-items:center; gap:5px; white-space:nowrap; }
+    .plant-dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+    .plant-note { margin-top:6px; color:var(--text-subtle); line-height:1.4; }
     .layer-hidden { display: none !important; }
     #map.analysis-hidden .analysis-marker { display: none !important; }
-    #map.analysis-hidden .network-line.outage-line,
-    #map.analysis-hidden .network-line.violation-line { stroke: #94a3b8; stroke-width: 1; opacity: .65; }
+    /* Buses cut off by a Mongolia N-1 contingency (island PF not computed); hidden with the analysis layer. */
+    :where(#map:not(.analysis-hidden)) .network-bus.isolated-bus { fill: var(--surface) !important; stroke: #7c3aed; stroke-width: 2.5; stroke-dasharray: 2 1.5; r: 5; }
+    :where(#map:not(.analysis-hidden)) .network-line.isolated-line { stroke: #a78bfa !important; stroke-width: 2 !important; stroke-dasharray: 4 3; opacity: 1; }
+    #mn-contingency-examples { width: 100%; margin-bottom: 6px; padding: 5px 6px; }
+    #monitored-line { width: 100%; margin-top: 6px; }
+    .monitored-marker circle { fill: none; stroke: #db2777; stroke-width: 3; }
+    .monitored-marker text { fill: #db2777; font-size: 10px; font-weight: 700; text-anchor: middle; pointer-events: none; }
+    .candidate-marker rect { fill: #0e7490; stroke: white; stroke-width: 1.5; }
+    .candidate-marker text { fill: white; font-size: 9px; font-weight: 700; text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+    .analysis-legend { position:absolute; left:12px; top:12px; display:flex; flex-direction:column; gap:4px; padding:8px 11px; background:var(--overlay-bg); border:1px solid var(--border-strong); border-radius:7px; color:var(--text-muted); font-size:11px; z-index:10; }
+    .analysis-legend[hidden], #map.analysis-hidden .analysis-legend { display:none; }
+    .analysis-legend-item { display:inline-flex; align-items:center; gap:6px; white-space:nowrap; }
+    .analysis-swatch { display:inline-block; width:18px; height:0; border-top:3px solid; }
+    .swatch-outage { border-color:#dc2626; }
+    .swatch-violation { border-top-style:dashed; border-color:#f59e0b; }
+    .swatch-monitored { border-top-style:dashed; border-color:#db2777; }
+    .swatch-isolated { border-top-style:dashed; border-color:#7c3aed; }
+    .swatch-candidate { width:11px; height:11px; border:none; border-radius:2px; background:#0e7490; }
+    .swatch-generator-outage { width:11px; height:11px; border:none; border-radius:50%; background:#dc2626; }
+    .swatch-generator-change { width:11px; height:11px; border:none; border-radius:50%; background:#7c3aed; }
 
-    .map-tooltip { position: absolute; z-index: 20; display: none; min-width: 220px; max-width: 360px; padding: 12px 14px; border: 1px solid #cbd5e1; border-radius: 8px; background: rgba(255,255,255,.98); box-shadow: 0 8px 24px rgba(15,23,42,.18); color: #0f172a; font-size: 13px; line-height: 1.55; pointer-events: auto; user-select: text; }
+    .map-tooltip { position: absolute; z-index: 20; display: none; min-width: 220px; max-width: 360px; padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--popover-bg); box-shadow: var(--shadow); color: var(--text); font-size: 13px; line-height: 1.55; pointer-events: auto; user-select: text; }
     .map-tooltip-title { margin: 0 24px 6px 0; font-size: 14px; font-weight: 700; }
-    .map-tooltip-row { color: #475569; }
-    .map-tooltip-row strong { color: #0f172a; }
-    .map-tooltip-close { position: absolute; top: 5px; right: 7px; width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: #64748b; font-size: 18px; cursor: pointer; }
-    .generator-choice { display: block; width: 100%; padding: 5px 7px; margin-top: 2px; border: 0; border-radius: 5px; background: transparent; text-align: left; color: #475569; cursor: pointer; }
-    .generator-choice:hover { background: #eef2ff; color: #1e293b; }
-    .generator-choice strong { color: #0f172a; }
-    .generator-choice.disconnected-generator { color: #94a3b8; }
-    .generator-choice.disconnected-generator strong { color: #64748b; }
+    .map-tooltip-row { color: var(--text-muted); }
+    .map-tooltip-row strong { color: var(--text); }
+    .map-tooltip-close { position: absolute; top: 5px; right: 7px; width: 24px; height: 24px; padding: 0; border: 0; background: transparent; color: var(--text-subtle); font-size: 18px; cursor: pointer; }
+    .generator-choice { display: block; width: 100%; padding: 5px 7px; margin-top: 2px; border: 0; border-radius: 5px; background: transparent; text-align: left; color: var(--text-muted); cursor: pointer; }
+    .generator-choice:hover { background: var(--hover-bg); color: var(--text); }
+    .generator-choice strong { color: var(--text); }
+    .generator-choice.disconnected-generator { color: var(--text-faint); }
+    .generator-choice.disconnected-generator strong { color: var(--text-subtle); }
     .generator-status { margin-left: 4px; font-size: 11px; font-weight: 700; }
-    .generator-status.disconnected { color: #dc2626; }
+    .generator-status.disconnected { color: var(--danger-text); }
 
     #chat { height: calc(100% - 46px); padding: 16px; display: flex; flex-direction: column; }
     #messages { flex: 1; overflow-y: auto; }
     #chat-log { margin-top: 16px; display: flex; flex-direction: column; gap: 10px; }
     .chat-message { padding: 10px 12px; border-radius: 8px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
-    .chat-message.user { align-self: flex-end; max-width: 88%; background: #dbeafe; }
-    .chat-message.agent { align-self: flex-start; max-width: 96%; background: #f1f5f9; white-space: normal; }
+    .chat-message.user { align-self: flex-end; max-width: 88%; background: var(--chat-user-bg); }
+    .chat-message.agent { align-self: flex-start; max-width: 96%; background: var(--chat-agent-bg); white-space: normal; }
     .chat-message.agent > :first-child { margin-top: 0; }
     .chat-message.agent > :last-child { margin-bottom: 0; }
     .chat-message.agent h1, .chat-message.agent h2, .chat-message.agent h3, .chat-message.agent h4 { margin: 12px 0 6px; line-height: 1.3; }
@@ -77,59 +180,163 @@
     .chat-message.agent p { margin: 7px 0; }
     .chat-message.agent ul, .chat-message.agent ol { margin: 7px 0; padding-left: 22px; }
     .chat-message.agent li { margin: 3px 0; }
-    .chat-message.agent code { padding: 1px 4px; border-radius: 4px; background: #e2e8f0; font-family: Consolas, monospace; font-size: .92em; }
-    .chat-message.agent pre { margin: 8px 0; padding: 10px; overflow-x: auto; border-radius: 6px; background: #0f172a; color: #e2e8f0; white-space: pre; }
+    .chat-message.agent code { padding: 1px 4px; border-radius: 4px; background: var(--code-inline-bg); font-family: Consolas, monospace; font-size: .92em; }
+    .chat-message.agent pre { margin: 8px 0; padding: 10px; overflow-x: auto; border-radius: 6px; background: var(--code-block-bg); color: var(--code-block-text); white-space: pre; }
     .chat-message.agent pre code { padding: 0; background: transparent; color: inherit; }
     .chat-message.agent table { width: 100%; margin: 8px 0; border-collapse: collapse; font-size: 12px; }
-    .chat-message.agent th, .chat-message.agent td { padding: 6px 8px; border: 1px solid #cbd5e1; text-align: left; vertical-align: top; }
-    .chat-message.agent th { background: #e2e8f0; }
-    .chat-message.system { align-self: stretch; background: #fff7ed; color: #9a3412; }
+    .chat-message.agent th, .chat-message.agent td { padding: 6px 8px; border: 1px solid var(--border-strong); text-align: left; vertical-align: top; }
+    .chat-message.agent th { background: var(--surface-3); }
+    .chat-message.system { align-self: stretch; background: var(--chat-system-bg); color: var(--chat-system-text); }
     #chat-input { display: flex; gap: 8px; margin-top: 12px; }
-    #chat-input input { flex: 1; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; }
+    #chat-input input { flex: 1; padding: 10px; border: 1px solid var(--input-border); border-radius: 6px; }
     #chat-input button { padding: 10px 16px; border: none; border-radius: 6px; cursor: pointer; }
     #chat-input button:disabled { cursor: not-allowed; opacity: .6; }
 
-    .analysis-box { margin-bottom: 16px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 8px; background: #f8fafc; }
+    .analysis-box { margin-bottom: 16px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }
     .analysis-box-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: pointer; user-select: none; }
     .analysis-box-header strong { flex: 1; }
-    .analysis-box .analysis-toggle { width: auto; min-width: 32px; padding: 2px 7px; border: 0; background: transparent; color: #64748b; font-size: 17px; line-height: 1.2; }
-    .analysis-box .analysis-toggle:hover { background: #e2e8f0; }
+    .analysis-box .analysis-toggle { width: auto; min-width: 32px; padding: 2px 7px; border: 0; background: transparent; color: var(--text-subtle); font-size: 17px; line-height: 1.2; }
+    .analysis-box .analysis-toggle:hover { background: var(--surface-3); }
     .analysis-box-content { margin-top: 8px; }
     .analysis-box.collapsed .analysis-box-content { display: none; }
     .analysis-box input[type="text"] { width: 100%; margin-top: 6px; margin-bottom: 8px; padding: 8px; }
     .analysis-box button { width: 100%; padding: 9px; border: none; border-radius: 6px; cursor: pointer; }
     .analysis-box button:disabled { cursor: not-allowed; opacity: .6; }
-    .analysis-subtitle { display: block; margin-top: 8px; margin-bottom: 4px; font-size: 12px; color: #475569; }
+    .analysis-subtitle { display: block; margin-top: 8px; margin-bottom: 4px; font-size: 12px; color: var(--text-muted); }
     .slack-options { display: flex; gap: 14px; margin: 8px 0 10px; font-size: 13px; }
     .slack-options label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
     #security-result, #sensitivity-result, #generator-contingency-result { margin-top: 12px; line-height: 1.6; }
     .sensitivity-button { margin-top: 10px; }
-    .sensitivity-candidate, .generator-result-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid #e5e7eb; }
+    .generator-result-section { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+    /* Shared Security/Sensitivity result card (same DOM for every grid) */
+    .result-card { line-height: 1.55; }
+    .result-row .result-label { font-weight: 700; }
+    .result-sub { color: var(--text-muted); }
+    .result-items .result-item { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+    .result-item-title { font-weight: 700; }
+    .result-alert { margin: 6px 0 0; padding: 5px 8px; border-left: 3px solid var(--alert-border); background: var(--alert-bg); color: var(--alert-text); font-size: 12px; }
+    .result-details { margin-top: 8px; font-size: 12px; color: var(--text-muted); }
+    .result-details summary { cursor: pointer; font-weight: 700; color: var(--text); }
+    .result-detail-section h4 { margin: 8px 0 2px; font-size: 12px; }
+    .result-detail-list { margin: 2px 0 0; padding-left: 18px; }
     .generator-result-row { margin-top: 2px; }
-    .generator-result-note { margin-top: 8px; color: #64748b; font-size: 12px; }
-    .generator-state-note { color: #b45309; }
+    .generator-result-note { margin-top: 8px; color: var(--text-subtle); font-size: 12px; }
+    .generator-state-note { color: var(--warning-strong); }
 
+    .grid-toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:9px 16px; background:var(--surface-2); border-bottom:1px solid var(--border); font-size:13px; }
+    .grid-toolbar select { padding:7px 10px; border:1px solid var(--border-strong); border-radius:5px; min-width:185px; }
+    .grid-status { font-size:12px; color:var(--text-muted); }
+    .grid-warning { color:var(--warning-strong); }
+    #map-panel { display:flex; flex-direction:column; }
+    #map { flex:1; min-height:0; height:auto; }
+    .grid-alert { padding:6px 14px; border-bottom:1px solid var(--danger-border); font-size:12px; color:var(--danger-text); background:var(--danger-bg); font-weight:700; }
+    .grid-alert[hidden], .grid-status[hidden], #pf-preview-toolbar[hidden] { display:none; }
+    #pf-preview-toolbar { display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; padding:7px 14px; border-bottom:1px solid var(--border); color:var(--text-muted); font-size:12px; }
+    #pf-preview-toolbar select { padding:5px 8px; border:1px solid var(--border-strong); border-radius:5px; }
+    #pf-preview-legend { color:var(--text-muted); }
+    .pf-legend-key { display:inline-flex; align-items:center; gap:4px; margin-right:8px; white-space:nowrap; }
+    .pf-legend-key i { display:inline-block; width:10px; height:10px; border:1px solid var(--text-faint); border-radius:50%; }
+    .pf-legend-note { display:block; margin-top:4px; color:var(--notice-text); }
+    #pf-preview-legend { display:flex; flex-wrap:wrap; align-items:center; gap:3px 8px; }
     @media (max-width: 1100px) {
       main { height: auto; min-height: calc(100vh - 64px); grid-template-columns: 1fr !important; grid-template-rows: minmax(420px, 52vh) minmax(620px, auto); gap: 16px; }
       .workspace-splitter { display: none; }
       #map-panel, #assistant-panel { min-width: 0; }
     }
+    /* ===== Header theme control ===== */
+    .header-tools { display: flex; align-items: center; gap: 10px; }
+    .theme-switch { display: inline-flex; margin: 0; padding: 2px; border: 1px solid var(--header-muted); border-radius: 999px; }
+    .theme-switch legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+    .theme-switch label { position: relative; padding: 4px 11px; border-radius: 999px; color: var(--header-muted); font-size: 12px; cursor: pointer; user-select: none; }
+    .theme-switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+    .theme-switch label:has(input:checked) { background: var(--header-text); color: var(--header-bg); font-weight: 700; }
+    .theme-switch label:has(input:focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+    .theme-current { color: var(--header-muted); font-size: 11px; }
+    /* ===== Shared help popover (hover / click / keyboard / Escape) ===== */
+    .help-trigger { display: inline-flex; align-items: center; justify-content: center; gap: 4px; flex: 0 0 auto; min-width: 22px; height: 22px; padding: 0 7px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); color: var(--text-muted); font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer; }
+    .help-trigger:hover, .help-trigger[aria-expanded="true"] { background: var(--hover-bg); color: var(--text); }
+    /* Width follows the first (highlighted) sentence so it fits on one line; other blocks do not widen
+       the popover (contain: inline-size) and wrap between Korean words (keep-all). Long file names may
+       still break (overflow-wrap). On narrow screens the first sentence may wrap (see place()). */
+    .help-popover { position: fixed; z-index: 1000; box-sizing: border-box; width: max-content; min-width: min(440px, calc(100vw - 16px)); max-width: min(760px, calc(100vw - 16px)); max-height: min(70vh, calc(100vh - 16px)); overflow: auto; padding: 12px 14px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--popover-bg); color: var(--text); box-shadow: var(--shadow); font-size: 12.5px; font-weight: normal; line-height: 1.55; word-break: keep-all; overflow-wrap: break-word; }
+    .help-popover > :not(.help-strong) { contain: inline-size; }
+    .help-popover .help-strong { white-space: nowrap; }
+    .help-popover.wrap-first .help-strong { white-space: normal; }
+    .help-popover[hidden] { display: none; }
+    .help-popover h3 { margin: 0 0 6px; font-size: 13px; }
+    .help-popover h4 { margin: 10px 0 3px; font-size: 12px; color: var(--text); }
+    .help-popover p { margin: 3px 0; color: var(--text-muted); }
+    .help-popover ul { margin: 3px 0; padding-left: 18px; color: var(--text-muted); }
+    .help-popover .help-strong { color: var(--notice-text); font-weight: 700; }
+
   </style>
 </head>
 <body>
-  <header><h1>AI-EMS Agent</h1></header>
+  <header>
+    <h1>AI-EMS Agent</h1>
+    <div class="header-tools">
+      <fieldset class="theme-switch" id="theme-switch">
+        <legend>화면 테마</legend>
+        <label><input type="radio" name="theme" value="light" />Light</label>
+        <label><input type="radio" name="theme" value="dark" />Dark</label>
+        <label><input type="radio" name="theme" value="system" />System</label>
+      </fieldset>
+      <span id="theme-current" class="theme-current" aria-live="polite"></span>
+    </div>
+  </header>
   <main id="workspace">
     <section class="panel" id="map-panel">
-      <div class="panel-title">KPG-193 Network</div>
+      <div class="panel-title" id="grid-map-title">KPG-193 Network</div>
+      <div class="grid-toolbar">
+        <label for="grid-select">국가 / 계통</label>
+        <select id="grid-select" aria-label="국가 및 계통 선택"><option value="kr-kpg193">KR · KPG-193</option></select>
+        <button type="button" class="help-trigger" id="model-help-trigger" aria-haspopup="dialog" aria-expanded="false" aria-controls="model-help">ⓘ 모델 정보</button>
+        <div id="model-help" class="help-popover" role="dialog" aria-labelledby="model-help-title" tabindex="0" hidden>
+          <h3 id="model-help-title">모델 정보</h3>
+          <p id="pf-preview-disclaimer" class="help-strong">합성 AC Power Flow 시험 결과 — 실제 운영 데이터가 아닙니다.</p>
+          <p id="pf-preview-status">계산된 합성 시나리오 결과를 읽는 중...</p>
+          <p id="pf-preview-provenance"></p>
+          <p id="pf-preview-limit-note"></p>
+          <p id="equipment-data-note" hidden></p>
+          <h4>지도 표시 기준</h4>
+          <ul id="pf-display-criteria"></ul>
+          <h4>분석 결과 해석</h4>
+          <ul id="analysis-interpretation"></ul>
+          <h4>현재 상태</h4>
+          <p id="grid-status-detail">계통 정보를 확인 중...</p>
+          <h4>계통 기능 범위</h4>
+          <p id="grid-scope-note"></p>
+        </div>
+        <!-- Only abnormal states are shown here (normal status lives in the model help). -->
+        <span id="grid-status" class="grid-status" role="status">계통 정보를 확인 중...</span>
+      </div>
+      <div id="grid-capability-note" class="grid-alert" role="alert" hidden></div>
+      <div id="pf-preview-alert" class="grid-alert" role="alert" hidden></div>
+      <div id="pf-preview-toolbar" hidden>
+        <label for="pf-display-mode">PF 결과 표시</label>
+        <select id="pf-display-mode" aria-label="Power Flow 지도 표시 모드" disabled>
+          <option value="base">기본 지도 · 정격전압</option>
+          <option value="bus_voltage">모선 전압 · pu</option>
+          <option value="line_loading">선로 부하율 · %</option>
+        </select>
+        <div>
+          <span id="pf-preview-legend">PF 결과를 사용할 수 없습니다.</span>
+        </div>
+      </div>
       <div id="map">
         <svg id="network-map" viewBox="0 0 700 900" preserveAspectRatio="xMidYMid meet"></svg>
         <div class="map-layer-control">
           <strong>지도 표시</strong>
+          <label class="map-layer-option"><input id="layer-regions" type="checkbox" checked /><span>행정구역 경계</span></label>
           <label class="map-layer-option"><input id="layer-lines" type="checkbox" checked /><span>선로</span></label>
+          <label class="map-layer-option"><input id="layer-transformers" type="checkbox" checked /><span>변압기 (추정)</span></label>
           <label class="map-layer-option"><input id="layer-buses" type="checkbox" checked /><span>버스</span></label>
-          <label class="map-layer-option"><input id="layer-generators" type="checkbox" /><span>발전기</span></label>
+          <label class="map-layer-option"><input id="layer-generators" type="checkbox" checked /><span>발전기 / 발전소</span></label>
           <label class="map-layer-option"><input id="layer-analysis" type="checkbox" checked /><span>분석 결과</span></label>
         </div>
+        <button type="button" id="map-zoom-reset" class="map-zoom-reset" hidden>전체 보기</button>
+        <div id="plant-legend" class="plant-legend" hidden></div>
+        <div id="analysis-legend" class="analysis-legend" hidden></div>
         <div id="map-tooltip" class="map-tooltip">
           <button id="map-tooltip-close" class="map-tooltip-close">×</button>
           <div id="map-tooltip-content"></div>
@@ -140,7 +347,10 @@
     <div id="workspace-splitter" class="workspace-splitter" role="separator" aria-orientation="vertical" aria-label="지도와 AI Assistant 영역 크기 조절" title="드래그하여 지도와 AI Assistant 폭을 조절"></div>
 
     <section class="panel" id="assistant-panel">
-      <div class="panel-title">AI Assistant</div>
+      <div class="panel-title">AI Assistant
+        <button type="button" class="help-trigger" id="assistant-help-trigger" aria-haspopup="dialog" aria-expanded="false" aria-controls="assistant-help">ⓘ 사용 안내</button>
+        <div id="assistant-help" class="help-popover" role="dialog" aria-labelledby="assistant-help-title" tabindex="0" hidden></div>
+      </div>
       <div id="chat">
         <div id="messages">
           <div class="analysis-box" id="security-analysis-box">
@@ -149,9 +359,17 @@
               <button type="button" class="analysis-toggle" aria-expanded="true" title="접기">▾</button>
             </div>
             <div class="analysis-box-content">
+              <select id="mn-contingency-examples" aria-label="몽골 대표 사고 선택" hidden>
+                <option value="">대표 사고 선택</option>
+                <option value="222087807-1_0">222087807-1_0 — 110kV / 8모선 분리</option>
+                <option value="751261406-1_0">751261406-1_0 — 220kV / 계통 분리 없음</option>
+                <option value="484333456-1_0">484333456-1_0 — 220kV / 11모선 분리</option>
+              </select>
               <input id="outage-line" type="text" value="LINE-16-28" placeholder="Outage line ID" />
               <button id="analyze-button">Analyze</button>
               <div id="security-result">사고 선로를 입력하고 분석하세요.</div>
+              <input id="monitored-line" type="text" list="monitored-line-options" placeholder="감시 선로 ID (비우면 자동 선택)" hidden />
+              <datalist id="monitored-line-options"></datalist>
               <button id="sensitivity-button" class="sensitivity-button" disabled>Sensitivity Analysis</button>
               <div id="sensitivity-result">Security Analysis 후 민감도를 분석할 수 있습니다.</div>
             </div>
@@ -163,14 +381,13 @@
               <button type="button" class="analysis-toggle" aria-expanded="true" title="접기">▾</button>
             </div>
             <div class="analysis-box-content">
-              <span class="analysis-subtitle">지도에서 발전기 행을 클릭하면 자동으로 입력됩니다.</span>
               <input id="outage-generator" type="text" placeholder="Generator ID (예: GEN-124#1)" />
               <div class="slack-options">
                 <label><input type="radio" name="generator-slack-mode" value="single" checked /> Single</label>
                 <label><input type="radio" name="generator-slack-mode" value="distributed" /> Distributed</label>
               </div>
               <button id="generator-analyze-button">Analyze</button>
-              <div id="generator-contingency-result">발전기를 선택하거나 ID를 입력하고 분석하세요.</div>
+              <div id="generator-contingency-result"></div>
             </div>
           </div>
 
@@ -186,16 +403,58 @@
 
   <script>
     const SVG_NS = "http://www.w3.org/2000/svg";
-    const SESSION_STORAGE_KEY = "ai-ems-agent-session-id";
+    // Conversations live only in this page, keyed by the full grid ID.
+    const gridChats = new Map();
     const WORKSPACE_RATIO_STORAGE_KEY = "ai-ems-workspace-map-ratio";
     const WORKSPACE_SPLITTER_WIDTH = 12;
     const DEFAULT_MAP_RATIO = 0.52;
     const MIN_MAP_WIDTH = 360;
     const MIN_ASSISTANT_WIDTH = 520;
     let mapProjection = null;
-    let chatBusy = false;
+    let selectedGridId = "kr-kpg193";
+    let gridEntries = [];
+    const VOLTAGE_COLORS = {"35":"#0891b2","110":"#2563eb","154":"#7c3aed","220":"#b45309","345":"#0f766e"};
+    // Dark theme only: lighter tints of the same hue so data colours keep >= 3:1 against the dark
+    // map. Light-theme colours (and therefore every legend meaning) are unchanged.
+    const DARK_DATA_TINTS = Object.freeze({
+      "#0891b2": "#22d3ee", "#2563eb": "#60a5fa", "#7c3aed": "#a78bfa", "#b45309": "#d97706",
+      "#0f766e": "#2dd4bf", "#be123c": "#fb7185", "#4d7c0f": "#a3e635", "#0369a1": "#38bdf8",
+      "#16a34a": "#4ade80", "#dc2626": "#f87171", "#475569": "#94a3b8", "#92400e": "#d97706",
+      "#64748b": "#94a3b8", "#f97316": "#fb923c",
+    });
+    function dataColor(hex) {
+      return document.documentElement.dataset.theme === "dark" ? (DARK_DATA_TINTS[hex] || hex) : hex;
+    }
+    const PF_DISPLAY_POLICY = Object.freeze({
+      lineLoading: Object.freeze([
+        { max: 50, color: "#16a34a" },
+        { max: 80, color: "#eab308" },
+        { max: 100, color: "#f97316" },
+        { max: Infinity, color: "#dc2626" },
+      ]),
+      unknown: "#94a3b8",
+      underVoltage: "#2563eb",
+      lowVoltageCaution: "#f59e0b",
+      normalVoltage: "#16a34a",
+      highVoltageCaution: "#f97316",
+      overVoltage: "#dc2626",
+      voltageCautionMarginPu: 0.02,
+    });
+    let gridSwitchToken = 0;
+    // Per-request sequence numbers: a slower earlier response must not overwrite a newer result.
+    let securityRequestSeq = 0;
+    let sensitivityRequestSeq = 0;
     let latestSecurityResult = null;
+    let latestSecurityView = null;     // grid-independent view model of latestSecurityResult
     let generatorStateMap = new Map();
+    let pfPreview = null;
+    let pfPreviewError = null;
+    let pfBusResultMap = new Map();
+    let pfLineResultMap = new Map();
+    let pfTransformerResultMap = new Map();
+    let currentMapData = null;
+    // Mongolia-only zoom state: null = the initial full view.
+    let mapView = null;
 
     function clamp(value, min, max) {
       return Math.min(Math.max(value, min), max);
@@ -278,22 +537,638 @@
       });
     }
 
-    function getSessionId() {
-      let sessionId = sessionStorage.getItem(SESSION_STORAGE_KEY);
-      if (!sessionId) {
-        sessionId = crypto.randomUUID();
-        sessionStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+    function getChatState(gridId = selectedGridId) {
+      if (!gridChats.has(gridId)) {
+        gridChats.set(gridId, { sessionId: crypto.randomUUID(), messages: [], pending: false });
       }
-      return sessionId;
+      return gridChats.get(gridId);
+    }
+
+    function getSessionId(gridId = selectedGridId) {
+      return getChatState(gridId).sessionId;
+    }
+
+    function isMongoliaGrid() { return selectedGridId === "mn-osm-35k"; }
+
+    function voltageLabel(voltage) {
+      return voltage == null ? "미확인" : String(Number(voltage));
+    }
+
+    function voltageColor(voltage) {
+      const label = voltageLabel(voltage);
+      if (VOLTAGE_COLORS[label]) return dataColor(VOLTAGE_COLORS[label]);
+      if (label === "미확인") return dataColor(PF_DISPLAY_POLICY.unknown);
+      const levels = [...new Set((currentMapData?.buses || [])
+        .map((item) => Number(item.voltage_kv))
+        .filter(Number.isFinite))].sort((a, b) => a - b);
+      const palette = ["#0f766e", "#7c3aed", "#be123c", "#4d7c0f", "#0369a1"];
+      return dataColor(palette[Math.max(0, levels.indexOf(Number(voltage))) % palette.length]);
+    }
+
+    function lineLoadingColor(value) {
+      if (value == null || !Number.isFinite(Number(value))) return dataColor(PF_DISPLAY_POLICY.unknown);
+      return dataColor(PF_DISPLAY_POLICY.lineLoading.find((band) => Number(value) <= band.max)?.color
+        || PF_DISPLAY_POLICY.unknown);
+    }
+
+    function busVoltageColor(result) {
+      if (!result || result.analysis_status !== "ANALYZED" || result.v_mag_pu == null || !Number.isFinite(Number(result.v_mag_pu))) {
+        return dataColor(PF_DISPLAY_POLICY.unknown);
+      }
+      const value = Number(result.v_mag_pu);
+      const metadataLimits = pfPreview?.metadata?.voltage_limits_pu || {};
+      const low = Number(result.voltage_min_pu ?? metadataLimits.min);
+      const high = Number(result.voltage_max_pu ?? metadataLimits.max);
+      if (!Number.isFinite(low) || !Number.isFinite(high)) return dataColor(PF_DISPLAY_POLICY.unknown);
+      if (value < low) return dataColor(PF_DISPLAY_POLICY.underVoltage);
+      if (value > high) return dataColor(PF_DISPLAY_POLICY.overVoltage);
+      if (value <= low + PF_DISPLAY_POLICY.voltageCautionMarginPu) return dataColor(PF_DISPLAY_POLICY.lowVoltageCaution);
+      if (value >= high - PF_DISPLAY_POLICY.voltageCautionMarginPu) return dataColor(PF_DISPLAY_POLICY.highVoltageCaution);
+      return dataColor(PF_DISPLAY_POLICY.normalVoltage);
+    }
+
+    function voltageLimitLegend() {
+      const metadataLimits = pfPreview?.metadata?.voltage_limits_pu;
+      if (metadataLimits && Number.isFinite(Number(metadataLimits.min)) &&
+          Number.isFinite(Number(metadataLimits.max))) {
+        return `${Number(metadataLimits.min).toFixed(2)}–${Number(metadataLimits.max).toFixed(2)} pu`;
+      }
+      const rows = [...pfBusResultMap.values()];
+      const low = rows.map((item) => Number(item.voltage_min_pu)).filter(Number.isFinite);
+      const high = rows.map((item) => Number(item.voltage_max_pu)).filter(Number.isFinite);
+      if (!low.length || !high.length) return "전압 한계 미확인";
+      return `모선별 하한 ${Math.min(...low).toFixed(2)}–${Math.max(...low).toFixed(2)} pu · 상한 ${Math.min(...high).toFixed(2)}–${Math.max(...high).toFixed(2)} pu`;
+    }
+
+    function finiteTree(value) {
+      if (typeof value === "number") return Number.isFinite(value);
+      if (Array.isArray(value)) return value.every(finiteTree);
+      if (value && typeof value === "object") return Object.values(value).every(finiteTree);
+      return value == null || ["string", "boolean"].includes(typeof value);
+    }
+
+    function validateBrowserPfPreview(payload, mapData) {
+      if (!payload || !payload.metadata || !payload.summary || !finiteTree(payload)) throw new Error("PF 미리보기 JSON 구조 또는 수치가 올바르지 않습니다.");
+      const meta = payload.metadata;
+      const expectedGrid = isMongoliaGrid() ? "mn-osm-35k" : "kr-kpg193";
+      const expectedScenario = isMongoliaGrid()
+        ? "reduced_27_q_limited_with_reactor"
+        : "kpg193_base_ac_load_flow";
+      if (meta.schema_version !== "1.0" || meta.grid_id !== expectedGrid ||
+          meta.scenario_id !== expectedScenario || meta.synthetic_scenario !== true ||
+          meta.actual_operating_data !== false || meta.pf_status !== "AC_PF_CONVERGED" ||
+          payload.summary.pf_converged !== true) {
+        throw new Error("현재 계통에 대해 허용된 수렴 PF 결과가 아닙니다.");
+      }
+      if (isMongoliaGrid() &&
+          meta.screening_status !== "SYNTHETIC_SCENARIO_WITHIN_SCREENING_LIMITS") {
+        throw new Error("몽골 PF 시나리오의 검증된 스크리닝 판정이 아닙니다.");
+      }
+      const mapBuses = new Map(mapData.buses.map((item) => [String(item.bus_id), item]));
+      const mapLines = new Map(mapData.lines.map((item) => [String(item.line_id), item]));
+      const mapTransformers = new Map((mapData.transformers || []).map((item) => [String(item.transformer_id), item]));
+      const uniqueMap = (items, key) => {
+        const result = new Map();
+        for (const item of items) {
+          const id = String(item[key] ?? "");
+          if (!id || result.has(id)) throw new Error("PF 미리보기 설비 ID가 비어 있거나 중복됩니다.");
+          result.set(id, item);
+        }
+        return result;
+      };
+      const buses = uniqueMap(payload.buses, "bus_id");
+      const lines = uniqueMap(payload.lines, "line_id");
+      const transformers = uniqueMap(payload.transformers, "transformer_id");
+      if (meta.analysis_bus_count !== buses.size || meta.analysis_line_count !== lines.size ||
+          meta.analysis_transformer_count !== transformers.size) {
+        throw new Error("PF 미리보기 설비 개수가 지도와 일치하지 않습니다.");
+      }
+      for (const [id, item] of buses) {
+        const mapped = mapBuses.get(id);
+        if (!mapped || Number(item.voltage_kv) !== Number(mapped.voltage_kv) ||
+            !["ANALYZED", "NOT_ANALYZED"].includes(item.analysis_status)) {
+          throw new Error(`모선 ${id}가 지도와 일치하지 않습니다.`);
+        }
+      }
+      for (const [id, item] of lines) {
+        const mapped = mapLines.get(id);
+        if (!mapped || String(item.bus1_id) !== String(mapped.bus1_id) ||
+            String(item.bus2_id) !== String(mapped.bus2_id) ||
+            !["ANALYZED", "NOT_ANALYZED"].includes(item.analysis_status)) {
+          throw new Error(`선로 ${id}가 지도와 일치하지 않습니다.`);
+        }
+        if (item.loading_percent != null &&
+            (!(Number(item.rating_mva) > 0) || !Number.isFinite(Number(item.loading_percent)))) {
+          throw new Error(`선로 ${id}의 정격 또는 부하율이 올바르지 않습니다.`);
+        }
+      }
+      for (const [id, item] of transformers) {
+        const mapped = mapTransformers.get(id);
+        if (!mapped || String(item.bus1_id) !== String(mapped.bus1_id) ||
+            String(item.bus2_id) !== String(mapped.bus2_id) ||
+            !["ANALYZED", "NOT_ANALYZED"].includes(item.analysis_status)) {
+          throw new Error(`변압기 ${id}가 지도와 일치하지 않습니다.`);
+        }
+      }
+      if (isMongoliaGrid()) {
+        if (buses.size !== 166 || lines.size !== 156 || transformers.size !== 27 ||
+            meta.excluded_bus_ids.length !== mapBuses.size - buses.size ||
+            meta.excluded_line_ids.length !== mapLines.size - lines.size) {
+          throw new Error("몽골 해석 대상 및 제외 설비 수가 지도와 일치하지 않습니다.");
+        }
+      } else if (buses.size !== mapBuses.size || lines.size !== mapLines.size ||
+          transformers.size !== mapTransformers.size) {
+        throw new Error("KPG PF 결과에 지도 설비가 누락되거나 추가되었습니다.");
+      }
+      return payload;
+    }
+
+    function resetPfPreview() {
+      pfPreview = null;
+      pfPreviewError = null;
+      pfBusResultMap.clear();
+      pfLineResultMap.clear();
+      pfTransformerResultMap.clear();
+      document.getElementById("pf-display-mode").value = "base";
+      document.getElementById("pf-display-mode").disabled = true;
+      document.getElementById("pf-preview-legend").textContent = "PF 결과를 사용할 수 없습니다.";
+      if (currentMapData) applyPfDisplayMode();
+    }
+
+    // Normal status is recorded in the model help only; abnormal states stay visible next to the selector.
+    function setGridStatus(text, abnormal) {
+      const status = document.getElementById("grid-status");
+      status.textContent = abnormal ? text : "";
+      status.hidden = !abnormal;
+      status.classList.toggle("grid-warning", abnormal);
+      document.getElementById("grid-status-detail").textContent = text;
+    }
+
+    function updatePfPreviewPanel() {
+      const entry = gridEntries.find((item) => item.id === selectedGridId);
+      const available = entry?.pf_preview_available === true;
+      const toolbar = document.getElementById("pf-preview-toolbar");
+      // Model details live only in the help popover; the PF toolbar appears when a PF preview
+      // exists, and a PF failure is the only state shown as a visible alert row.
+      document.getElementById("model-help-trigger").hidden = !entry;
+      toolbar.hidden = !available;
+      document.getElementById("grid-scope-note").textContent = entry?.note || "";
+      const resultText = GRID_RESULT_TEXT[selectedGridId];
+      document.getElementById("analysis-interpretation").innerHTML = resultText
+        ? [resultText.securityNotice, resultText.sensitivityNotice, resultText.candidateMarkerNote]
+          .map((item) => `<li>${escapeHtml(item)}</li>`).join("") : "";
+      const equipmentNote = document.getElementById("equipment-data-note");
+      equipmentNote.textContent = isMongoliaGrid() ? "지도 발전소 데이터: 레코드 기준 · 중복 가능 · 용량/연결 검증 전." : "";
+      equipmentNote.hidden = !isMongoliaGrid();
+      renderDisplayCriteria();
+      const alert = document.getElementById("pf-preview-alert");
+      alert.textContent = pfPreviewError ? `PF 미리보기 오류 — 기본 지도와 기존 분석 기능은 유지됩니다: ${pfPreviewError}` : "";
+      alert.hidden = !pfPreviewError;
+      document.getElementById("pf-preview-disclaimer").textContent = isMongoliaGrid()
+        ? "합성 AC Power Flow 시험 결과 — 실제 몽골 운영 데이터가 아닙니다."
+        : "KPG-193 합성 시험계통의 AC Power Flow 결과 — 실제 한국 운영 데이터가 아닙니다.";
+      document.getElementById("pf-preview-provenance").textContent = isMongoliaGrid()
+        ? "166모선 주 연결요소 · 합성 발전기 45대 · 합성 부하 25.6 MW · 합성 리액터 20 MVAr · 2013 snapshot은 실제 측정값이 아닙니다."
+        : pfPreview
+          ? `${pfPreview.metadata.source_model} · ${pfPreview.metadata.snapshot} · ${pfPreview.metadata.analysis_bus_count}모선 / ${pfPreview.metadata.analysis_line_count}선로 / ${pfPreview.metadata.analysis_transformer_count}변압기 · ${pfPreview.metadata.generator_count} 발전기`
+          : "KPG-193 MATPOWER 시험 모델의 독립된 기본상태 AC PF 결과";
+      document.getElementById("pf-preview-limit-note").textContent = isMongoliaGrid()
+        ? "일부 선로·변압기 전기정수 미검증 · 실제 발전소 접속 미확인."
+        : `MATPOWER 시험계통 모델 한계값 기준 표시이며 운영 경보 기준이 아닙니다. AC 선로에 포함되지 않은 HVDC ${pfPreview?.metadata?.non_ac_equipment?.hvdc_lines?.count ?? "미확인"}개는 별도 설비이며 AC P/Q 부하율을 표시하지 않습니다.`;
+      document.getElementById("pf-preview-status").textContent = pfPreview
+        ? isMongoliaGrid()
+          ? `${pfPreview.metadata.snapshot} snapshot · AC PF 수렴 · 가정 스크리닝 통과 · 모델 신뢰성 검토 필요`
+          : `AC PF 수렴 · ${pfPreview.summary.iteration_count}회 반복 · 모델 정격 기준 스크리닝만 표시 (운영기준 아님)`
+        : pfPreviewError
+          ? `PF 미리보기 오류 — 기본 지도와 기존 분석 기능은 유지됩니다: ${pfPreviewError}`
+        : entry?.pf_preview_available
+          ? "기본상태 PF 결과를 불러오는 중..."
+          : "사전 생성된 PF 미리보기 없음 · 기본 지도만 표시";
+    }
+
+    // Map display criteria and result interpretation live in the model help (not on screen permanently).
+    function renderDisplayCriteria() {
+      const items = [
+        pfPreview ? `모선 전압 표시: 각 모선의 하한/상한 ${voltageLimitLegend()} · 한계 근접 기준 ±${PF_DISPLAY_POLICY.voltageCautionMarginPu.toFixed(2)} pu` : null,
+        "선로 부하율 표시: PoC 시연용 시각화 구간이며 운영사의 공식 경보 기준이 아닙니다. 부하율은 MVA 기준입니다.",
+        "Security/Sensitivity 사고 결과 강조가 PF 색상보다 우선 표시됩니다. 분석 결과를 숨기려면 지도 표시의 ‘분석 결과’를 해제하세요.",
+      ].filter(Boolean);
+      document.getElementById("pf-display-criteria").innerHTML = items.map((item) => `<li>${escapeHtml(item)}</li>`).join("");
+    }
+
+    function updatePreviewLegend() {
+      const legend = document.getElementById("pf-preview-legend");
+      renderDisplayCriteria();
+      if (!pfPreview || !currentMapData) {
+        legend.textContent = pfPreviewError ? "PF 색상 미적용 · 기본 지도 표시 중" : "PF 결과를 사용할 수 없습니다.";
+        return;
+      }
+      const mode = document.getElementById("pf-display-mode").value;
+      if (mode === "bus_voltage") {
+        legend.innerHTML = [
+          ["#2563eb", "저전압 위반"],
+          ["#f59e0b", "저전압 주의"],
+          ["#16a34a", "정상"],
+          ["#f97316", "과전압 주의"],
+          ["#dc2626", "과전압 위반"],
+          [PF_DISPLAY_POLICY.unknown, "미해석"],
+        ].map(([color, label]) => `<span class="pf-legend-key"><i style="background:${color}"></i>${label}</span>`).join("");
+      } else if (mode === "line_loading") {
+        legend.innerHTML = [
+          ["#16a34a", "0–50%"],
+          ["#eab308", ">50–80%"],
+          ["#f97316", ">80–100%"],
+          ["#dc2626", ">100%"],
+          [PF_DISPLAY_POLICY.unknown, "미해석 / 정격 미확인"],
+        ].map(([color, label]) => `<span class="pf-legend-key"><i style="background:${color}"></i>${label}</span>`).join("");
+      } else {
+        const levels = [...new Set(currentMapData.buses.map((bus) => Number(bus.voltage_kv)).filter(Number.isFinite))].sort((a, b) => a - b);
+        legend.innerHTML = levels.map((value) =>
+          `<span class="pf-legend-key"><i style="background:${voltageColor(value)}"></i>${value} kV</span>`
+        ).join("");
+      }
+    }
+
+    function applyPfDisplayMode() {
+      if (!currentMapData) return;
+      const mode = document.getElementById("pf-display-mode").value;
+      for (const element of document.querySelectorAll(".network-bus")) {
+        const bus = currentMapData.buses.find((item) => String(item.bus_id) === element.dataset.busId);
+        const result = pfBusResultMap.get(element.dataset.busId);
+        let color = voltageColor(bus?.voltage_kv);
+        if (mode === "bus_voltage") color = busVoltageColor(result);
+        element.style.fill = color;
+      }
+      for (const element of document.querySelectorAll(".network-line")) {
+        const line = currentMapData.lines.find((item) => String(item.line_id) === element.dataset.lineId);
+        const result = pfLineResultMap.get(element.dataset.lineId);
+        element.style.stroke = mode === "line_loading"
+          ? lineLoadingColor(result?.analysis_status === "ANALYZED" ? result.loading_percent : null)
+          : voltageColor(line?.voltage_kv);
+      }
+      updatePreviewLegend();
+    }
+
+    function gridSupportsAnalysis() {
+      return gridEntries.find((item) => item.id === selectedGridId)?.analysis_available === true;
+    }
+
+    function gridCapability(name) {
+      return gridEntries.find((item) => item.id === selectedGridId)?.[name] === true;
+    }
+
+    // PF chat remains available independently of each domain analysis validation gate.
+    function gridSupportsChat() {
+      return gridEntries.find((item) => item.id === selectedGridId)?.chat_available === true;
+    }
+
+    function chatEndpoint(gridId) {
+      return gridId === "kr-kpg193" ? "/api/chat" : `/api/grids/${encodeURIComponent(gridId)}/chat`;
+    }
+
+    function restoreChatForGrid() {
+      document.getElementById("chat-log").replaceChildren();
+      for (const message of getChatState().messages) renderChatMessage(message.role, message.text);
+      document.getElementById("chat-message").value = "";
+      renderAssistantHelp(gridEntries.find((item) => item.id === selectedGridId));
+    }
+
+    // Per-grid AI Assistant guide (scope, limits, example questions) shown in the shared help popover.
+    const ASSISTANT_GUIDES = {
+      mongolia_analysis: {
+        title: "AI Assistant 사용 안내 · 몽골 합성 계통",
+        intro: "합성 PF 조회와 선로 N-1 Security·Sensitivity를 지원합니다. 자연어 연속 실행 및 후속 요청의 결과를 공통 카드와 지도에 표시합니다.",
+        scope: [
+          "선로 N-1 및 계통 분리 없는 사고의 합성 발전기 주입 민감도를 채팅과 패널에서 실행합니다.",
+          "Redispatch·OPF·발전기 사고·출력 변경 재계산·동특성은 지원하지 않습니다.",
+          "답변은 합성 시나리오 결과이며 실제 몽골 운영 데이터가 아닙니다.",
+        ],
+        examples: ["Bus 137 전압은?", "751261406-1_0 선로 N-1 후 민감도 Top 5를 분석해 줘.", "이어서 민감도 후보 5개 알려줘."],
+        panel: [
+          "Security Analysis: 대표 사고를 고르거나 지도에서 선로를 클릭한 뒤 Analyze를 실행합니다.",
+          "Sensitivity Analysis: 계통 분리 없는 사고의 Security Analysis 후 실행합니다(합성 발전기 주입 민감도). 감시 선로를 비우면 사고 후 |ΔP|가 가장 큰 메시 선로를 자동 추천합니다.",
+          "계통 분리 사고는 민감도를 평가하지 않으며, 발전기 탈락 분석은 지원하지 않습니다.",
+        ],
+      },
+      analysis: {
+        title: "AI Assistant 사용 안내 · KPG-193 계통해석",
+        intro: "자연어로 요청하면 AI Assistant가 PyPowSyBl 해석 Tool을 호출해 결과를 설명합니다. Security·Sensitivity·발전기 탈락 결과는 지도와 분석 패널에도 표시됩니다.",
+        scope: [
+          "선로 N-1 상정사고(Security Analysis)와 위반 설비 확인",
+          "사고 후 선로 조류의 발전기 민감도(Sensitivity)",
+          "발전기 탈락 분석·Slack 방식 비교·발전기 N-1 Screening",
+          "사고 대응방안(Redispatch 후보) 검토 — 시험한 후보 중 결과이며 최적 Redispatch가 아닙니다.",
+          "KPG-193 합성 시험계통 결과이며 실제 한국 운영계통 결과가 아닙니다.",
+        ],
+        examples: ["LINE-16-28 사고를 분석해 줘.", "GEN-124#1 발전기 탈락을 분석해 줘.", "LINE-16-28 사고 대응방안을 검토해 줘."],
+        panel: [
+          "Security Analysis: 사고 선로를 입력하거나 지도에서 선로를 클릭한 뒤 Analyze를 실행합니다.",
+          "Sensitivity Analysis: Security Analysis 후 실행합니다. 감시 선로를 비우면 사고 후 최대 위반 선로를 선택합니다.",
+          "Generator Contingency Analysis: 지도에서 발전기 행을 클릭하면 자동으로 입력됩니다.",
+        ],
+      },
+    };
+    function renderAssistantHelp(entry) {
+      const popover = document.getElementById("assistant-help");
+      const guide = ASSISTANT_GUIDES[entry?.chat_mode];
+      if (!guide || entry?.chat_available !== true) {
+        popover.innerHTML = `<h3 id="assistant-help-title">AI Assistant 사용 안내</h3><p>현재 계통에서는 AI Assistant를 사용할 수 없습니다.</p>`;
+        return;
+      }
+      const availability = entry?.chat_mode === "mongolia_analysis" ? [
+        `Security: ${entry.security_analysis_available ? "검증 완료" : "사용 불가 · " + (entry.security_analysis_note || "모델 미검증")}`,
+        `Sensitivity: ${entry.sensitivity_analysis_available ? "검증 완료" : "사용 불가 · " + (entry.sensitivity_analysis_note || "모델 미검증")}`,
+        "PF 조회는 분석 지원 상태와 별개로 사용할 수 있습니다.",
+      ] : [];
+      popover.innerHTML = `<h3 id="assistant-help-title">${escapeHtml(guide.title)}</h3><p>${escapeHtml(guide.intro)}</p>`
+        + `<h4>지원 범위 · 제한</h4><ul>${[...guide.scope, ...availability].map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`
+        + `<h4>예시 질문</h4><ul>${guide.examples.map((item) => `<li>“${escapeHtml(item)}”</li>`).join("")}</ul>`
+        + `<h4>분석 패널</h4><ul>${[...guide.panel, "지도의 분석 강조는 PF 색상보다 우선하며, 지도 표시의 ‘분석 결과’를 해제하면 숨겨집니다."]
+          .map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
+    }
+
+    // ===== Shared help popover: hover, click/tap (pin), Enter/Space, Escape, viewport-clamped =====
+    const helpControllers = [];
+    function closeAllHelp(except = null) {
+      for (const controller of helpControllers) if (controller.popover !== except) controller.close(false);
+    }
+    function setupHelp(triggerId, popoverId) {
+      const trigger = document.getElementById(triggerId);
+      const popover = document.getElementById(popoverId);
+      let pinned = false;
+      let hoverTimer = null;
+      const margin = 8;
+      const place = () => {
+        const rect = trigger.getBoundingClientRect();
+        popover.style.maxHeight = "";
+        popover.classList.remove("wrap-first");
+        const first = popover.querySelector(".help-strong");
+        if (first && first.scrollWidth > first.clientWidth + 1) popover.classList.add("wrap-first");
+        const width = popover.offsetWidth;
+        const below = window.innerHeight - rect.bottom - margin - 6;
+        const above = rect.top - margin - 6;
+        const openBelow = popover.scrollHeight <= below || below >= above;
+        const room = Math.max(120, openBelow ? below : above);
+        popover.style.maxHeight = `${room}px`;
+        const height = Math.min(popover.scrollHeight, room);
+        popover.style.left = `${Math.min(Math.max(margin, rect.right - width), window.innerWidth - width - margin)}px`;
+        popover.style.top = `${openBelow ? rect.bottom + 6 : Math.max(margin, rect.top - 6 - height)}px`;
+      };
+      const open = () => {
+        clearTimeout(hoverTimer);
+        closeAllHelp(popover);
+        popover.hidden = false;
+        trigger.setAttribute("aria-expanded", "true");
+        place();
+      };
+      const close = (returnFocus = false) => {
+        clearTimeout(hoverTimer);
+        pinned = false;
+        if (popover.hidden) return;
+        popover.hidden = true;
+        trigger.setAttribute("aria-expanded", "false");
+        if (returnFocus) trigger.focus();
+      };
+      const scheduleClose = () => { if (!pinned) hoverTimer = setTimeout(() => close(false), 250); };
+      trigger.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (pinned) close(false);
+        else { pinned = true; open(); }
+      });
+      trigger.addEventListener("mouseenter", () => { if (popover.hidden) open(); else clearTimeout(hoverTimer); });
+      trigger.addEventListener("mouseleave", scheduleClose);
+      popover.addEventListener("mouseenter", () => clearTimeout(hoverTimer));
+      popover.addEventListener("mouseleave", scheduleClose);
+      popover.addEventListener("click", (event) => event.stopPropagation());
+      window.addEventListener("resize", () => { if (!popover.hidden) place(); });
+      window.addEventListener("scroll", () => { if (!popover.hidden) place(); }, true);
+      const controller = { trigger, popover, open, close, place, isPinned: () => pinned };
+      helpControllers.push(controller);
+      return controller;
+    }
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      for (const controller of helpControllers) {
+        if (controller.popover.hidden) continue;
+        const focusInside = controller.popover.contains(document.activeElement) || document.activeElement === controller.trigger;
+        controller.close(focusInside);
+      }
+    });
+    document.addEventListener("click", () => closeAllHelp());
+
+    // ===== Theme: Light / Dark / System (default), stored per browser =====
+    const THEME_STORAGE_KEY = "ai-ems-theme";
+    const themeMedia = window.matchMedia("(prefers-color-scheme: dark)");
+    function storedThemePreference() {
+      try {
+        const value = localStorage.getItem(THEME_STORAGE_KEY);
+        return ["light", "dark", "system"].includes(value) ? value : "system";
+      } catch (error) {
+        return "system";
+      }
+    }
+    function applyTheme(preference) {
+      const dark = preference === "dark" || (preference === "system" && themeMedia.matches);
+      document.documentElement.dataset.theme = dark ? "dark" : "light";
+      document.documentElement.dataset.themePreference = preference;
+      for (const input of document.querySelectorAll('#theme-switch input[name="theme"]')) input.checked = input.value === preference;
+      document.getElementById("theme-current").textContent = preference === "system" ? `OS 설정 · ${dark ? "Dark" : "Light"}` : "";
+      refreshThemedDataColors();
+    }
+    function refreshThemedDataColors() {
+      if (!currentMapData) return;
+      applyPfDisplayMode();                         // lines, buses and the PF legend
+      document.querySelectorAll(".network-generator circle").forEach((circle) => circle.setAttribute("fill", dataColor("#16a34a")));
+      document.querySelectorAll(".powerplant-marker").forEach((marker) => marker.setAttribute("fill", powerplantColor(marker.dataset.fuel)));
+      renderEquipmentLegend(currentMapData);
+    }
+    function setThemePreference(preference) {
+      try { localStorage.setItem(THEME_STORAGE_KEY, preference); } catch (error) { /* keep in-page only */ }
+      applyTheme(preference);
+    }
+
+    function updateGridCapabilities(resetResults = true) {
+      const entry = gridEntries.find((item) => item.id === selectedGridId);
+      const available = entry?.analysis_available === true;
+      // Per-feature flags: Mongolia enables Security only; KPG enables every feature.
+      const securityAvailable = entry?.security_analysis_available === true;
+      const generatorAvailable = entry?.generator_contingency_available === true;
+      document.getElementById("analyze-button").disabled = !securityAvailable;
+      document.getElementById("outage-line").disabled = !securityAvailable;
+      document.getElementById("generator-analyze-button").disabled = !generatorAvailable;
+      document.getElementById("outage-generator").disabled = !generatorAvailable;
+      document.getElementById("mn-contingency-examples").hidden = !(isMongoliaGrid() && securityAvailable);
+      document.getElementById("monitored-line").hidden = !gridCapability("sensitivity_analysis_available");
+      const chatAvailable = entry?.chat_available === true;
+      const chatBusy = getChatState().pending;
+      document.getElementById("chat-send").disabled = !chatAvailable || chatBusy;
+      document.querySelectorAll('input[name="generator-slack-mode"]').forEach((input) => {
+        input.disabled = !generatorAvailable;
+      });
+      document.getElementById("chat-message").disabled = !chatAvailable || chatBusy;
+      document.getElementById("chat-message").placeholder = entry?.chat_mode === "mongolia_analysis"
+        ? (securityAvailable
+          ? (gridCapability("sensitivity_analysis_available") ? "합성 PF · 선로 N-1 · 후속 민감도를 요청하세요." : "합성 PF · 선로 N-1을 요청하세요.")
+          : "합성 PF 결과를 질문하세요. (예: Bus 137 전압은?)")
+        : "계통 분석을 요청하세요.";
+      document.getElementById("sensitivity-button").disabled = resetResults
+        || !gridCapability("sensitivity_analysis_available")
+        || latestSecurityView?.gridId !== selectedGridId || latestSecurityView?.sensitivity?.enabled !== true;
+      const warning = document.getElementById("grid-capability-note");
+      const disabledReasons = [
+        !entry ? "등록되지 않은 계통입니다." : "",
+        entry && !entry.map_available ? "지도 데이터가 아직 준비되지 않았습니다." : "",
+        !securityAvailable && entry?.security_analysis_note ? `Security Analysis 비활성: ${entry.security_analysis_note}` : "",
+        securityAvailable && !gridCapability("sensitivity_analysis_available") && entry?.sensitivity_analysis_note
+          ? `Sensitivity Analysis 비활성: ${entry.sensitivity_analysis_note}` : "",
+      ].filter(Boolean);
+      warning.hidden = disabledReasons.length === 0;
+      warning.textContent = disabledReasons.join(" ");
+      renderAssistantHelp(entry);
+      document.getElementById("grid-map-title").textContent = entry?.name || selectedGridId;
+      setGridStatus(!entry ? "미등록" :
+        !entry.map_available ? "지도 데이터 준비 중" :
+        available ? "계통해석 가능" :
+        securityAvailable ? (gridCapability("sensitivity_analysis_available")
+          ? "합성 PF 조회 · 선로 N-1 Security / Sensitivity Analysis 가능" : "합성 PF 조회 · 선로 N-1 Security Analysis 가능") :
+        chatAvailable ? "합성 PF 조회 전용 · 계통해석 미지원" : "지도 조회 전용 · 계통해석 미검증",
+        !entry || !entry.map_available || !(available || securityAvailable));
+      document.getElementById("pf-display-mode").disabled = !(
+        entry?.pf_preview_available === true && pfPreview !== null
+      );
+      if (resetResults) {
+        document.getElementById("security-result").textContent = available || securityAvailable ? "" :
+          isMongoliaGrid() && entry?.security_analysis_note ? `몽골 Security Analysis 비활성: ${entry.security_analysis_note}` :
+          "운전 데이터 검증 전이므로 분석이 비활성화되었습니다.";
+        document.getElementById("sensitivity-result").textContent = !gridCapability("sensitivity_analysis_available")
+          ? (isMongoliaGrid() && entry?.sensitivity_analysis_note ? `몽골 Sensitivity 비활성: ${entry.sensitivity_analysis_note}` : "현재 계통은 Sensitivity Analysis를 지원하지 않습니다.")
+          : "";
+        document.getElementById("generator-contingency-result").textContent = generatorAvailable
+          ? "" : "현재 계통은 발전기 탈락 분석을 지원하지 않습니다.";
+      }
+      updatePfPreviewPanel();
+    }
+
+    async function initializeGridCatalog() {
+      try {
+        const response = await fetch("/api/grids");
+        if (!response.ok) throw new Error("계통 목록을 불러올 수 없습니다.");
+        const payload = await response.json();
+        gridEntries = payload.grids || [];
+        const select = document.getElementById("grid-select");
+        select.replaceChildren();
+        for (const entry of gridEntries) {
+          const option = document.createElement("option");
+          option.value = entry.id;
+          option.textContent = `${entry.country} · ${entry.name}`;
+          select.appendChild(option);
+        }
+        selectedGridId = payload.default_grid_id || "kr-kpg193";
+        select.value = selectedGridId;
+        select.addEventListener("change", async () => {
+          selectedGridId = select.value;
+          gridSwitchToken++;
+          latestSecurityResult = null;
+          latestSecurityView = null;
+          mapProjection = null;
+          currentMapData = null;
+          resetPfPreview();
+          generatorStateMap.clear();
+          document.getElementById("network-map").replaceChildren();
+          hideMapTooltip();
+          restoreChatForGrid();
+          document.getElementById("outage-line").value = isMongoliaGrid() ? "" : "LINE-16-28";
+          document.getElementById("mn-contingency-examples").value = "";
+          document.getElementById("monitored-line").value = "";
+          document.getElementById("monitored-line-options").replaceChildren();
+          securityRequestSeq++; sensitivityRequestSeq++;
+          updateGridCapabilities();
+          await loadNetworkMap();
+        });
+        updateGridCapabilities();
+        await loadNetworkMap();
+      } catch (error) {
+        setGridStatus("계통 목록 오류: " + error.message, true);
+      }
     }
 
     async function loadNetworkMap() {
-      const response = await fetch("/api/network-map");
-      const data = await response.json();
-      generatorStateMap = new Map((data.generators || []).map((item) => [item.generator_id, item]));
-      drawNetwork(data);
-      applyLayerVisibility();
-      updateGeneratorAnalyzeAvailability();
+      const token = ++gridSwitchToken;
+      const svg = document.getElementById("network-map");
+      svg.replaceChildren();
+      updateAnalysisLegend();      // overlays were part of the old SVG
+      currentMapData = null;
+      resetMapZoom();
+      resetPfPreview();
+      document.getElementById("plant-legend").hidden = true;
+      const entry = gridEntries.find((item) => item.id === selectedGridId);
+      if (!entry?.map_available) {
+        mapProjection = null;
+        return;
+      }
+      try {
+        const response = await fetch("/api/grids/" + encodeURIComponent(selectedGridId) + "/map");
+        const data = await response.json();
+        if (token !== gridSwitchToken) return;
+        if (!response.ok) throw new Error(data.detail || "지도를 불러오지 못했습니다.");
+        currentMapData = data;
+        generatorStateMap = new Map((data.generators || []).map((item) => [item.generator_id, item]));
+        if (!Array.isArray(data.buses) || data.buses.length === 0) throw new Error("좌표가 있는 모선이 없습니다.");
+        drawNetwork(data);
+        applyLayerVisibility();
+        if (gridSupportsAnalysis()) updateGeneratorAnalyzeAvailability();
+        if (entry.pf_preview_available) await loadGridPfPreview(token, entry);
+      } catch (error) {
+        if (token !== gridSwitchToken) return;
+        mapProjection = null;
+        setGridStatus("지도 오류: " + error.message, true);
+        if (entry?.pf_preview_available) {
+          pfPreviewError = error.message;
+          updatePfPreviewPanel();
+        }
+      }
+    }
+
+    async function loadGridPfPreview(token, entry) {
+      if (!entry?.pf_preview_available) {
+        resetPfPreview();
+        updatePfPreviewPanel();
+        return;
+      }
+      try {
+        const response = await fetch(`/api/grids/${encodeURIComponent(selectedGridId)}/pf-preview`);
+        const payload = await response.json();
+        if (token !== gridSwitchToken) return;
+        if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
+        pfPreview = validateBrowserPfPreview(payload, currentMapData);
+        pfPreviewError = null;
+        pfBusResultMap = new Map(payload.buses.map((item) => [String(item.bus_id), item]));
+        pfLineResultMap = new Map(payload.lines.map((item) => [String(item.line_id), item]));
+        pfTransformerResultMap = new Map(payload.transformers.map((item) => [String(item.transformer_id), item]));
+        document.getElementById("pf-display-mode").disabled = false;
+        updatePfPreviewPanel();
+        setGridStatus(isMongoliaGrid()
+          ? (gridCapability("security_analysis_available")
+            ? (gridCapability("sensitivity_analysis_available")
+              ? "합성 PF 미리보기 · 선로 N-1 Security / Sensitivity Analysis 가능" : "합성 PF 미리보기 · 선로 N-1 Security Analysis 가능")
+            : "지도 조회 · 합성 PF 미리보기 (읽기 전용)")
+          : "KPG-193 지도 · 격리된 기본상태 PF 미리보기", !gridCapability("security_analysis_available"));
+        applyPfDisplayMode();
+      } catch (error) {
+        if (token !== gridSwitchToken) return;
+        pfPreview = null;
+        pfPreviewError = error.message;
+        pfBusResultMap.clear();
+        pfLineResultMap.clear();
+        pfTransformerResultMap.clear();
+        document.getElementById("pf-display-mode").value = "base";
+        document.getElementById("pf-display-mode").disabled = true;
+        setGridStatus(isMongoliaGrid()
+          ? "지도 조회 · PF 미리보기 사용 불가"
+          : "KPG-193 지도 · 기본 PF 미리보기 사용 불가", true);
+        applyPfDisplayMode();
+      }
+      updatePfPreviewPanel();
     }
 
     function setAnalysisBoxCollapsed(boxId, collapsed) {
@@ -316,19 +1191,68 @@
 
     function drawNetwork(data) {
       const svg = document.getElementById("network-map");
-      const width = 700;
-      const height = 900;
-      const padding = 40;
-      const minLat = Math.min(...data.buses.map((b) => b.latitude));
-      const maxLat = Math.max(...data.buses.map((b) => b.latitude));
-      const minLon = Math.min(...data.buses.map((b) => b.longitude));
-      const maxLon = Math.max(...data.buses.map((b) => b.longitude));
+      const isMongolia = isMongoliaGrid();
+      const hasGeography = (data.country_polygons || []).length > 0;
+      const width = hasGeography ? 1200 : 700;
+      const height = hasGeography ? 650 : 900;
+      svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+      svg.dataset.baseViewBox = `0 0 ${width} ${height}`;
+      const padding = hasGeography ? 22 : 40;
+      const geography = (data.country_polygons || []).flat(2);
+      const extents = geography.length
+        ? geography.map((point) => ({ longitude: point[0], latitude: point[1] }))
+        : [...data.buses, ...(data.powerplants || [])];
+      const minLat = Math.min(...extents.map((b) => b.latitude));
+      const maxLat = Math.max(...extents.map((b) => b.latitude));
+      const minLon = Math.min(...extents.map((b) => b.longitude));
+      const maxLon = Math.max(...extents.map((b) => b.longitude));
       const busMap = new Map(data.buses.map((bus) => [bus.bus_id, bus]));
 
-      mapProjection = (bus) => ({
-        x: padding + ((bus.longitude - minLon) / (maxLon - minLon)) * (width - padding * 2),
-        y: padding + ((maxLat - bus.latitude) / (maxLat - minLat)) * (height - padding * 2),
+      // Use the same lon/lat projection for country outline and equipment.
+      // Scale longitude by cos(latitude) to avoid stretching Mongolia north-south.
+      const meanLat = (maxLat + minLat) / 2;
+      const lonCorrection = Math.cos(meanLat * Math.PI / 180);
+      const geoWidth = (maxLon - minLon) * lonCorrection || 1;
+      const geoHeight = (maxLat - minLat) || 1;
+      const scale = Math.min((width - 2 * padding) / geoWidth, (height - 2 * padding) / geoHeight);
+      const offsetX = (width - geoWidth * scale) / 2;
+      const offsetY = (height - geoHeight * scale) / 2;
+      mapProjection = (point) => ({
+        x: offsetX + (point.longitude - minLon) * lonCorrection * scale,
+        y: offsetY + (maxLat - point.latitude) * scale,
       });
+
+      for (const polygon of data.country_polygons || []) {
+        const pathData = polygon.map((ring) =>
+          ring.map(([longitude, latitude], index) => {
+            const p = mapProjection({longitude, latitude});
+            return (index === 0 ? "M" : "L") + p.x.toFixed(2) + " " + p.y.toFixed(2);
+          }).join(" ") + " Z"
+        ).join(" ");
+        const outline = document.createElementNS(SVG_NS, "path");
+        outline.setAttribute("d", pathData);
+        outline.setAttribute("fill-rule", "evenodd");
+        outline.setAttribute("class", "country-outline");
+        svg.appendChild(outline);
+      }
+
+      for (const region of data.admin_regions || []) {
+        for (const polygon of region.polygons) {
+          const pathData = polygon.map((ring) =>
+            ring.map(([longitude, latitude], index) => {
+              const point = mapProjection({longitude, latitude});
+              return (index === 0 ? "M" : "L") + point.x.toFixed(2) + " " + point.y.toFixed(2);
+            }).join(" ") + " Z"
+          ).join(" ");
+          const boundary = document.createElementNS(SVG_NS, "path");
+          boundary.setAttribute("d", pathData);
+          boundary.setAttribute("class", "admin-outline layer-region");
+          const title = document.createElementNS(SVG_NS, "title");
+          title.textContent = region.name;
+          boundary.appendChild(title);
+          svg.appendChild(boundary);
+        }
+      }
 
       for (const line of data.lines) {
         const bus1 = busMap.get(line.bus1_id);
@@ -342,6 +1266,7 @@
         element.setAttribute("x2", p2.x); element.setAttribute("y2", p2.y);
         element.setAttribute("class", "network-line layer-line");
         element.dataset.lineId = line.line_id;
+        element.style.stroke = voltageColor(line.voltage_kv);
         svg.appendChild(element);
 
         const hit = document.createElementNS(SVG_NS, "line");
@@ -355,20 +1280,58 @@
           event.stopPropagation();
           clearMapSelection();
           element.classList.add("selected-line");
-          setAnalysisBoxCollapsed("security-analysis-box", false);
-          document.getElementById("outage-line").value = line.line_id;
-          invalidateSecurityResult();
+          if (gridCapability("security_analysis_available")) {
+            setAnalysisBoxCollapsed("security-analysis-box", false);
+            document.getElementById("outage-line").value = line.line_id;
+            invalidateSecurityResult();
+          }
           showLineTooltip(event, line, bus1, bus2);
         });
         svg.appendChild(hit);
       }
 
+      for (const transformer of data.transformers || []) {
+        const bus1 = busMap.get(transformer.bus1_id);
+        const bus2 = busMap.get(transformer.bus2_id);
+        if (!bus1 || !bus2) continue;
+        const p1 = mapProjection(bus1), p2 = mapProjection(bus2);
+        const cx = (p1.x + p2.x) / 2;
+        const cy = (p1.y + p2.y) / 2;
+        const link = document.createElementNS(SVG_NS, "line");
+        link.setAttribute("x1", p1.x); link.setAttribute("y1", p1.y);
+        link.setAttribute("x2", p2.x); link.setAttribute("y2", p2.y);
+        link.setAttribute("class", "network-transformer-link layer-transformer");
+        svg.appendChild(link);
+
+        const hit = document.createElementNS(SVG_NS, "circle");
+        hit.setAttribute("cx", cx); hit.setAttribute("cy", cy); hit.setAttribute("r", 9);
+        hit.setAttribute("class", "network-transformer-hit layer-transformer");
+        hit.setAttribute("tabindex", "0");
+        hit.setAttribute("role", "button");
+        hit.setAttribute("aria-label", `변압기 ${transformer.transformer_id}`);
+        const element = document.createElementNS(SVG_NS, "path");
+        element.setAttribute("d", `M ${cx} ${cy - 5} L ${cx + 5} ${cy} L ${cx} ${cy + 5} L ${cx - 5} ${cy} Z`);
+        element.setAttribute("class", "network-transformer-marker layer-transformer");
+        hit.dataset.transformerId = transformer.transformer_id;
+        const onSelect = event => {
+          event.stopPropagation();
+          clearMapSelection();
+          hit.classList.add("selected-transformer");
+          showTransformerTooltip(event, transformer, bus1, bus2);
+        };
+        hit.addEventListener("click", onSelect);
+        hit.addEventListener("keydown", event => { if (event.key === "Enter" || event.key === " ") onSelect(event); });
+        svg.appendChild(hit);
+        svg.appendChild(element);
+      }
+
       for (const bus of data.buses) {
         const p = mapProjection(bus);
         const element = document.createElementNS(SVG_NS, "circle");
-        element.setAttribute("cx", p.x); element.setAttribute("cy", p.y); element.setAttribute("r", 3);
+        element.setAttribute("cx", p.x); element.setAttribute("cy", p.y); element.setAttribute("r", 4);
         element.setAttribute("class", "network-bus layer-bus");
         element.dataset.busId = bus.bus_id;
+        element.style.fill = voltageColor(bus.voltage_kv);
         element.addEventListener("click", (event) => {
           event.stopPropagation();
           clearMapSelection();
@@ -379,6 +1342,8 @@
       }
 
       renderGeneratorLayer(data.generators || []);
+      renderPowerplantLayer(data.powerplants || []);
+      renderEquipmentLegend(data);
     }
 
     function groupByBus(items) {
@@ -401,34 +1366,244 @@
         const group = document.createElementNS(SVG_NS, "g");
         group.setAttribute("class", "network-generator layer-generator");
         group.dataset.busId = busId;
-
-        const path = document.createElementNS(SVG_NS, "path");
-        path.setAttribute("d", `M ${p.x} ${p.y - 8} L ${p.x - 7} ${p.y + 6} L ${p.x + 7} ${p.y + 6} Z`);
-        const text = document.createElementNS(SVG_NS, "text");
-        text.setAttribute("x", p.x); text.setAttribute("y", p.y + 1); text.textContent = items.length;
-        group.appendChild(path); group.appendChild(text);
-        group.addEventListener("click", (event) => {
+        group.setAttribute("tabindex", "0");
+        group.setAttribute("role", "button");
+        group.setAttribute("aria-label", "Bus " + busId + " 발전기 " + items.length + "개");
+        const circle = document.createElementNS(SVG_NS, "circle");
+        circle.setAttribute("cx", p.x);
+        circle.setAttribute("cy", p.y);
+        circle.setAttribute("r", items.length > 1 ? 6 : 4.5);
+        circle.setAttribute("fill", dataColor("#16a34a"));
+        circle.setAttribute("stroke", "white");
+        circle.setAttribute("stroke-width", "1.2");
+        group.appendChild(circle);
+        const onSelect = (event) => {
           event.stopPropagation();
+          document.querySelectorAll(".selected-generator").forEach((node) => node.classList.remove("selected-generator"));
+          group.classList.add("selected-generator");
           showGeneratorTooltip(event, busId, items);
+        };
+        group.addEventListener("click", onSelect);
+        group.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelect(event);
+          }
         });
         svg.appendChild(group);
       }
     }
 
+    function powerplantColor(fueltype) {
+      return dataColor({
+        "Solar": "#f59e0b",
+        "Wind": "#0891b2",
+        "Hard Coal": "#475569",
+        "Lignite": "#92400e",
+        "Oil": "#7c3aed",
+        "Hydro": "#2563eb",
+      }[fueltype] || "#64748b");
+    }
+
+    // One legend component for every grid; entries come only from the loaded map data.
+    function renderEquipmentLegend(data) {
+      const legend = document.getElementById("plant-legend");
+      const plants = data.powerplants || [];
+      const generators = data.generators || [];
+      let title = "", entries = [], note = "";
+      if (plants.length) {
+        const counts = new Map();
+        plants.forEach((plant) => counts.set(plant.fueltype, (counts.get(plant.fueltype) || 0) + 1));
+        title = `발전소 데이터 · ${plants.length}건`;
+        entries = [...counts].map(([fuel, count]) => [powerplantColor(fuel), `${fuel} ${count}`]);
+        note = "";
+      } else if (generators.length) {
+        const buses = new Set(generators.map((item) => String(item.bus_id)));
+        title = `발전기 · ${generators.length}대`;
+        entries = [[dataColor("#16a34a"), `모델 발전기 (${buses.size}개 모선)`]];
+        note = "";
+      }
+      legend.replaceChildren();
+      legend.hidden = !title;
+      if (!title) return;
+      const heading = document.createElement("strong");
+      heading.textContent = title;
+      legend.appendChild(heading);
+      const items = document.createElement("div");
+      items.className = "plant-legend-items";
+      for (const [color, label] of entries) {
+        const item = document.createElement("span");
+        item.className = "plant-legend-item";
+        const dot = document.createElement("span");
+        dot.className = "plant-dot";
+        dot.style.backgroundColor = color;
+        item.appendChild(dot);
+        item.appendChild(document.createTextNode(label));
+        items.appendChild(item);
+      }
+      legend.appendChild(items);
+      if (note) {
+        const noteElement = document.createElement("div");
+        noteElement.className = "plant-note";
+        noteElement.textContent = note;
+        legend.appendChild(noteElement);
+      }
+    }
+
+    function renderPowerplantLayer(powerplants) {
+      if (!powerplants.length || !mapProjection) return;
+      const svg = document.getElementById("network-map");
+      const groups = new Map();
+      for (const plant of powerplants) {
+        const key = String(plant.latitude) + "," + String(plant.longitude);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(plant);
+      }
+      for (const items of groups.values()) {
+        const plant = items[0];
+        const position = mapProjection(plant);
+        const circle = document.createElementNS(SVG_NS, "circle");
+        circle.setAttribute("cx", position.x);
+        circle.setAttribute("cy", position.y);
+        circle.setAttribute("r", items.length > 1 ? 6 : 4.5);
+        circle.setAttribute("fill", powerplantColor(plant.fueltype));
+        circle.dataset.fuel = plant.fueltype;
+        circle.setAttribute("class", "powerplant-marker layer-powerplant");
+        circle.setAttribute("tabindex", "0");
+        circle.setAttribute("role", "button");
+        circle.setAttribute("aria-label", plant.name + " 발전소 데이터 선택");
+        const selectPlant = (event) => {
+          event.stopPropagation();
+          document.querySelectorAll(".selected-powerplant").forEach((node) => node.classList.remove("selected-powerplant"));
+          circle.classList.add("selected-powerplant");
+          const rows = items.map((item) => {
+            const capacity = item.capacity_mw == null ? "미상" : Number(item.capacity_mw).toFixed(2) + " MW";
+            const bus = item.mapped_bus_id == null ? "없음" : escapeHtml(item.mapped_bus_id) + " (추정)";
+            return '<div class="map-tooltip-row"><strong>' + escapeHtml(item.name) +
+              '</strong><div>발전원: ' + escapeHtml(item.fueltype) +
+              ' · 용량: ' + capacity + '</div><div>매핑 모선: ' + bus + '</div></div>';
+          }).join("");
+          showMapTooltip(event, '<div class="map-tooltip-title">발전소 데이터 ' +
+            items.length + '건 · 동일 좌표</div>' + rows +
+            '<div class="map-tooltip-row">공개 데이터 레코드이며 실계통 접속 미검증</div>');
+        };
+        circle.addEventListener("click", selectPlant);
+        circle.addEventListener("keydown", (event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            selectPlant(event);
+          }
+        });
+        svg.appendChild(circle);
+      }
+    }
+
     function applyLayerVisibility() {
+      setLayerHidden(".layer-region", !document.getElementById("layer-regions").checked);
       setLayerHidden(".layer-line", !document.getElementById("layer-lines").checked);
       setLayerHidden(".layer-bus", !document.getElementById("layer-buses").checked);
-      setLayerHidden(".layer-generator", !document.getElementById("layer-generators").checked);
+      setLayerHidden(".layer-transformer", !document.getElementById("layer-transformers").checked);
+      const hidePlants = !document.getElementById("layer-generators").checked;
+      setLayerHidden(".layer-generator", hidePlants);
+      setLayerHidden(".layer-powerplant", hidePlants);
       document.getElementById("map").classList.toggle("analysis-hidden", !document.getElementById("layer-analysis").checked);
+      updatePreviewLegend();
     }
 
     function setLayerHidden(selector, hidden) {
       document.querySelectorAll(selector).forEach((el) => el.classList.toggle("layer-hidden", hidden));
     }
 
+    // ===== Mongolia-only zoom / pan (viewBox); KPG never zooms =====
+    const MAX_MAP_ZOOM = 120;
+    function baseViewBox() {
+      const svg = document.getElementById("network-map");
+      return svg.dataset.baseViewBox ? svg.dataset.baseViewBox.split(" ").map(Number) : null;
+    }
+    function resetMapZoom() {
+      const svg = document.getElementById("network-map");
+      const base = baseViewBox();
+      mapView = null;
+      if (base) svg.setAttribute("viewBox", base.join(" "));
+      svg.classList.remove("map-zoomed", "map-panning");
+      svg.style.removeProperty("--map-zoom");
+      document.getElementById("map-zoom-reset").hidden = true;
+    }
+    function setMapView(x, y, width) {
+      const base = baseViewBox();
+      if (!base) return;
+      const zoom = clamp(base[2] / width, 1, MAX_MAP_ZOOM);
+      if (zoom <= 1.0001) { resetMapZoom(); return; }
+      const w = base[2] / zoom, h = base[3] / zoom;
+      x = clamp(x, base[0], base[0] + base[2] - w);
+      y = clamp(y, base[1], base[1] + base[3] - h);
+      mapView = { x, y, w, h, zoom };
+      const svg = document.getElementById("network-map");
+      svg.setAttribute("viewBox", `${x} ${y} ${w} ${h}`);
+      svg.classList.add("map-zoomed");
+      svg.style.setProperty("--map-zoom", String(zoom));
+      document.getElementById("map-zoom-reset").hidden = false;
+    }
+    function svgPoint(event) {
+      const svg = document.getElementById("network-map");
+      const matrix = svg.getScreenCTM();
+      if (!matrix) return null;
+      return new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+    }
+    function initializeMapZoom() {
+      const svg = document.getElementById("network-map");
+      svg.addEventListener("wheel", (event) => {
+        if (!isMongoliaGrid() || !mapProjection || !baseViewBox()) return;
+        event.preventDefault();
+        const base = baseViewBox();
+        const view = mapView || { x: base[0], y: base[1], w: base[2], h: base[3] };
+        const p = svgPoint(event);
+        if (!p) return;
+        const factor = Math.exp(-event.deltaY * 0.0015);
+        const width = clamp(view.w / factor, base[2] / MAX_MAP_ZOOM, base[2]);
+        const ratio = width / view.w;
+        setMapView(p.x - (p.x - view.x) * ratio, p.y - (p.y - view.y) * ratio, width);
+      }, { passive: false });
+      let drag = null;
+      let suppressClick = false;
+      svg.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0 || !mapView || !isMongoliaGrid()) return;
+        drag = { id: event.pointerId, x: event.clientX, y: event.clientY, view: { ...mapView }, moved: false };
+      });
+      svg.addEventListener("pointermove", (event) => {
+        if (!drag || event.pointerId !== drag.id) return;
+        const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
+        if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+        if (!drag.moved) { drag.moved = true; svg.setPointerCapture(event.pointerId); svg.classList.add("map-panning"); }
+        const scale = svg.getScreenCTM()?.a || 1;
+        setMapView(drag.view.x - dx / scale, drag.view.y - dy / scale, drag.view.w);
+      });
+      const endDrag = (event) => {
+        if (!drag || event.pointerId !== drag.id) return;
+        suppressClick = drag.moved;
+        drag = null;
+        svg.classList.remove("map-panning");
+      };
+      svg.addEventListener("pointerup", endDrag);
+      svg.addEventListener("pointercancel", endDrag);
+      // A pan gesture must not also select equipment or close the tooltip.
+      svg.addEventListener("click", (event) => {
+        if (!suppressClick) return;
+        suppressClick = false;
+        event.stopPropagation();
+        event.preventDefault();
+      }, true);
+      document.getElementById("map-zoom-reset").addEventListener("click", (event) => { event.stopPropagation(); resetMapZoom(); });
+    }
+
     function clearMapSelection() {
       document.querySelectorAll(".selected-line").forEach((el) => el.classList.remove("selected-line"));
       document.querySelectorAll(".selected-bus").forEach((el) => el.classList.remove("selected-bus"));
+      document.querySelectorAll(".selected-transformer").forEach((el) => el.classList.remove("selected-transformer"));
+      document.querySelectorAll(".selected-generator, .selected-powerplant").forEach((el) => {
+        el.classList.remove("selected-generator", "selected-powerplant");
+      });
+      document.querySelectorAll(".selected-ref").forEach((el) => el.classList.remove("selected-ref"));
     }
 
     function updateGeneratorAnalyzeAvailability() {
@@ -443,8 +1618,8 @@
         return false;
       }
 
-      button.disabled = false;
-      return true;
+      button.disabled = !gridSupportsAnalysis();
+      return gridSupportsAnalysis();
     }
 
     function selectGenerator(generatorId, busId) {
@@ -460,18 +1635,81 @@
       hideMapTooltip(false);
     }
 
+    function formatPfNumber(value, digits = 3) {
+      return value == null || !Number.isFinite(Number(value))
+        ? "미확인"
+        : Number(value).toFixed(digits);
+    }
+
+    function pfResultState(result) {
+      if (!pfPreview) return "PF 결과 미확보";
+      if (!result) return "해석 대상 제외";
+      return result.analysis_status === "ANALYZED" ? "해석 완료" : "해석 불가 / 설비 분리";
+    }
+
     function showBusTooltip(event, bus) {
+      const result = pfBusResultMap.get(String(bus.bus_id));
+      const rows = pfPreview
+        ? result && result.analysis_status === "ANALYZED"
+          ? `
+            <div class="map-tooltip-row"><strong>계산 전압</strong>: ${formatPfNumber(result.v_mag_pu, 4)} pu</div>
+            <div class="map-tooltip-row"><strong>위상각</strong>: ${formatPfNumber(result.v_ang_deg, 4)}°</div>
+            <div class="map-tooltip-row"><strong>제어 / 상태</strong>: ${escapeHtml(result.control || "미확인")} · ${pfResultState(result)}</div>
+            <div class="map-tooltip-row"><strong>전압 판정</strong>: ${result.voltage_violation == null ? "미확인" : result.voltage_violation ? "한계 위반" : "한계 내"}</div>`
+          : `<div class="map-tooltip-row"><strong>계산 결과 / 상태</strong>: ${pfResultState(result)}</div>`
+        : `<div class="map-tooltip-row">${pfResultState(null)}</div>`;
       showMapTooltip(event, `
-        <div class="map-tooltip-title">Bus ${bus.bus_id}</div>
-        <div class="map-tooltip-row"><strong>지역</strong>: ${bus.name_korean}</div>
-        <div class="map-tooltip-row"><strong>English</strong>: ${bus.name_english}</div>`);
+        <div class="map-tooltip-title">모선 ${escapeHtml(bus.bus_id)}</div>
+        <div class="map-tooltip-row"><strong>정격전압</strong>: ${formatPfNumber(bus.voltage_kv, 2)} kV</div>
+        ${bus.name_korean ? `<div class="map-tooltip-row"><strong>지역</strong>: ${escapeHtml(bus.name_korean)}</div>` : ""}
+        ${bus.name_english ? `<div class="map-tooltip-row"><strong>English</strong>: ${escapeHtml(bus.name_english)}</div>` : ""}
+        ${rows}
+        ${isMongoliaGrid() && (latestSecurityResult?.isolated_buses || []).map(String).includes(String(bus.bus_id))
+          ? `<div class="map-tooltip-row"><strong>N-1 사고</strong>: ${escapeHtml(latestSecurityResult.outage_line_id)} 탈락으로 분리 · 섬 PF 미실행</div>` : ""}
+        `);
     }
 
     function showLineTooltip(event, line, bus1, bus2) {
+      const result = pfLineResultMap.get(String(line.line_id));
+      const rows = pfPreview
+        ? result && result.analysis_status === "ANALYZED"
+          ? `
+            <div class="map-tooltip-row"><strong>Bus ${escapeHtml(result.bus1_id)} 단</strong>: P₀ ${formatPfNumber(result.p0_mw)} MW · Q₀ ${formatPfNumber(result.q0_mvar)} MVAr</div>
+            <div class="map-tooltip-row"><strong>Bus ${escapeHtml(result.bus2_id)} 단</strong>: P₁ ${formatPfNumber(result.p1_mw)} MW · Q₁ ${formatPfNumber(result.q1_mvar)} MVAr</div>
+            <div class="map-tooltip-row">P/Q 부호: 각 단자에서 모선 → 선로 방향이 양(+)입니다.</div>
+            <div class="map-tooltip-row"><strong>MVA 부하율 / 정격</strong>: ${formatPfNumber(result.loading_percent)}% / ${formatPfNumber(result.rating_mva)} MVA</div>
+            <div class="map-tooltip-row"><strong>정격 기준 위반</strong>: ${result.thermal_violation == null ? "미확인" : result.thermal_violation ? "예" : "아니오"}</div>`
+          : `<div class="map-tooltip-row"><strong>계산 결과 / 상태</strong>: ${pfResultState(result)} · 수치 없음</div>`
+        : `<div class="map-tooltip-row">${pfResultState(null)}</div>`;
       showMapTooltip(event, `
-        <div class="map-tooltip-title">${line.line_id}</div>
-        <div class="map-tooltip-row"><strong>From</strong>: Bus ${line.bus1_id} · ${bus1.name_korean}</div>
-        <div class="map-tooltip-row"><strong>To</strong>: Bus ${line.bus2_id} · ${bus2.name_korean}</div>`);
+        <div class="map-tooltip-title">선로 ${escapeHtml(line.line_id)}</div>
+        <div class="map-tooltip-row"><strong>양단 모선</strong>: ${escapeHtml(line.bus1_id)} (${escapeHtml(bus1.name_korean || "-")}) ↔ ${escapeHtml(line.bus2_id)} (${escapeHtml(bus2.name_korean || "-")})</div>
+        <div class="map-tooltip-row"><strong>정격전압</strong>: ${formatPfNumber(line.voltage_kv, 2)} kV</div>
+        ${rows}
+        `);
+    }
+
+    function showTransformerTooltip(event, transformer, bus1, bus2) {
+      const result = pfTransformerResultMap.get(String(transformer.transformer_id));
+      const rows = pfPreview
+        ? result && result.analysis_status === "ANALYZED"
+          ? `
+            <div class="map-tooltip-row"><strong>Bus ${escapeHtml(result.bus1_id)} 단</strong>: P₀ ${formatPfNumber(result.p0_mw)} MW · Q₀ ${formatPfNumber(result.q0_mvar)} MVAr</div>
+            <div class="map-tooltip-row"><strong>Bus ${escapeHtml(result.bus2_id)} 단</strong>: P₁ ${formatPfNumber(result.p1_mw)} MW · Q₁ ${formatPfNumber(result.q1_mvar)} MVAr</div>
+            <div class="map-tooltip-row">P/Q 부호: 각 단자에서 모선 → 변압기 방향이 양(+)입니다.</div>
+            <div class="map-tooltip-row"><strong>MVA 부하율 / 정격</strong>: ${formatPfNumber(result.loading_percent)}% / ${formatPfNumber(result.rating_mva)} MVA</div>
+            <div class="map-tooltip-row"><strong>정격 기준 위반</strong>: ${result.thermal_violation == null ? "미확인" : result.thermal_violation ? "예" : "아니오"}</div>`
+          : `<div class="map-tooltip-row"><strong>계산 결과 / 상태</strong>: ${pfResultState(result)}</div>`
+        : `<div class="map-tooltip-row">${pfResultState(null)}</div>`;
+      const inferred = transformer.inferred === true
+        ? "추정 변압기 · 실제 설비 및 전기정수 미검증"
+        : "모델에서 확인된 변압기 · 전기정수의 신뢰성은 별도 검토 필요";
+      showMapTooltip(event, `
+        <div class="map-tooltip-title">변압기 ${escapeHtml(transformer.transformer_id)}</div>
+        <div class="map-tooltip-row"><strong>양단 전압</strong>: ${formatPfNumber(transformer.bus1_voltage_kv ?? bus1.voltage_kv, 2)} kV ↔ ${formatPfNumber(transformer.bus2_voltage_kv ?? bus2.voltage_kv, 2)} kV</div>
+        <div class="map-tooltip-row">${inferred}</div>
+        ${rows}
+        `);
     }
 
     function showGeneratorTooltip(event, busId, generators) {
@@ -497,11 +1735,6 @@
       });
     }
 
-    function showSensitivityTooltip(event, busId, generators) {
-      const first = generators[0];
-      const rows = generators.map((item) => `<div class="map-tooltip-row"><strong>${escapeHtml(item.generator_id)}</strong>: ${item.sensitivity.toFixed(4)}</div>`).join("");
-      showMapTooltip(event, `<div class="map-tooltip-title">Bus ${busId} · ${escapeHtml(first.name_korean)}</div>${rows}`);
-    }
 
     function showGeneratorContingencyTooltip(event, title, items) {
       const rows = items.map((item) => {
@@ -637,6 +1870,9 @@
 
     function resetSecurityHighlight() {
       document.querySelectorAll(".network-line").forEach((line) => line.classList.remove("outage-line", "violation-line"));
+      document.querySelectorAll(".network-bus.isolated-bus").forEach((bus) => bus.classList.remove("isolated-bus"));
+      document.querySelectorAll(".network-line.isolated-line").forEach((line) => line.classList.remove("isolated-line"));
+      updateAnalysisLegend();
     }
 
     function highlightLine(lineId, className) {
@@ -646,105 +1882,507 @@
     }
 
     async function runSecurityAnalysis() {
+      if (!gridCapability("security_analysis_available")) return;
+      const token = gridSwitchToken;
+      const requestGridId = selectedGridId;
+      const seq = ++securityRequestSeq;
+      sensitivityRequestSeq++;
       const outageLineId = document.getElementById("outage-line").value.trim();
       if (!outageLineId) return;
       const resultElement = document.getElementById("security-result");
       resultElement.textContent = "분석 중...";
       latestSecurityResult = null;
+      latestSecurityView = null;
+      updatePreviewLegend();
       document.getElementById("sensitivity-button").disabled = true;
       resetSecurityHighlight(); resetSensitivityMarkers(); resetGeneratorContingencyMarkers(); hideMapTooltip();
-      document.getElementById("sensitivity-result").textContent = "Security Analysis 후 민감도를 분석할 수 있습니다.";
+      document.getElementById("sensitivity-result").textContent = "";
       try {
-        const response = await fetch("/api/security-analysis?outage_line_id=" + encodeURIComponent(outageLineId));
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        applySecurityResult(await response.json());
-      } catch (error) { resultElement.textContent = `분석 실패: ${error.message}`; }
+        const isMongoliaRequest = requestGridId === "mn-osm-35k";
+        const url = isMongoliaRequest
+          ? "/api/grids/mn-osm-35k/security-analysis?outage_line_id=" + encodeURIComponent(outageLineId)
+          : "/api/security-analysis?outage_line_id=" + encodeURIComponent(outageLineId);
+        const response = await fetch(url);
+        if (!response.ok) {
+          const detail = await response.json().then((body) => body.detail).catch(() => null);
+          throw new Error(detail || `HTTP ${response.status}`);
+        }
+        const result = await response.json();
+        // Ignore late answers once the user switched grids.
+        if (token !== gridSwitchToken || seq !== securityRequestSeq || selectedGridId !== requestGridId || !gridCapability("security_analysis_available")) return;
+        setAnalysisBoxCollapsed("security-analysis-box", false);
+        if (isMongoliaRequest) applyMongoliaSecurityResult(result);
+        else applySecurityResult(result);
+      } catch (error) {
+        if (token === gridSwitchToken && seq === securityRequestSeq) resultElement.textContent = `분석 실패: ${error.message}`;
+      }
     }
 
-    function applySecurityResult(result) {
-      setAnalysisBoxCollapsed("security-analysis-box", false);
-      if (result.outage_line_id) document.getElementById("outage-line").value = result.outage_line_id;
+
+
+
+
+
+
+    function fmt(value, digits = 4) {
+      return value == null || !Number.isFinite(Number(value)) ? "-" : Number(value).toFixed(digits);
+    }
+
+
+    // ===== Shared Security / Sensitivity view models =====
+    // Each grid adapter only normalises its own API response (no new numbers). One renderer and one
+    // map-overlay routine then draw every grid's results with the same layout and markers.
+    const GRID_RESULT_TEXT = {
+      "kr-kpg193": {
+        securityNotice: "KPG-193 합성 시험계통 결과 · 실제 한국 운영계통 결과가 아닙니다.",
+        sensitivityNotice: "KPG-193 시험계통 모델 발전기의 사고 후 선로 조류 민감도입니다.",
+        candidateMarkerNote: "KPG-193 시험계통 모델 발전기",
+        sensitivityUnit: null,
+      },
+      "mn-osm-35k": {
+        securityNotice: "합성 시나리오 · 실제 몽골 운영 데이터가 아닙니다.",
+        sensitivityNotice: "합성 발전기 주입 민감도 · 실제 발전소·재급전 권고가 아닙니다.",
+        candidateMarkerNote: "합성 시나리오 발전기 · 실제 발전소·재급전 후보가 아님",
+        sensitivityUnit: "MW/MW",
+      },
+    };
+
+    function hasValue(value) { return value !== null && value !== undefined && value !== ""; }
+    function lineSpanLabel(line) {
+      if (!line || !hasValue(line.bus0) || !hasValue(line.bus1)) return "";
+      return `(${line.bus0}–${line.bus1}${hasValue(line.voltage_kv) ? `, ${fmt(line.voltage_kv, 0)} kV` : ""})`;
+    }
+    function detailSection(title, rows = [], list = []) {
+      const cleanRows = rows.filter(([, value]) => hasValue(value));
+      const cleanList = list.filter(hasValue);
+      return cleanRows.length || cleanList.length ? { title, rows: cleanRows, list: cleanList } : null;
+    }
+    function securityOverlay(outageLineId, violations, isolatedBusIds = [], isolatedLineIds = []) {
+      return {
+        outageLineId,
+        violationLineIds: violations.filter((v) => v.isLine).map((v) => v.equipmentId),
+        isolatedBusIds: isolatedBusIds.map(String),
+        isolatedLineIds,
+      };
+    }
+
+    function kpgSecurityViewModel(result) {
+      const assessed = result.violation_assessment_available === true;
+      const violations = (result.violations || []).map((v) => ({
+        equipmentId: v.equipment_id, isLine: true, loadingPercent: v.loading_percent,
+        limit: v.limit, value: v.value, unit: v.unit,
+      }));
+      return {
+        kind: "security", gridId: "kr-kpg193",
+        outageLineId: result.outage_line_id, outageLabel: "",
+        status: result.post_status ?? "-",
+        statusNote: assessed ? "" : "사고 후 PF 비수렴 · 위반 판정 불가",
+        violationCount: assessed ? (result.violated_equipment_count ?? 0) : null,
+        violations, alerts: [], details: [],
+        overlay: securityOverlay(result.outage_line_id, violations),
+        sensitivity: {
+          enabled: assessed && gridCapability("sensitivity_analysis_available"),
+          message: assessed ? "" : "상정사고 분석이 수렴하지 않아 민감도 분석을 수행할 수 없습니다.",
+        },
+        monitoredOptions: violations.map((v) => ({ value: v.equipmentId, label: "사고 후 위반 설비" })),
+      };
+    }
+
+    function mongoliaSecurityViewModel(result) {
+      const assessed = result.violation_assessment_available === true;
+      const island = result.island_detected === true;
+      const violations = (result.violations || []).map((v) => ({
+        equipmentId: v.equipment_id, isLine: v.equipment_type === "Line", loadingPercent: v.loading_percent,
+        limit: v.limit, value: v.value, unit: v.unit,
+      }));
+      const alerts = island ? [
+        `계통 분리: 모선 ${result.isolated_bus_count}개 · 합성 부하 ${fmt(result.isolated_load_mw, 2)} MW · ` +
+        `합성 발전기 ${(result.isolated_generator_ids || []).length}대 · 분리 섬 PF 미실행`,
+      ] : [];
+      const details = assessed ? [
+        detailSection("사고 후 주 계통", [
+          ["전압 범위", hasValue(result.post_voltage_min_pu) ? `${fmt(result.post_voltage_min_pu)} – ${fmt(result.post_voltage_max_pu)} pu` : null],
+          ["최대 전압 변화", hasValue(result.max_voltage_change_pu) ? `${fmt(result.max_voltage_change_pu)} pu (모선 ${result.max_voltage_change_bus_id})` : null],
+          ["최대 선로 P 변화", hasValue(result.max_line_p_change_mw) ? `${fmt(result.max_line_p_change_mw, 3)} MW (${result.max_line_p_change_id})` : null],
+          ["최대 선로 Q 변화", hasValue(result.max_line_q_change_mvar) ? `${fmt(result.max_line_q_change_mvar, 3)} MVAr (${result.max_line_q_change_id})` : null],
+          ["최대 선로 부하율", hasValue(result.post_max_line_loading_percent) ? `${fmt(result.post_max_line_loading_percent, 2)} % (${result.post_max_line_loading_id})` : null],
+          ["발전기 Q 범위", result.generator_q_screening ? `${fmt(result.generator_q_screening.min_mvar, 3)} – ${fmt(result.generator_q_screening.max_mvar, 3)} MVAr` : null],
+        ]),
+        detailSection("전압 변화 상위", [], (result.top_voltage_changes || []).map((item) =>
+          `모선 ${item.bus_id}: ${fmt(item.base_v_pu)} → ${fmt(item.post_v_pu)} pu`)),
+        detailSection("선로 조류 변화 상위", [], (result.top_line_flow_changes || []).map((item) =>
+          `${item.line_id}: ΔP ${fmt(item.dp_mw, 3)} MW · ΔQ ${fmt(item.dq_mvar, 3)} MVAr · 사고 후 부하율 ${fmt(item.post_loading_percent, 2)} %`)),
+      ] : [];
+      if (island) {
+        details.push(detailSection("계통 분리", [
+          ["분리 모선", (result.isolated_buses || []).join(" ")],
+          ["분리 합성 발전기", (result.isolated_generator_ids || []).join(" ") || "없음"],
+          ["섬 내부 선로", `${(result.isolated_line_ids || []).length}개`],
+          ["분리 섬 PF", "미실행 (전압·조류 결과 없음)"],
+          ["토폴로지 교차검증", result.island_check?.consistent === true ? "일치" : result.island_check?.consistent === false ? "불일치" : null],
+        ]));
+      }
+      const limits = result.screening_limits || {};
+      details.push(detailSection("스크리닝 기준 · 모델 주의사항", [
+        ["전압", Array.isArray(limits.voltage_pu) ? `${limits.voltage_pu[0]} – ${limits.voltage_pu[1]} pu` : null],
+        ["열적", limits.thermal],
+        ["발전기 Q", Array.isArray(limits.generator_q_mvar) ? `${limits.generator_q_mvar[0]} – ${limits.generator_q_mvar[1]} MVAr` : null],
+        ["시나리오", result.scenario_id],
+        ["엔진", result.engine],
+      ], result.model_caveats || []));
+      const sensitivityCapable = gridCapability("sensitivity_analysis_available");
+      return {
+        kind: "security", gridId: "mn-osm-35k",
+        outageLineId: result.outage_line_id, outageLabel: lineSpanLabel(result.outage_line),
+        status: result.post_status ?? "-",
+        statusNote: !assessed ? "사고 후 PF 비수렴 · 위반 판정 불가" : island ? "주 계통만 수렴" : "",
+        violationCount: assessed ? (result.violated_equipment_count ?? 0) : null,
+        violations, alerts,
+        details: details.filter(Boolean),
+        overlay: securityOverlay(result.outage_line_id, violations, result.isolated_buses || [], result.isolated_line_ids || []),
+        sensitivity: {
+          enabled: sensitivityCapable && assessed && !island,
+          message: !sensitivityCapable ? "현재 계통은 Sensitivity Analysis를 지원하지 않습니다."
+            : island ? "계통 분리 사고: 분리 섬 처리 정책이 정해지지 않아 민감도는 미평가입니다(순위 없음)."
+            : assessed ? "" : "사고 후 PF가 수렴하지 않아 민감도를 계산할 수 없습니다.",
+        },
+        monitoredOptions: (result.top_line_flow_changes || []).map((change) => ({
+          value: change.line_id, label: `사고 후 ΔP ${fmt(change.dp_mw, 3)} MW`,
+        })),
+      };
+    }
+
+    function mapLineEnds(lineId) {
+      const line = (currentMapData?.lines || []).find((item) => String(item.line_id) === String(lineId));
+      return line ? { bus0: line.bus1_id, bus1: line.bus2_id } : null;
+    }
+
+    function kpgSensitivityViewModel(result) {
+      const candidates = (result.candidates || []).map((c, index) => ({
+        rank: index + 1, generatorId: c.generator_id, busId: c.bus_id,
+        subtitle: [hasValue(c.bus_id) ? `Bus ${c.bus_id}` : null, c.name_korean].filter(hasValue).join(" · "),
+        sensitivity: c.sensitivity,
+      }));
+      return {
+        kind: "sensitivity", gridId: "kr-kpg193",
+        evaluated: candidates.length > 0,
+        statusLabel: candidates.length ? null : "후보 없음",
+        message: candidates.length ? "" : (result.message || "민감도 후보가 없습니다."),
+        targetLineId: result.monitored_line_id, targetLabel: "",
+        candidateCount: result.candidate_count ?? candidates.length, candidates,
+        unit: GRID_RESULT_TEXT["kr-kpg193"].sensitivityUnit,
+        details: [],
+        overlay: { monitoredLineId: result.monitored_line_id, monitoredEnds: mapLineEnds(result.monitored_line_id), candidates },
+      };
+    }
+
+    function mongoliaSensitivityViewModel(result) {
+      const evaluated = result.analysis_status === "COMPLETED";
+      const candidates = (result.candidates || []).map((c) => ({
+        rank: c.rank, generatorId: c.generator_id, busId: c.bus_id,
+        subtitle: [hasValue(c.bus_id) ? `Bus ${c.bus_id}` : null, hasValue(c.voltage_kv) ? `${fmt(c.voltage_kv, 0)} kV` : null].filter(hasValue).join(" · "),
+        sensitivity: c.sensitivity,
+      }));
+      const fd = result.finite_difference_check;
+      const flows = result.post_terminal_flows;
+      const details = evaluated ? [
+        detailSection("감시 선로", [
+          ["선택", result.monitored_line_selection?.mode === "auto" ? `자동 추천 · ${result.monitored_line_selection.rule}` : "사용자 선택"],
+          ["사고 후 방사형", result.monitored_line_radial_after_contingency === true ? `예 · ${result.radial_note || ""}` : "아니오"],
+        ], (result.monitored_line_selection?.alternatives || []).map((alt) =>
+          `대안 ${alt.line_id}: ΔP ${fmt(alt.dp_mw, 3)} MW${alt.radial_after_contingency ? " · 방사형" : ""}`)),
+        detailSection("사고 전후 조류", [
+          ["bus0 단자 유효전력", `${fmt(result.base_flow_mw, 3)} → ${fmt(result.post_flow_mw, 3)} MW`],
+          ["사고 후 부하율", hasValue(result.post_loading_percent) ? `${fmt(result.post_loading_percent, 2)} % (${result.loading_definition || "MVA"})` : null],
+          ["사고 후 양단 P/Q", flows ? `P1 ${fmt(flows.p1_mw, 3)} · Q1 ${fmt(flows.q1_mvar, 3)} · P2 ${fmt(flows.p2_mw, 3)} · Q2 ${fmt(flows.q2_mvar, 3)}` : null],
+        ]),
+        detailSection("정의", [
+          ["함수", result.function], ["변수", result.variable], ["단위", result.unit], ["유효전력 균형", result.slack_balance],
+        ]),
+        detailSection("평가 범위", [
+          ["평가 발전기", hasValue(result.evaluated_generator_count) ? `${result.evaluated_generator_count}대` : null],
+          ["민감도 0", hasValue(result.zero_sensitivity_count) ? `${result.zero_sensitivity_count}대` : null],
+          ["순위 제외", (result.excluded_from_ranking || []).map((item) => `${item.generator_id} (${item.reason})`).join(", ")],
+        ], (result.candidates || []).map((c) =>
+          `${c.rank}. ${c.generator_id}: ${c.control} · 출력 ${fmt(c.target_p_mw, 3)} MW · 사고 전 민감도 ${fmt(c.pre_contingency_sensitivity, 4)}`)),
+        fd ? detailSection("유한차분 검증", [
+          ["결과", fd.passed ? "통과" : "실패"], ["허용오차", fd.tolerance], ["방법", fd.method],
+        ], (fd.results || []).map((item) =>
+          `${item.generator_id}: AC ${fmt(item.ac_sensitivity, 6)} · FD ${fmt(item.finite_difference, 6)} · |Δ| ${Number(item.abs_diff).toExponential(1)}`)) : null,
+        detailSection("모델 주의사항", [], result.model_caveats || []),
+      ] : [detailSection("계통 분리", [["분리 모선", (result.isolated_buses || []).join(" ")]])];
+      return {
+        kind: "sensitivity", gridId: "mn-osm-35k",
+        evaluated,
+        statusLabel: evaluated ? null : result.analysis_status === "NOT_EVALUATED_ISLANDING" ? "미평가 (계통 분리)"
+          : result.analysis_status === "POST_CONTINGENCY_NOT_CONVERGED" ? "미평가 (사고 후 PF 비수렴)" : `미평가 (${result.analysis_status})`,
+        message: evaluated ? "" : (result.message || ""),
+        targetLineId: result.monitored_line_id, targetLabel: lineSpanLabel(result.monitored_line),
+        candidateCount: result.candidate_count ?? candidates.length, candidates,
+        unit: GRID_RESULT_TEXT["mn-osm-35k"].sensitivityUnit,
+        details: details.filter(Boolean),
+        overlay: evaluated ? { monitoredLineId: result.monitored_line_id, monitoredEnds: result.monitored_line || null, candidates }
+          : { monitoredLineId: null, monitoredEnds: null, candidates: [] },
+      };
+    }
+
+    // ===== Shared renderer (identical DOM for every grid) =====
+    function resultRow(field, label, value, sub = "") {
+      return `<div class="result-row" data-field="${field}"><span class="result-label">${escapeHtml(label)}</span>: `
+        + `<span class="result-value">${escapeHtml(value)}</span><span class="result-sub">${sub ? ` ${escapeHtml(sub)}` : ""}</span></div>`;
+    }
+    function renderDetails(sections) {
+      if (!sections.length) return "";
+      const body = sections.map((section) => `<section class="result-detail-section"><h4>${escapeHtml(section.title)}</h4>`
+        + section.rows.map(([label, value]) => `<div class="result-row"><span class="result-label">${escapeHtml(label)}</span>: <span class="result-value">${escapeHtml(value)}</span></div>`).join("")
+        + (section.list.length ? `<ul class="result-detail-list">${section.list.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : "")
+        + `</section>`).join("");
+      return `<details class="result-details"><summary>상세 결과</summary>${body}</details>`;
+    }
+    function renderResultCard(element, vm) {
+      let rows = "", items = "";
+      if (vm.kind === "security") {
+        rows = resultRow("outage", "Outage", vm.outageLineId ?? "-", vm.outageLabel)
+          + resultRow("status", "Status", vm.status, vm.statusNote ? `(${vm.statusNote})` : "")
+          + resultRow("violations", "Violations", vm.violationCount === null ? "판정 불가" : String(vm.violationCount));
+        items = vm.violations.map((v) => `<div class="result-item">`
+          + resultRow("equipment", "Violated Equipment", v.equipmentId)
+          + resultRow("loading", "Loading", hasValue(v.loadingPercent) ? `${Number(v.loadingPercent).toFixed(2)} %` : "-")
+          + resultRow("limit", "Limit", formatValue(v.limit, v.unit))
+          + resultRow("value", "Post-contingency", formatValue(v.value, v.unit))
+          + `</div>`).join("");
+      } else {
+        rows = vm.evaluated
+          ? resultRow("target", "Target Line", vm.targetLineId ?? "-", vm.targetLabel)
+            + resultRow("candidates", "Top Candidates", String(vm.candidateCount))
+          : resultRow("status", "Sensitivity", vm.statusLabel || "미평가");
+        items = vm.candidates.map((c) => `<div class="result-item" data-generator-id="${escapeHtml(c.generatorId)}">`
+          + `<div class="result-item-title">${c.rank}. ${escapeHtml(c.generatorId)}</div>`
+          + (c.subtitle ? `<div class="result-item-sub">${escapeHtml(c.subtitle)}</div>` : "")
+          + `<div class="result-item-value">민감도: ${fmt(c.sensitivity, 4)}</div></div>`).join("");
+      }
+      const alerts = [...(vm.alerts || []), vm.message].filter(hasValue)
+        .map((text) => `<p class="result-alert">${escapeHtml(text)}</p>`).join("");
+      element.innerHTML = `<div class="result-card" data-result-kind="${vm.kind}" data-grid-id="${vm.gridId}">`
+        + `<div class="result-rows">${rows}</div>${alerts}`
+        + (items ? `<div class="result-items">${items}</div>` : "")
+        + renderDetails(vm.details) + `</div>`;
+    }
+
+    // ===== Shared map overlays =====
+    function applySecurityOverlay(overlay) {
+      highlightLine(overlay.outageLineId, "outage-line");
+      for (const id of overlay.violationLineIds) highlightLine(id, "violation-line");
+      for (const id of overlay.isolatedLineIds) highlightLine(id, "isolated-line");
+      const isolated = new Set(overlay.isolatedBusIds);
+      document.querySelectorAll(".network-bus").forEach((bus) => {
+        if (isolated.has(bus.dataset.busId)) bus.classList.add("isolated-bus");
+      });
+    }
+    // Short lines (a few km) vanish at national scale, so ring the monitored line's midpoint.
+    function renderMonitoredLineMarker(ends) {
+      if (!mapProjection || !currentMapData || !ends) return;
+      const bus0 = currentMapData.buses.find((item) => String(item.bus_id) === String(ends.bus0));
+      const bus1 = currentMapData.buses.find((item) => String(item.bus_id) === String(ends.bus1));
+      if (!bus0 || !bus1) return;
+      const p0 = mapProjection(bus0), p1 = mapProjection(bus1);
+      const cx = (p0.x + p1.x) / 2, cy = (p0.y + p1.y) / 2;
+      const group = document.createElementNS(SVG_NS, "g");
+      group.setAttribute("class", "sensitivity-marker analysis-marker monitored-marker");
+      const circle = document.createElementNS(SVG_NS, "circle");
+      circle.setAttribute("cx", cx); circle.setAttribute("cy", cy); circle.setAttribute("r", 13);
+      const text = document.createElementNS(SVG_NS, "text");
+      text.setAttribute("x", cx); text.setAttribute("y", cy - 17); text.textContent = "감시 선로";
+      group.appendChild(circle); group.appendChild(text);
+      document.getElementById("network-map").appendChild(group);
+    }
+    function renderCandidateMarkers(vm) {
+      if (!mapProjection || !currentMapData) return;
+      const svg = document.getElementById("network-map");
+      const byBus = new Map();
+      for (const c of vm.overlay.candidates) {
+        if (!hasValue(c.busId)) continue;
+        const key = String(c.busId);
+        if (!byBus.has(key)) byBus.set(key, []);
+        byBus.get(key).push(c);
+      }
+      const note = GRID_RESULT_TEXT[vm.gridId]?.candidateMarkerNote || "";
+      for (const [busId, generators] of byBus.entries()) {
+        const bus = currentMapData.buses.find((item) => String(item.bus_id) === busId);
+        if (!bus) continue;
+        const p = mapProjection(bus);
+        const group = document.createElementNS(SVG_NS, "g");
+        group.setAttribute("class", "sensitivity-marker analysis-marker candidate-marker");
+        group.dataset.busId = busId;
+        const rect = document.createElementNS(SVG_NS, "rect");
+        rect.setAttribute("x", p.x - 8); rect.setAttribute("y", p.y - 8); rect.setAttribute("width", 16); rect.setAttribute("height", 16); rect.setAttribute("rx", 3);
+        const text = document.createElementNS(SVG_NS, "text");
+        text.setAttribute("x", p.x); text.setAttribute("y", p.y); text.textContent = generators[0].rank;
+        group.appendChild(rect); group.appendChild(text);
+        group.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const rows = generators.map((item) => `<div class="map-tooltip-row"><strong>${item.rank}. ${escapeHtml(item.generatorId)}</strong>: ${fmt(item.sensitivity, 4)}${vm.unit ? ` ${vm.unit}` : ""}</div>`).join("");
+          showMapTooltip(event, `<div class="map-tooltip-title">Bus ${escapeHtml(busId)} · 민감도 후보</div>${rows}${note ? `<div class="map-tooltip-row">${escapeHtml(note)}</div>` : ""}`);
+        });
+        svg.appendChild(group);
+      }
+    }
+    function applySensitivityOverlay(vm) {
+      if (!vm.overlay.monitoredLineId) return;
+      highlightLine(vm.overlay.monitoredLineId, "monitored-line");
+      renderCandidateMarkers(vm);
+      renderMonitoredLineMarker(vm.overlay.monitoredEnds);
+    }
+
+    // ===== Shared apply: update results without changing the user's panel state. =====
+    // Manual analysis handlers and map selection expand panels explicitly.
+    function applySecurityView(vm, rawResult) {
       resetSecurityHighlight(); resetSensitivityMarkers(); resetGeneratorContingencyMarkers();
-      highlightLine(result.outage_line_id, "outage-line");
-      for (const v of result.violations || []) highlightLine(v.equipment_id, "violation-line");
-      renderSecurityResult(result);
-      latestSecurityResult = result;
-      const available = result.violation_assessment_available === true;
-      document.getElementById("sensitivity-button").disabled = !available;
-      document.getElementById("sensitivity-result").textContent = available ? "Security Analysis 후 민감도를 분석할 수 있습니다." : "상정사고 분석이 수렴하지 않아 민감도 분석을 수행할 수 없습니다.";
+      applySecurityOverlay(vm.overlay);
+      renderResultCard(document.getElementById("security-result"), vm);
+      latestSecurityResult = rawResult;
+      latestSecurityView = vm;
+      updatePreviewLegend();
+      document.getElementById("sensitivity-button").disabled = !vm.sensitivity.enabled;
+      document.getElementById("sensitivity-result").textContent = vm.sensitivity.message;
+      const options = document.getElementById("monitored-line-options");
+      options.replaceChildren();
+      for (const item of vm.monitoredOptions) {
+        const option = document.createElement("option");
+        option.value = item.value;
+        option.label = item.label;
+        options.appendChild(option);
+      }
+      updateAnalysisLegend();
+    }
+    function applySensitivityView(vm) {
+      resetSensitivityMarkers();
+      renderResultCard(document.getElementById("sensitivity-result"), vm);
+      applySensitivityOverlay(vm);
+      updateAnalysisLegend();
+    }
+    function applySecurityResult(result) {
+      if (result.outage_line_id) document.getElementById("outage-line").value = result.outage_line_id;
+      applySecurityView(kpgSecurityViewModel(result), result);
+    }
+    function applyMongoliaSecurityResult(result) {
+      if (result.outage_line_id) document.getElementById("outage-line").value = result.outage_line_id;
+      document.getElementById("monitored-line").value = "";
+      applySecurityView(mongoliaSecurityViewModel(result), result);
+    }
+    function applySensitivityResult(result) { applySensitivityView(kpgSensitivityViewModel(result)); }
+    function applyMongoliaSensitivityResult(result) {
+      if (latestSecurityResult?.outage_line_id !== result.outage_line_id) {
+        invalidateSecurityResult();
+        document.getElementById("outage-line").value = result.outage_line_id || "";
+      }
+      document.getElementById("monitored-line").value = result.monitored_line_id || "";
+      applySensitivityView(mongoliaSensitivityViewModel(result));
+    }
+
+    // One Sensitivity flow for every grid; only the endpoint differs.
+    async function runSensitivityAnalysis() {
+      if (!gridCapability("sensitivity_analysis_available")) return;
+      const token = gridSwitchToken;
+      const requestGridId = selectedGridId;
+      const outageLineId = document.getElementById("outage-line").value.trim();
+      const monitoredLineId = document.getElementById("monitored-line").value.trim();
+      const resultElement = document.getElementById("sensitivity-result");
+      if (!outageLineId) return;
+      if (!latestSecurityResult || latestSecurityResult.outage_line_id !== outageLineId) {
+        resultElement.textContent = "현재 사고에 대한 Security Analysis를 먼저 실행하세요.";
+        return;
+      }
+      if (latestSecurityView?.sensitivity?.enabled !== true) return;
+      const seq = ++sensitivityRequestSeq;
+      resultElement.textContent = "민감도 분석 중...";
+      resetSensitivityMarkers();
+      updateAnalysisLegend();
+      try {
+        const params = new URLSearchParams({ outage_line_id: outageLineId, top_n: "5" });
+        if (monitoredLineId) params.set("monitored_line_id", monitoredLineId);
+        const isMongoliaRequest = requestGridId === "mn-osm-35k";
+        const url = (isMongoliaRequest ? "/api/grids/mn-osm-35k/sensitivity-analysis?" : "/api/sensitivity-analysis?") + params.toString();
+        const response = await fetch(url);
+        if (!response.ok) {
+          const detail = await response.json().then((body) => body.detail).catch(() => null);
+          throw new Error(detail || `HTTP ${response.status}`);
+        }
+        const result = await response.json();
+        if (token !== gridSwitchToken || seq !== sensitivityRequestSeq || selectedGridId !== requestGridId
+            || !gridCapability("sensitivity_analysis_available")) return;
+        setAnalysisBoxCollapsed("security-analysis-box", false);
+        if (isMongoliaRequest) applyMongoliaSensitivityResult(result);
+        else applySensitivityResult(result);
+      } catch (error) {
+        if (token === gridSwitchToken && seq === sensitivityRequestSeq) resultElement.textContent = `민감도 분석 실패: ${error.message}`;
+      }
+    }
+
+    // ===== Shared analysis legend (lists only overlays currently on the map) =====
+    const ANALYSIS_LEGEND_ITEMS = [
+      [".network-line.outage-line", "outage", "사고 선로"],
+      [".network-line.violation-line", "violation", "위반 설비"],
+      [".network-line.monitored-line", "monitored", "감시 선로"],
+      [".network-bus.isolated-bus", "isolated", "분리 모선·선로 (섬 PF 미실행)"],
+      [".candidate-marker", "candidate", "민감도 후보 순위"],
+      [".generator-outage-marker", "generator-outage", "탈락 발전기"],
+      [".generator-change-marker", "generator-change", "출력 변화 발전기"],
+    ];
+    function updateAnalysisLegend() {
+      const legend = document.getElementById("analysis-legend");
+      const present = ANALYSIS_LEGEND_ITEMS.filter(([selector]) => document.querySelector(selector));
+      legend.replaceChildren();
+      if (!present.length) { legend.hidden = true; return; }
+      const title = document.createElement("strong");
+      title.textContent = "분석 결과";
+      legend.appendChild(title);
+      for (const [, key, label] of present) {
+        const item = document.createElement("span");
+        item.className = "analysis-legend-item";
+        item.dataset.legend = key;
+        const swatch = document.createElement("i");
+        swatch.className = `analysis-swatch swatch-${key}`;
+        item.appendChild(swatch);
+        item.appendChild(document.createTextNode(label));
+        legend.appendChild(item);
+      }
+      legend.hidden = false;
     }
 
     function formatValue(value, unit) { return value == null ? "-" : value.toFixed(2) + (unit ? ` ${unit}` : ""); }
     function formatBoolStatus(value) { return value === true ? "CONVERGED" : value === false ? "NOT CONVERGED" : "-"; }
 
-    function renderSecurityResult(result) {
-      const element = document.getElementById("security-result");
-      const count = result.violation_assessment_available === true ? (result.violated_equipment_count ?? 0) : "판정 불가";
-      let html = `<div><strong>Outage</strong>: ${result.outage_line_id ?? "-"}</div><div><strong>Status</strong>: ${result.post_status ?? "-"}</div><div><strong>Violations</strong>: ${count}</div>`;
-      for (const v of result.violations || []) {
-        html += `<hr><div><strong>Violated Equipment</strong>: ${v.equipment_id}</div><div><strong>Loading</strong>: ${v.loading_percent == null ? "-" : v.loading_percent.toFixed(2) + " %"}</div><div><strong>Limit</strong>: ${formatValue(v.limit, v.unit)}</div><div><strong>Post-contingency</strong>: ${formatValue(v.value, v.unit)}</div>`;
-      }
-      element.innerHTML = html;
+
+    function resetSensitivityMarkers() {
+      document.querySelectorAll(".sensitivity-marker").forEach((m) => m.remove());
+      document.querySelectorAll(".network-line.monitored-line").forEach((line) => line.classList.remove("monitored-line"));
+      updateAnalysisLegend();
+    }
+    function resetGeneratorContingencyMarkers() {
+      document.querySelectorAll(".generator-contingency-marker").forEach((m) => m.remove());
+      updateAnalysisLegend();
     }
 
-    function resetSensitivityMarkers() { document.querySelectorAll(".sensitivity-marker").forEach((m) => m.remove()); }
-    function resetGeneratorContingencyMarkers() { document.querySelectorAll(".generator-contingency-marker").forEach((m) => m.remove()); }
-
     function invalidateSecurityResult() {
+      // An edited outage line makes every in-flight Security/Sensitivity response stale.
+      securityRequestSeq++; sensitivityRequestSeq++;
       latestSecurityResult = null;
+      latestSecurityView = null;
+      resetSecurityHighlight();
+      document.getElementById("security-result").textContent = "사고 선로가 변경되었습니다. Analyze를 실행하세요.";
+      updatePreviewLegend();
       document.getElementById("sensitivity-button").disabled = true;
       document.getElementById("sensitivity-result").textContent = "변경한 사고에 대해 Security Analysis를 먼저 실행하세요.";
       resetSensitivityMarkers();
     }
 
-    async function runSensitivityAnalysis() {
-      const outageLineId = document.getElementById("outage-line").value.trim();
-      if (!outageLineId) return;
-      if (!latestSecurityResult || latestSecurityResult.outage_line_id !== outageLineId) {
-        document.getElementById("sensitivity-result").textContent = "현재 사고에 대한 Security Analysis를 먼저 실행하세요.";
-        return;
-      }
-      const resultElement = document.getElementById("sensitivity-result");
-      resultElement.textContent = "민감도 분석 중...";
-      resetSensitivityMarkers();
-      try {
-        const response = await fetch("/api/sensitivity-analysis?outage_line_id=" + encodeURIComponent(outageLineId) + "&top_n=5");
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        applySensitivityResult(await response.json());
-      } catch (error) { resultElement.textContent = `민감도 분석 실패: ${error.message}`; }
-    }
 
-    function applySensitivityResult(result) {
-      setAnalysisBoxCollapsed("security-analysis-box", false);
-      resetSensitivityMarkers();
-      const element = document.getElementById("sensitivity-result");
-      if (!result.candidates || result.candidates.length === 0) {
-        element.textContent = result.message || "민감도 후보가 없습니다.";
-        return;
-      }
-      let html = `<div><strong>Target Line</strong>: ${result.monitored_line_id}</div><div><strong>Top Candidates</strong>: ${result.candidate_count}</div>`;
-      result.candidates.forEach((c, i) => { html += `<div class="sensitivity-candidate"><strong>${i + 1}. ${c.generator_id}</strong><div>Bus ${c.bus_id} · ${c.name_korean}</div><div>민감도: ${c.sensitivity.toFixed(4)}</div></div>`; });
-      element.innerHTML = html;
-      renderSensitivityMarkers(result.candidates);
-    }
 
-    function renderSensitivityMarkers(candidates) {
-      if (!mapProjection) return;
-      const svg = document.getElementById("network-map");
-      for (const [busId, generators] of groupByBus(candidates).entries()) {
-        const first = generators[0];
-        if (first.latitude == null || first.longitude == null) continue;
-        const p = mapProjection(first);
-        const group = document.createElementNS(SVG_NS, "g"); group.setAttribute("class", "sensitivity-marker analysis-marker");
-        const circle = document.createElementNS(SVG_NS, "circle"); circle.setAttribute("cx", p.x); circle.setAttribute("cy", p.y); circle.setAttribute("r", 11);
-        const text = document.createElementNS(SVG_NS, "text"); text.setAttribute("x", p.x); text.setAttribute("y", p.y); text.textContent = generators.length;
-        group.appendChild(circle); group.appendChild(text);
-        group.addEventListener("click", (event) => { event.stopPropagation(); showSensitivityTooltip(event, busId, generators); });
-        svg.appendChild(group);
-      }
-    }
 
     async function runGeneratorContingencyAnalysis() {
+      if (!gridSupportsAnalysis()) return;
+      const token = gridSwitchToken;
       const generatorId = document.getElementById("outage-generator").value.trim();
       const resultElement = document.getElementById("generator-contingency-result");
       if (!generatorId) { resultElement.textContent = "발전기 ID를 선택하거나 입력하세요."; return; }
@@ -763,17 +2401,18 @@
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.detail || `HTTP ${response.status}`);
+        if (token !== gridSwitchToken || !gridSupportsAnalysis()) return;
+        setAnalysisBoxCollapsed("generator-contingency-box", false);
         renderGeneratorContingencyResult(result);
         applyGeneratorContingencyResult(result);
       } catch (error) {
-        resultElement.textContent = `분석 실패: ${error.message}`;
+        if (token === gridSwitchToken) resultElement.textContent = `분석 실패: ${error.message}`;
       } finally {
-        updateGeneratorAnalyzeAvailability();
+        if (token === gridSwitchToken) updateGeneratorAnalyzeAvailability();
       }
     }
 
     function renderGeneratorContingencyResult(result) {
-      setAnalysisBoxCollapsed("generator-contingency-box", false);
       const element = document.getElementById("generator-contingency-result");
       const outage = result.outage_generator || {};
       const post = result.post_loadflow || {};
@@ -827,6 +2466,7 @@
       resetSecurityHighlight(); resetSensitivityMarkers(); resetGeneratorContingencyMarkers();
       for (const overload of result.major_overloads || []) highlightLine(overload.equipment_id, "violation-line");
       renderGeneratorContingencyMarkers(result);
+      updateAnalysisLegend();
     }
 
     function renderGeneratorContingencyMarkers(result) {
@@ -855,7 +2495,12 @@
       }
     }
 
-    function appendChatMessage(role, text) {
+    function appendChatMessage(role, text, gridId = selectedGridId) {
+      getChatState(gridId).messages.push({ role, text });
+      if (gridId === selectedGridId) renderChatMessage(role, text);
+    }
+
+    function renderChatMessage(role, text) {
       const log = document.getElementById("chat-log");
       const el = document.createElement("div");
       el.className = `chat-message ${role}`;
@@ -866,15 +2511,37 @@
     }
 
     async function sendChatMessage() {
-      if (chatBusy) return;
+      if (!gridSupportsChat()) return;
+      const token = gridSwitchToken;
+      const requestGridId = selectedGridId;
+      const conversation = getChatState(requestGridId);
+      if (conversation.pending) return;
       const input = document.getElementById("chat-message"); const button = document.getElementById("chat-send"); const message = input.value.trim();
       if (!message) return;
-      appendChatMessage("user", message); input.value = ""; chatBusy = true; button.disabled = true; input.disabled = true;
+      conversation.pending = true;
+      appendChatMessage("user", message, requestGridId); input.value = "";
+      button.disabled = true; input.disabled = true;
       try {
-        const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: getSessionId(), message }) });
+        const response = await fetch(chatEndpoint(requestGridId), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ session_id: getSessionId(requestGridId), message }) });
         const payload = await response.json(); if (!response.ok) throw new Error(payload.detail || `HTTP ${response.status}`);
-        appendChatMessage("agent", payload.answer || "응답이 없습니다.");
+        if (payload.grid_id && payload.grid_id !== requestGridId) throw new Error("다른 계통의 채팅 응답을 받았습니다.");
+        // Keep the valid conversation even when its analysis view has been left.
+        appendChatMessage("agent", payload.answer || "응답이 없습니다.", requestGridId);
+        // Analysis cards, map and inputs still require the original view token.
+        if (token !== gridSwitchToken || selectedGridId !== requestGridId) return;
         for (const update of payload.ui_updates || []) {
+          if (requestGridId === "mn-osm-35k") {
+            if (update.grid_id !== requestGridId || update.result?.grid_id !== requestGridId) continue;
+            if (update.type === "security" && gridCapability("security_analysis_available")) {
+              securityRequestSeq++; sensitivityRequestSeq++;
+              applyMongoliaSecurityResult(update.result);
+            } else if (update.type === "sensitivity" && gridCapability("sensitivity_analysis_available")) {
+              sensitivityRequestSeq++;
+              applyMongoliaSensitivityResult(update.result);
+            }
+            continue;
+          }
+          if (!gridSupportsAnalysis()) continue;
           if (update.type === "security") applySecurityResult(update.result);
           else if (update.type === "sensitivity") applySensitivityResult(update.result);
           else if (update.type === "generator_contingency") {
@@ -884,14 +2551,40 @@
             applyGeneratorContingencyResult(update.result);
           }
         }
-      } catch (error) { appendChatMessage("system", `Agent 오류: ${error.message}`); }
-      finally { chatBusy = false; button.disabled = false; input.disabled = false; input.focus(); }
+      } catch (error) {
+        appendChatMessage("system", `Agent 오류: ${error.message}`, requestGridId);
+      } finally {
+        conversation.pending = false;
+        if (selectedGridId === requestGridId) {
+          updateGridCapabilities(false);
+          input.focus();
+        }
+      }
     }
 
     document.getElementById("analyze-button").addEventListener("click", runSecurityAnalysis);
     document.getElementById("sensitivity-button").addEventListener("click", runSensitivityAnalysis);
     document.getElementById("generator-analyze-button").addEventListener("click", runGeneratorContingencyAnalysis);
     document.getElementById("outage-line").addEventListener("input", invalidateSecurityResult);
+    document.getElementById("monitored-line").addEventListener("input", () => {
+      sensitivityRequestSeq++;
+      resetSensitivityMarkers();
+      if (latestSecurityResult) {
+        document.getElementById("sensitivity-result").textContent = "감시 선로가 변경되었습니다. Sensitivity Analysis를 다시 실행하세요.";
+      }
+    });
+    for (const input of document.querySelectorAll('#theme-switch input[name="theme"]')) {
+      input.addEventListener("change", () => { if (input.checked) setThemePreference(input.value); });
+    }
+    themeMedia.addEventListener("change", () => { if (storedThemePreference() === "system") applyTheme("system"); });
+    applyTheme(storedThemePreference());
+    setupHelp("model-help-trigger", "model-help");
+    setupHelp("assistant-help-trigger", "assistant-help");
+    document.getElementById("mn-contingency-examples").addEventListener("change", (event) => {
+      if (!event.target.value) return;
+      document.getElementById("outage-line").value = event.target.value;
+      invalidateSecurityResult();
+    });
     document.getElementById("outage-generator").addEventListener("input", () => {
       const generatorId = document.getElementById("outage-generator").value.trim();
       if (updateGeneratorAnalyzeAvailability() && generatorId) {
@@ -900,7 +2593,7 @@
     });
     document.getElementById("chat-send").addEventListener("click", sendChatMessage);
     document.getElementById("chat-message").addEventListener("keydown", (event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); sendChatMessage(); } });
-    for (const id of ["layer-lines", "layer-buses", "layer-generators", "layer-analysis"]) document.getElementById(id).addEventListener("change", applyLayerVisibility);
+    for (const id of ["layer-regions", "layer-lines", "layer-transformers", "layer-buses", "layer-generators", "layer-analysis"]) document.getElementById(id).addEventListener("change", applyLayerVisibility);
     document.querySelectorAll(".analysis-box-header").forEach((header) => {
       header.addEventListener("click", (event) => {
         event.preventDefault();
@@ -909,13 +2602,15 @@
     });
     document.getElementById("map-tooltip-close").addEventListener("click", (event) => { event.stopPropagation(); hideMapTooltip(); });
     document.getElementById("map-tooltip").addEventListener("click", (event) => event.stopPropagation());
+    document.getElementById("pf-display-mode").addEventListener("change", applyPfDisplayMode);
     document.addEventListener("click", (event) => {
       const tooltip = document.getElementById("map-tooltip");
       if (tooltip.style.display !== "none" && !tooltip.contains(event.target)) hideMapTooltip();
     });
 
     initializeWorkspaceSplit();
-    loadNetworkMap();
+    initializeMapZoom();
+    initializeGridCatalog();
   </script>
 </body>
 </html>
