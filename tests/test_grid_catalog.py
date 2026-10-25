@@ -5,6 +5,7 @@ import pytest
 from ai_ems.grid_catalog import (
     KPG_GRID_ID,
     MONGOLIA_GRID_ID,
+    KOREA_OSM_GRID_ID,
     list_grids,
     load_mongolia_map,
 )
@@ -101,7 +102,7 @@ def test_only_expanded_mongolia_in_catalog_even_with_legacy_file(tmp_path):
     active = tmp_path / "mn-osm-35k-map.json"
     legacy.write_text("{}", encoding="utf-8")
     before = list_grids(active)
-    assert [item["id"] for item in before] == [KPG_GRID_ID, MONGOLIA_GRID_ID]
+    assert [item["id"] for item in before] == [KPG_GRID_ID, MONGOLIA_GRID_ID, KOREA_OSM_GRID_ID]
     assert all(item["id"] != "mn-osm" for item in before)
     assert before[1]["map_available"] is False
     assert before[1]["analysis_available"] is False

@@ -14,7 +14,8 @@ from langchain_core.messages import (
 from pydantic import BaseModel
 
 from ai_ems.grid_catalog import (
-    KPG_GRID_ID, MONGOLIA_GRID_ID, list_grids, load_mongolia_map,
+    KPG_GRID_ID, MONGOLIA_GRID_ID, KOREA_OSM_GRID_ID, KOREA_OSM_NOTE,
+    list_grids, load_mongolia_map, load_korea_map,
 )
 from ai_ems.pf_preview import load_mongolia_pf_preview
 from ai_ems.reference_layers import load_mongolia_reference_layers
@@ -47,6 +48,7 @@ from ai_ems.config import (
     MONGOLIA_POWSYBL_REPORTS_DIR,
     MONGOLIA_XIIDM_FILE,
     PROJECT_ROOT,
+    KOREA_MAP_FILE,
 )
 from ai_ems.mongolia_security import (
     ExcludedOutageLine,
@@ -121,11 +123,18 @@ app = FastAPI(
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+    grid_id: str = KPG_GRID_ID
 
 
 class GeneratorContingencyRequest(BaseModel):
     generator_id: str
     slack_mode: Literal["single", "distributed"] = "single"
+    grid_id: str = KPG_GRID_ID
+
+
+def _require_kpg_grid(grid_id: str) -> None:
+    if grid_id != KPG_GRID_ID:
+        raise HTTPException(status_code=409, detail="이 API는 KPG 시험계통 전용입니다. 지정한 계통의 계산·채팅을 지원하지 않습니다.")
 
 
 @app.get("/")
@@ -147,6 +156,7 @@ def grid_catalog():
             MONGOLIA_MAP_FILE,
             MONGOLIA_PF_PREVIEW_FILE,
             _mongolia_security().status(),
+            KOREA_MAP_FILE,
         ),
         "default_grid_id": KPG_GRID_ID,
     }
@@ -163,6 +173,13 @@ def grid_map(grid_id: str):
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if grid_id == KOREA_OSM_GRID_ID:
+        try:
+            return load_korea_map(KOREA_MAP_FILE)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="한국 지도 데이터가 없습니다.") from exc
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=422, detail="한국 지도 데이터 검증에 실패했습니다.") from exc
     raise HTTPException(status_code=404, detail="Unknown grid ID")
 
 
@@ -359,7 +376,9 @@ def network_map():
 def security_analysis(
     outage_line_id: str,
     monitored_line_id: str | None = None,
+    grid_id: str = KPG_GRID_ID,
 ):
+    _require_kpg_grid(grid_id)
     monitored_line_ids = [monitored_line_id] if monitored_line_id is not None else None
 
     result = run_line_contingency(
@@ -376,7 +395,9 @@ def sensitivity_analysis(
     outage_line_id: str,
     monitored_line_id: str | None = None,
     top_n: int = 5,
+    grid_id: str = KPG_GRID_ID,
 ):
+    _require_kpg_grid(grid_id)
     if monitored_line_id is None:
         security_result = run_line_contingency(
             network,
@@ -423,7 +444,9 @@ def sensitivity_analysis(
 
 
 @app.post("/api/generator-contingency-analysis")
-def generator_contingency_analysis(request: GeneratorContingencyRequest):
+def generator_contingency_analysis(request: GeneratorContingencyRequest, grid_id: str = KPG_GRID_ID):
+    _require_kpg_grid(grid_id)
+    _require_kpg_grid(request.grid_id)
     generator_id = request.generator_id.strip()
     if not generator_id:
         raise HTTPException(
@@ -455,7 +478,9 @@ def generator_contingency_analysis(request: GeneratorContingencyRequest):
 
 
 @app.post("/api/chat")
-def chat(request: ChatRequest):
+def chat(request: ChatRequest, grid_id: str = KPG_GRID_ID):
+    _require_kpg_grid(grid_id)
+    _require_kpg_grid(request.grid_id)
     session_id = request.session_id.strip()
     user_message = request.message.strip()
 
@@ -511,11 +536,20 @@ def chat(request: ChatRequest):
 
 @app.post("/api/grids/{grid_id}/chat")
 def grid_chat(grid_id: str, request: ChatRequest):
+    if "grid_id" in request.model_fields_set and request.grid_id != grid_id:
+        raise HTTPException(status_code=409, detail="URL과 요청의 계통 ID가 일치하지 않습니다.")
     if grid_id == KPG_GRID_ID:
         return {**chat(request), "grid_id": KPG_GRID_ID}
+    if grid_id == KOREA_OSM_GRID_ID:
+        raise HTTPException(status_code=409, detail=KOREA_OSM_NOTE)
     if grid_id != MONGOLIA_GRID_ID:
         raise HTTPException(status_code=404, detail="Unknown grid ID")
     return mongolia_chat(request)
+
+
+@app.api_route("/api/grids/kr-osm-transmission/{operation}", methods=["GET", "POST"])
+def unsupported_korea_operation(operation: str):
+    raise HTTPException(status_code=409, detail=KOREA_OSM_NOTE)
 
 
 def mongolia_chat(request: ChatRequest) -> dict[str, Any]:

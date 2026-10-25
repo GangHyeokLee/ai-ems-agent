@@ -175,8 +175,9 @@ def make_proxy(upstream: str, gates: Gates, chat_fixtures: dict[str, dict] | Non
                 gates.reset()
                 name = re.search(r"probe=(\w+)", self.path)
                 probe = PROBES.get(name.group(1) if name else "stale", PROBE)
-                html = INDEX.read_text(encoding="utf-8").replace(
-                    "</body>", f"<script>{probe.read_text(encoding='utf-8')}</script></body>")
+                html = INDEX.read_text(encoding="utf-8")
+                if not name or name.group(1) != "manual":
+                    html = html.replace("</body>", f"<script>{probe.read_text(encoding='utf-8')}</script></body>")
                 body = html.encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
@@ -482,3 +483,12 @@ def test_grid_chat_restores_history_and_real_server_context(chat_session_app_url
     (target / "results.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     assert not missing_checks(CHAT_RESTORE_PROBE, results), missing_checks(CHAT_RESTORE_PROBE, results)
     assert not [r for r in results if not r["pass"]], results
+
+
+def test_actual_korea_national_map_input_performance_and_grid_isolation(app_url):
+    from browser.chrome_cdp import run_probe
+    url, chrome = app_url
+    probe = ROOT / "tests/browser/korea_osm_map_probe.js"
+    report = run_probe(chrome, url + "?probe=manual", probe, ROOT / "outputs/korea_osm_integration/browser", free_port)
+    assert not missing_checks(probe, report["results"]), missing_checks(probe, report["results"])
+    assert not [r for r in report["results"] if not r["pass"]], report

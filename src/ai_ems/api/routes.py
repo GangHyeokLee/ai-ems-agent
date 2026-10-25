@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from typing import Literal
 
 from ai_ems.api.adapters import (
     to_contingency_response,
@@ -42,9 +43,13 @@ def create_physics_router(
     network,
     case_path: str,
 ) -> APIRouter:
+    def require_kpg_query(grid_id: Literal["kr-kpg193"] = "kr-kpg193"):
+        return grid_id
+
     router = APIRouter(
         prefix="/api/v1",
         tags=["physics"],
+        dependencies=[Depends(require_kpg_query)],
     )
 
     @router.post(

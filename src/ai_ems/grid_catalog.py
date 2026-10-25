@@ -18,11 +18,15 @@ from __future__ import annotations
 
 import json
 import math
+import re
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 KPG_GRID_ID = "kr-kpg193"
 MONGOLIA_GRID_ID = "mn-osm-35k"
+KOREA_OSM_GRID_ID = "kr-osm-transmission"
+KOREA_OSM_NOTE = "공개 OSM 기반 한국 송전망 지도 모델이며, 전기적 모델 검증 전으로 계통해석은 지원하지 않습니다."
 MAX_PREVIEW_BUSES = 50000
 MAX_PREVIEW_LINES = 100000
 MAX_PREVIEW_PLANTS = 100000
@@ -33,8 +37,9 @@ def list_grids(
     mongolia_map_file: Path,
     mongolia_pf_preview_file: Path | None = None,
     mongolia_security_status: dict[str, Any] | None = None,
+    korea_map_file: Path | None = None,
 ) -> list[dict[str, Any]]:
-    """Return the KPG test case and the active Mongolia 35 kV map preview."""
+    """Return supported grids with independently gated map/analysis capabilities."""
     map_ready = mongolia_map_file.is_file()
     pf_preview_ready = bool(mongolia_pf_preview_file and mongolia_pf_preview_file.is_file())
     security_ready = bool(map_ready and mongolia_security_status and mongolia_security_status.get("available") is True)
@@ -47,6 +52,13 @@ def list_grids(
         None if security_ready
         else (mongolia_security_status or {}).get("reason") or "몽골 PyPowSyBl 모델 검증 정보가 없습니다."
     )
+    korea_ready = False
+    if korea_map_file is not None:
+        try:
+            load_korea_map(korea_map_file)
+            korea_ready = True
+        except (OSError, ValueError):
+            pass  # One unavailable map must not break the other grids.
     return [
         {
             "id": KPG_GRID_ID,
@@ -54,6 +66,7 @@ def list_grids(
             "name": "KPG-193 시험계통",
             "source": "KPG / local MATPOWER case",
             "format": "MATPOWER",
+            "map_kind": "test_case",
             "map_available": True,
             "analysis_available": True,
             "pf_preview_available": True,
@@ -74,6 +87,7 @@ def list_grids(
             "name": "몽골 OSM 송전망 (35/110/220 kV)",
             "source": "OpenStreetMap / PyPSA-Earth MN_35k",
             "format": "PyPSA NetCDF → JSON map preview",
+            "map_kind": "geographic",
             "map_available": map_ready,
             "analysis_available": False,
             "pf_preview_available": map_ready and pf_preview_ready,
@@ -93,6 +107,17 @@ def list_grids(
                 "Security·Sensitivity는 각각 모델 검증 상태에 따라 제공되며, 분석 불가 시에도 PF 조회는 가능합니다. "
                 "Redispatch·발전기 탈락 분석은 지원하지 않습니다."
             ),
+        },
+        {
+            "id": KOREA_OSM_GRID_ID, "country": "KR",
+            "name": "한국 OSM 송전망 (154/345/765 kV)",
+            "source": "OpenStreetMap / Geofabrik; WRI GPPD v1.3.0",
+            "format": "validated geographic JSON", "map_kind": "geographic",
+            "map_available": korea_ready, "analysis_available": False,
+            "pf_preview_available": False, "security_analysis_available": False,
+            "sensitivity_analysis_available": False, "generator_contingency_available": False,
+            "chat_available": False, "chat_mode": "disabled",
+            "status": "map_ready" if korea_ready else "unavailable", "note": KOREA_OSM_NOTE,
         },
     ]
 
@@ -114,13 +139,20 @@ def _optional_nonnegative_number(raw: Any, name: str, *, strictly_positive: bool
 
 
 def load_mongolia_map(map_file: Path) -> dict[str, Any]:
+    """Keep the existing Mongolia response contract unchanged."""
+    return load_geographic_map(map_file)
+
+
+def load_geographic_map(map_file: Path, *, preserve_provenance: bool = False) -> dict[str, Any]:
     """Validate the generated map file before sending it to the browser."""
     if not map_file.is_file():
         raise FileNotFoundError("몽골 지도 데이터가 아직 생성되지 않았습니다.")
 
+    if map_file.stat().st_size > 64 * 1024 * 1024:
+        raise ValueError("지도 파일이 허용 크기를 초과했습니다.")
     try:
-        payload = json.loads(map_file.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        payload = json.loads(map_file.read_text(encoding="utf-8"), parse_constant=_reject_nonfinite_json)
+    except (OSError, UnicodeError, ValueError, RecursionError) as exc:
         raise ValueError("몽골 지도 JSON을 읽을 수 없습니다.") from exc
 
     if not isinstance(payload, dict):
@@ -163,6 +195,8 @@ def load_mongolia_map(map_file: Path) -> dict[str, Any]:
 
     lines = []
     for line in raw_lines:
+        if not isinstance(line, dict):
+            raise ValueError("선로 항목 형식이 잘못되었습니다.")
         if not isinstance(line, dict):
             raise ValueError("선로 항목 형식이 잘못되었습니다.")
         identifier = str(line.get("line_id", "")).strip()
@@ -311,6 +345,95 @@ def load_mongolia_map(map_file: Path) -> dict[str, Any]:
             cleaned.append(rings)
         regions.append({"name": name, "polygons": cleaned})
 
-    return {"buses": buses, "lines": lines, "transformers": transformers,
+    result = {"buses": buses, "lines": lines, "transformers": transformers,
             "generators": [], "powerplants": plants, "country_polygons": polygons,
             "admin_regions": regions}
+    if preserve_provenance:
+        _preserve_geographic_provenance(payload, result)
+    return result
+
+
+def _reject_nonfinite_json(value: str) -> None:
+    raise ValueError(f"비유한 JSON 숫자: {value}")
+
+
+def _preserve_geographic_provenance(payload: dict, result: dict) -> None:
+    """Shared extension for geographic maps; never infer absent properties."""
+    fields = {
+        "buses": ("osm_id", "source", "inferred", "inference", "substation_candidates", "component_id",
+                  "osm_node_tags", "shared_support_branching_requires_review"),
+        "lines": ("osm_id", "source", "inferred", "classification_evidence", "electrical_parameters_source",
+                  "tags", "power", "component_id", "circuits_modelled", "circuits_source"),
+        "powerplants": ("source", "original_source", "original_url", "capacity_year", "geolocation_source",
+                        "license", "current_operational_status", "matching_status", "inferred"),
+    }
+    vertices = 0
+    for collection, names in fields.items():
+        seen = set()
+        id_key = {"buses": "bus_id", "lines": "line_id", "powerplants": "record_id"}[collection]
+        for raw, normalized in zip(payload.get(collection, []), result[collection]):
+            identifier = normalized[id_key]
+            if identifier in seen or len(identifier) > 256:
+                raise ValueError(f"{collection} ID가 중복되거나 너무 깁니다.")
+            seen.add(identifier)
+            normalized.update({key: raw[key] for key in names if key in raw})
+            if "inferred" in raw and not isinstance(raw["inferred"], bool):
+                raise ValueError("설비 추정 여부는 boolean이어야 합니다.")
+            if "source" in raw and not isinstance(raw["source"], str):
+                raise ValueError("설비 출처 형식 오류")
+            if "coordinates" in raw and collection == "lines":
+                coords = raw["coordinates"]
+                if not isinstance(coords, list) or len(coords) < 2:
+                    raise ValueError("선로 경로 좌표가 올바르지 않습니다.")
+                cleaned = []
+                for p in coords:
+                    if not isinstance(p, list) or len(p) != 2 or any(isinstance(v, bool) for v in p):
+                        raise ValueError("선로 경로 좌표 형식 오류")
+                    try:
+                        lon, lat = map(float, p)
+                    except (ValueError, TypeError) as exc:
+                        raise ValueError("선로 경로 좌표 형식 오류") from exc
+                    if not (-180 <= lon <= 180 and -90 <= lat <= 90):
+                        raise ValueError("선로 경로 좌표 범위 오류")
+                    cleaned.append([lon, lat])
+                    vertices += 1
+                    if vertices > 500000:
+                        raise ValueError("선로 경로 좌표가 너무 많습니다.")
+                normalized["coordinates"] = cleaned
+    for name in ("metadata", "schema_version", "grid_id", "country"):
+        if name in payload:
+            result[name] = payload[name]
+
+
+def load_korea_map(map_file: Path) -> dict[str, Any]:
+    """Load only the operator-configured file; revalidate whenever its identity changes."""
+    path = Path(map_file).resolve(strict=True)
+    stat = path.stat()
+    return _cached_korea_map(str(path), stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns)
+
+
+@lru_cache(maxsize=2)
+def _cached_korea_map(path: str, *file_identity: int) -> dict[str, Any]:
+    data = load_geographic_map(Path(path), preserve_provenance=True)
+    meta = data.get("metadata")
+    if (data.get("schema_version") != "kr-grid-preview-1.0" or data.get("grid_id") != KOREA_OSM_GRID_ID
+            or data.get("country") != "KR" or not isinstance(meta, dict)
+            or meta.get("model_kind") != "geographic_topology_only"
+            or meta.get("ac_pf_readiness") != "NOT_READY" or meta.get("operational") is not False):
+        raise ValueError("한국 OSM 지도 메타데이터가 올바르지 않습니다.")
+    buses = {b["bus_id"]: b for b in data["buses"]}
+    for b in buses.values():
+        if b["voltage_kv"] not in {154, 345, 765} or not re.fullmatch(r"node/[1-9]\d*", str(b.get("osm_id", ""))):
+            raise ValueError("한국 모선 전압 또는 OSM ID 오류")
+    for line in data["lines"]:
+        if not re.fullmatch(r"way/[1-9]\d*", str(line.get("osm_id", ""))) or line["bus1_id"] == line["bus2_id"]:
+            raise ValueError("한국 선로 OSM ID 또는 양단 오류")
+        a, b = buses[line["bus1_id"]], buses[line["bus2_id"]]
+        if a["voltage_kv"] != line["voltage_kv"] or b["voltage_kv"] != line["voltage_kv"]:
+            raise ValueError("한국 선로와 모선의 전압 불일치")
+        coords = line.get("coordinates")
+        if coords and (coords[0] != [a["longitude"], a["latitude"]] or coords[-1] != [b["longitude"], b["latitude"]]):
+            raise ValueError("한국 선로 경로와 양단 모선 불일치")
+    if data["transformers"] or any(p["mapped_bus_id"] is not None for p in data["powerplants"]):
+        raise ValueError("한국 지도에 검증되지 않은 전기적 접속이 포함되었습니다.")
+    return data

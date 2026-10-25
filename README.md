@@ -47,6 +47,30 @@
 
 ### 웹 UI
 
+지원 계통은 다음 세 가지이며 기본 선택은 KPG-193을 유지한다.
+
+| Grid ID | 계통 | 지원 범위 |
+|---|---|---|
+| `kr-kpg193` | KR · KPG-193 시험계통 | AC PF, N-1, Sensitivity, 발전기 사고, AI |
+| `mn-osm-35k` | MN · 몽골 OSM 송전망 | 합성 AC PF, 선로 N-1, Sensitivity, AI |
+| `kr-osm-transmission` | KR · 한국 OSM 송전망 (154/345/765 kV) | 지도 전용, 계산·AI 비활성 |
+
+한국 지도는 원본 프로젝트를 변경하지 않고 다음 명령으로 검증·가져오기 한다.
+실제 한국 원본 JSON 경로를 `--source`로 전달한다.
+
+```bash
+.venv/bin/python scripts/import_kr_osm_map.py \
+  --source ../korea-grid-poc/outputs/map/kr_grid_preview.json
+```
+
+기본 배포 파일은 `data/grids/kr-osm-transmission-map.json`이며 Git 제외 대상이다.
+서버 설정 `AI_EMS_KOREA_MAP_FILE`로 승인된 외부 JSON을 읽기 전용으로 지정할 수도 있다.
+경로는 서버 운영 설정이며 HTTP 요청으로 선택할 수 없다. 파일 누락·손상 시 한국만
+사용 불가로 표시하며 KPG·몽골은 유지한다. 한국 지도는 실제 선로 경로와 OSM ID,
+출처·추정 상태를 보존하며, WRI 발전소 132개는 과거 지도 레코드로 실제 운전 출력이나
+검증된 접속 모선을 뜻하지 않는다. 구현·성능·검증 결과와 라이선스는
+[한국 OSM 지도 통합 검증](docs/validation/korea-osm-map-integration.md)을 참조한다.
+
 - FastAPI 기반 웹 UI
 - KPG 계통 지도
 - 선로 / 모선 / 발전기 선택

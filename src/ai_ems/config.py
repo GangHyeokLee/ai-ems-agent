@@ -45,6 +45,9 @@ BUS_LOCATION_FILE = _path_from_env(
     "data/bus_location.csv",
 )
 
+# Trusted operator configuration; no HTTP request can select a local map path.
+KOREA_MAP_FILE = _path_from_env("AI_EMS_KOREA_MAP_FILE", "data/grids/kr-osm-transmission-map.json")
+
 # Mongolia PyPowSyBl model supplied (read-only) by the sibling mongolia-grid-poc repository.
 # Server-side settings only; HTTP requests can never choose these paths.
 MONGOLIA_XIIDM_FILE = _path_from_env(
