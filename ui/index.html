@@ -78,6 +78,9 @@
     #map { position: relative; height: calc(100% - 46px); display: flex; align-items: center; justify-content: center; color: var(--text-subtle); background: var(--map-bg); }
     #network-map { width: 100%; height: 100%; }
     #network-map { display:block; }
+    /* Wheel/drag preview is a compositor transform of this layer (see previewMapView). */
+    #network-map { transform-origin:0 0; will-change:transform; }
+    #map { overflow:hidden; }
 
     .map-layer-control { position: absolute; z-index: 15; top: 12px; right: 12px; min-width: 132px; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--overlay-bg); box-shadow: var(--shadow); color: var(--text-muted); font-size: 12px; }
     .map-layer-control strong { display: block; margin-bottom: 7px; color: var(--text); }
@@ -1219,10 +1222,12 @@
       const extents = geography.length
         ? geography.map((point) => ({ longitude: point[0], latitude: point[1] }))
         : [...data.buses, ...(data.powerplants || [])];
-      const minLat = Math.min(...extents.map((b) => b.latitude));
-      const maxLat = Math.max(...extents.map((b) => b.latitude));
-      const minLon = Math.min(...extents.map((b) => b.longitude));
-      const maxLon = Math.max(...extents.map((b) => b.longitude));
+      // Loop instead of Math.min(...array): land layers can exceed the argument-count limit.
+      let minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+      for (const b of extents) {
+        minLat = Math.min(minLat, b.latitude); maxLat = Math.max(maxLat, b.latitude);
+        minLon = Math.min(minLon, b.longitude); maxLon = Math.max(maxLon, b.longitude);
+      }
       const busMap = new Map(data.buses.map((bus) => [bus.bus_id, bus]));
 
       // Use the same lon/lat projection for country outline and equipment.
@@ -1577,32 +1582,99 @@
     function resetMapZoom() {
       const svg = document.getElementById("network-map");
       const base = baseViewBox();
+      cancelMapGesture();
       mapView = null;
       if (base) svg.setAttribute("viewBox", base.join(" "));
       svg.classList.remove("map-zoomed", "map-panning");
       svg.style.removeProperty("--map-zoom");
       document.getElementById("map-zoom-reset").hidden = true;
     }
-    function setMapView(x, y, width) {
+    function clampMapView(x, y, width) {
       const base = baseViewBox();
-      if (!base) return;
       const zoom = clamp(base[2] / width, 1, MAX_MAP_ZOOM);
-      if (zoom <= 1.0001) { resetMapZoom(); return; }
+      if (zoom <= 1.0001) return null;
       const w = base[2] / zoom, h = base[3] / zoom;
-      x = clamp(x, base[0], base[0] + base[2] - w);
-      y = clamp(y, base[1], base[1] + base[3] - h);
-      mapView = { x, y, w, h, zoom };
+      return { x: clamp(x, base[0], base[0] + base[2] - w), y: clamp(y, base[1], base[1] + base[3] - h), w, h, zoom };
+    }
+    // Commits the view: viewBox and marker/stroke compensation (full SVG style + layout).
+    function setMapView(x, y, width) {
+      if (!baseViewBox()) return;
+      const view = clampMapView(x, y, width);
+      if (!view) { resetMapZoom(); return; }
+      cancelMapGesture();
+      mapView = view;
       const svg = document.getElementById("network-map");
-      svg.setAttribute("viewBox", `${x} ${y} ${w} ${h}`);
+      svg.setAttribute("viewBox", `${view.x} ${view.y} ${view.w} ${view.h}`);
       svg.classList.add("map-zoomed");
-      svg.style.setProperty("--map-zoom", String(zoom));
+      svg.style.setProperty("--map-zoom", String(view.zoom));
       document.getElementById("map-zoom-reset").hidden = false;
     }
-    function svgPoint(event) {
+
+    // Wheel/drag preview: a committed viewBox costs a full SVG style + layout pass (thousands of
+    // non-scaling strokes and counter-scaled markers), so during a gesture the target view is
+    // shown as a compositor-only CSS transform of the rendered SVG, at most once per frame, and
+    // committed with setMapView() once the gesture ends.
+    const MAP_GESTURE_COMMIT_MS = 160;
+    let mapGesture = null;
+    function cancelMapGesture() {
+      if (!mapGesture) return;
+      cancelAnimationFrame(mapGesture.frame);
+      clearTimeout(mapGesture.timer);
+      mapGesture = null;
+      document.getElementById("network-map").style.removeProperty("transform");
+    }
+    function renderedMapView() {
+      const [x, y, w, h] = document.getElementById("network-map").getAttribute("viewBox").split(" ").map(Number);
+      return { x, y, w, h };
+    }
+    function startMapGesture() {
+      if (mapGesture) return mapGesture;
       const svg = document.getElementById("network-map");
-      const matrix = svg.getScreenCTM();
-      if (!matrix) return null;
-      return new DOMPoint(event.clientX, event.clientY).matrixTransform(matrix.inverse());
+      const rect = svg.getBoundingClientRect();     // transform-free here: no preview is active
+      const rendered = renderedMapView();
+      const base = baseViewBox();
+      const target = mapView || { x: base[0], y: base[1], w: base[2], h: base[3], zoom: 1 };
+      mapGesture = { left: rect.left, top: rect.top, width: rect.width, height: rect.height, rendered, target,
+                     frame: 0, timer: 0 };
+      return mapGesture;
+    }
+    function viewScreenScale(view) {
+      return Math.min(mapGesture.width / view.w, mapGesture.height / view.h);
+    }
+    function gestureSvgPoint(event, view) {
+      const s = viewScreenScale(view);
+      const offsetX = (mapGesture.width - view.w * s) / 2, offsetY = (mapGesture.height - view.h * s) / 2;
+      return { x: view.x + (event.clientX - mapGesture.left - offsetX) / s,
+               y: view.y + (event.clientY - mapGesture.top - offsetY) / s };
+    }
+    function previewMapView(x, y, width) {
+      const base = baseViewBox();
+      const gesture = startMapGesture();
+      gesture.target = clampMapView(x, y, width) || { x: base[0], y: base[1], w: base[2], h: base[3], zoom: 1 };
+      mapView = gesture.target.zoom > 1 ? gesture.target : null;
+      if (gesture.frame) return;
+      gesture.frame = requestAnimationFrame(() => {
+        if (mapGesture !== gesture) return;
+        gesture.frame = 0;
+        // Map the rendered viewBox onto the target one; both share the base aspect ratio.
+        const from = gesture.rendered, to = gesture.target, k = from.w / to.w, s = viewScreenScale(from);
+        const offsetX = (gesture.width - from.w * s) / 2, offsetY = (gesture.height - from.h * s) / 2;
+        const tx = offsetX * (1 - k) + s * k * (from.x - to.x), ty = offsetY * (1 - k) + s * k * (from.y - to.y);
+        document.getElementById("network-map").style.transform = `translate(${tx}px, ${ty}px) scale(${k})`;
+      });
+    }
+    // Commit mid-gesture once the preview drifts far from what is rendered: bounds the blurred
+    // scale (2x) and the undrawn strip while panning (30% of the view).
+    function mapGestureNeedsCommit() {
+      const from = mapGesture.rendered, to = mapGesture.target;
+      return Math.abs(Math.log2(from.w / to.w)) >= 1
+        || Math.abs(to.x - from.x) / from.w >= 0.3 || Math.abs(to.y - from.y) / from.h >= 0.3;
+    }
+    function commitMapGesture() {
+      if (!mapGesture) return;
+      const target = mapGesture.target;
+      if (target.zoom > 1) setMapView(target.x, target.y, target.w);
+      else resetMapZoom();
     }
     function initializeMapZoom() {
       const svg = document.getElementById("network-map");
@@ -1610,31 +1682,49 @@
         if (!isGeographicGrid() || !mapProjection || !baseViewBox()) return;
         event.preventDefault();
         const base = baseViewBox();
-        const view = mapView || { x: base[0], y: base[1], w: base[2], h: base[3] };
-        const p = svgPoint(event);
-        if (!p) return;
+        const view = startMapGesture().target;
+        const p = gestureSvgPoint(event, view);
         const factor = Math.exp(-event.deltaY * 0.0015);
         const width = clamp(view.w / factor, base[2] / MAX_MAP_ZOOM, base[2]);
         const ratio = width / view.w;
-        setMapView(p.x - (p.x - view.x) * ratio, p.y - (p.y - view.y) * ratio, width);
+        previewMapView(p.x - (p.x - view.x) * ratio, p.y - (p.y - view.y) * ratio, width);
+        if (mapGestureNeedsCommit()) { commitMapGesture(); return; }
+        clearTimeout(mapGesture.timer);
+        mapGesture.timer = setTimeout(commitMapGesture, MAP_GESTURE_COMMIT_MS);
       }, { passive: false });
       let drag = null;
       let suppressClick = false;
       svg.addEventListener("pointerdown", (event) => {
         if (event.button !== 0 || !mapView || !isGeographicGrid()) return;
-        drag = { id: event.pointerId, x: event.clientX, y: event.clientY, view: { ...mapView }, moved: false };
+        drag = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false };
       });
       svg.addEventListener("pointermove", (event) => {
         if (!drag || event.pointerId !== drag.id) return;
         const dx = event.clientX - drag.x, dy = event.clientY - drag.y;
         if (!drag.moved && Math.hypot(dx, dy) < 4) return;
-        if (!drag.moved) { drag.moved = true; svg.setPointerCapture(event.pointerId); svg.classList.add("map-panning"); }
-        const scale = svg.getScreenCTM()?.a || 1;
-        setMapView(drag.view.x - dx / scale, drag.view.y - dy / scale, drag.view.w);
+        if (!drag.moved) {
+          drag.moved = true; svg.setPointerCapture(event.pointerId); svg.classList.add("map-panning");
+          clearTimeout(startMapGesture().timer);   // a pending wheel commit is folded into the drag
+          drag.view = { ...mapGesture.target };
+          drag.scale = viewScreenScale(drag.view);
+        }
+        if (!mapView) return;   // zoom was reset during the drag
+        previewMapView(drag.view.x - dx / drag.scale, drag.view.y - dy / drag.scale, drag.view.w);
+        // Committing re-bases the drag on the pointer position, so movement stays continuous.
+        const current = drag, x = event.clientX, y = event.clientY;
+        const commitDrag = () => {
+          commitMapGesture();
+          if (drag === current && mapView) Object.assign(current, { x, y, view: { ...mapView } });
+        };
+        if (mapGestureNeedsCommit()) { commitDrag(); return; }
+        // Pausing while still pressed also commits, so areas outside the rendered view are drawn.
+        clearTimeout(mapGesture.timer);
+        mapGesture.timer = setTimeout(commitDrag, MAP_GESTURE_COMMIT_MS);
       });
       const endDrag = (event) => {
         if (!drag || event.pointerId !== drag.id) return;
         suppressClick = drag.moved;
+        if (drag.moved) commitMapGesture();
         drag = null;
         svg.classList.remove("map-panning");
       };

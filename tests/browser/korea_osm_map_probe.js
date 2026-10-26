@@ -22,6 +22,18 @@
     check("All map-only plants retained",currentMapData.powerplants.length===132&&currentMapData.powerplants.every(p=>p.mapped_bus_id===null));
     check("Plant markers displayed",count(".powerplant-marker")===new Set(currentMapData.powerplants.map(p=>`${p.latitude},${p.longitude}`)).size,count(".powerplant-marker"));
     check("Country and administrative boundaries",count(".country-outline")>0&&count(".admin-outline")>=17);
+    const land=currentMapData.metadata.land_boundary, landPoints=currentMapData.country_polygons.flat(2);
+    let minLat=Infinity,maxLat=-Infinity,maxLon=-Infinity;
+    for(const [lon,lat] of landPoints){minLat=Math.min(minLat,lat);maxLat=Math.max(maxLat,lat);maxLon=Math.max(maxLon,lon);}
+    check("Land coastline layer drawn instead of territorial sea",land?.kind==="land_polygons"&&count(".country-outline")===currentMapData.country_polygons.length&&maxLon<131.9,{polygons:currentMapData.country_polygons.length,maxLon});
+    const o=mapProjection({longitude:127,latitude:36}),east=mapProjection({longitude:128,latitude:36}),north=mapProjection({longitude:127,latitude:37});
+    check("Projection keeps cos(mean latitude) aspect without extra stretch",Math.abs((east.x-o.x)/(o.y-north.y)-Math.cos((minLat+maxLat)/2*Math.PI/180))<1e-9&&Math.abs(east.y-o.y)<1e-9&&Math.abs(north.x-o.x)<1e-9);
+    const [vx,vy,vw,vh]=$("network-map").dataset.baseViewBox.split(" ").map(Number);
+    check("All buses and plants inside the initial view",[...currentMapData.buses,...currentMapData.powerplants].every(b=>{const p=mapProjection(b);return p.x>=vx&&p.x<=vx+vw&&p.y>=vy&&p.y<=vy+vh;}));
+    $("layer-regions").checked=false;$("layer-regions").dispatchEvent(new Event("change"));
+    check("Region toggle hides only administrative boundaries",count(".admin-outline.layer-hidden")===count(".admin-outline")&&count(".country-outline.layer-hidden")===0&&count(".network-line:not(.layer-hidden)")===3984&&count(".network-bus:not(.layer-hidden)")===4197);
+    $("layer-regions").checked=true;$("layer-regions").dispatchEvent(new Event("change"));
+    check("Region toggle restores boundaries",count(".admin-outline.layer-hidden")===0);
     check("Korea has no PF or analysis results",pfPreview===null&&pfBusResultMap.size===0&&pfLineResultMap.size===0&&count(".result-card,.candidate-marker,.outage-line")===0);
     check("All analysis and chat controls disabled",["pf-display-mode","analyze-button","sensitivity-button","generator-analyze-button","chat-message","chat-send"].every(id=>$(id).disabled));
     check("No inherited KPG analysis input",$("outage-line").value===""&&$("outage-generator").value===""&&$("monitored-line").value===""&&!$("outage-generator").placeholder.includes("GEN-124"));
@@ -45,10 +57,20 @@
     check("Voltage filter restores full map",count(".network-line:not(.layer-hidden)")===3984);
     const svg=$("network-map"),base=svg.getAttribute("viewBox"),rect=svg.getBoundingClientRect();
     const x=rect.x+rect.width*.5,y=rect.y+rect.height*.45;
+    const busCenters=()=>[...document.querySelectorAll(".network-bus")].slice(0,300).map(b=>{const r=b.getBoundingClientRect();return [r.x+r.width/2,r.y+r.height/2];});
+    let preview=null; svg.addEventListener("wheel",()=>paint().then(()=>{preview={gesture:!!mapGesture,transform:svg.style.transform,viewBox:svg.getAttribute("viewBox"),centers:busCenters()};}),{once:true});
     let inputTime=0; svg.addEventListener("wheel",()=>{ const start=performance.now(); inputTime=start; paint().then(()=>timings.zoom_input_to_paint_ms=performance.now()-start); },{capture:true,once:true});
-    window.__krInputSent=false; window.__krTrustedInput={name:"zoom",x,y};
-    await wait(()=>window.__krInputSent&&mapView);await paint();
-    check("Trusted Chrome wheel zooms Korea",mapView.zoom>1&&svg.getAttribute("viewBox")!==base);
+    window.__krInputSent=false; window.__krTrustedInput={name:"zoom",x,y,deltaY:-300};  // 1.57x: below the 2x mid-gesture commit
+    await wait(()=>window.__krInputSent&&mapView&&preview);
+    const previewCenters=preview.centers;
+    check("Wheel preview is a compositor transform before commit",preview.gesture&&preview.transform.includes("scale")&&preview.viewBox===base);
+    await wait(()=>!mapGesture);await paint();timings.zoom_input_to_commit_ms=performance.now()-inputTime;
+    const committedCenters=busCenters(),previewError=Math.max(...committedCenters.map(([cx,cy],i)=>Math.hypot(cx-previewCenters[i][0],cy-previewCenters[i][1])));
+    check("Committed view matches the preview position",previewError<1,previewError);
+    check("Trusted Chrome wheel zooms Korea",mapView.zoom>1&&svg.getAttribute("viewBox")!==base&&!svg.style.transform);
+    const beforeLargeStep=svg.getAttribute("viewBox");
+    svg.dispatchEvent(new WheelEvent("wheel",{deltaY:-500,clientX:x,clientY:y,bubbles:true,cancelable:true}));
+    check("A single step beyond 2x commits immediately",!mapGesture&&!svg.style.transform&&svg.getAttribute("viewBox")!==beforeLargeStep);
     const zoomed=svg.getAttribute("viewBox");
     const dragFrames=[];
     svg.addEventListener("pointermove",event=>{if(event.buttons!==1)return; const start=performance.now(); paint().then(()=>dragFrames.push(performance.now()-start));});
@@ -56,16 +78,30 @@
     window.__krInputSent=false;window.__krTrustedInput={name:"drag",x,y};
     await wait(()=>window.__krInputSent);await paint();timings.drag_gesture_to_paint_ms=performance.now()-inputTime;
     timings.drag_move_to_paint_max_ms=Math.max(...dragFrames);
-    check("Trusted Chrome pointer drag moves Korea",svg.getAttribute("viewBox")!==zoomed&&!svg.classList.contains("map-panning"));
+    check("Trusted Chrome pointer drag moves Korea",svg.getAttribute("viewBox")!==zoomed&&!svg.classList.contains("map-panning")&&!mapGesture&&!svg.style.transform);
+    // Trusted click at a zoomed bus position must select exactly that bus.
+    const svgRect=svg.getBoundingClientRect();
+    const target=[...document.querySelectorAll(".network-bus")].find(b=>{const r=b.getBoundingClientRect(),cx=r.x+r.width/2,cy=r.y+r.height/2;
+      return cx>svgRect.x+40&&cx<svgRect.right-200&&cy>svgRect.y+40&&cy<svgRect.bottom-80&&document.elementFromPoint(cx,cy)===b;});
+    if(target){const r=target.getBoundingClientRect();hideMapTooltip();clearMapSelection();
+      window.__krInputSent=false;window.__krTrustedInput={name:"click",x:r.x+r.width/2,y:r.y+r.height/2};await wait(()=>window.__krInputSent);await paint();}
+    check("Trusted click at high zoom selects the bus under the pointer",!!target&&mapView.zoom>1&&target.classList.contains("selected-bus")&&count(".selected-bus")===1,target?.dataset.busId);
     $("map-zoom-reset").click(); check("Korea zoom reset",svg.getAttribute("viewBox")===base);
     for(const theme of ["light","dark","system"]) {
       setThemePreference(theme);await paint();
       check(`Korea ${theme} theme`,document.documentElement.dataset.theme===(theme==="system"?(themeMedia.matches?"dark":"light"):theme));
       if(theme!=="system") await shot(`korea_${theme}`);
     }
+    svg.dispatchEvent(new WheelEvent("wheel",{deltaY:-300,clientX:x,clientY:y,bubbles:true,cancelable:true}));
+    check("Wheel preview pending before grid switch",!!mapGesture);
+    setMapView(100,100,200);const filter345=document.querySelector('#voltage-filters input[data-voltage="345"]');filter345.checked=false;filter345.dispatchEvent(new Event("change"));
     await timed("korea_to_mongolia_ms",()=>switchGrid(mn));
     check("Mongolia restored without Korean objects",isMongoliaGrid()&&pfPreview&&count('path.network-line')===0&&!$("map-tooltip").classList.contains("visible"));
+    check("Mongolia outline unchanged and no Korean coastline left",count(".country-outline")===currentMapData.country_polygons.length&&currentMapData.country_polygons.flat(2).every(([lon])=>lon<125)&&!currentMapData.metadata?.land_boundary);
+    await new Promise(r=>setTimeout(r,300));
+    check("Korean zoom and voltage filter not carried to Mongolia",!mapGesture&&!$("network-map").style.transform&&mapView===null&&$("network-map").getAttribute("viewBox")===$("network-map").dataset.baseViewBox&&count(".network-line.layer-hidden")===0);
     await timed("mongolia_to_kpg_ms",()=>switchGrid(kpg));
+    check("KPG keeps its own outline, not the Korean OSM land layer",count(".country-outline")===(currentMapData.country_polygons||[]).length&&!currentMapData.metadata?.land_boundary);
     check("KPG restored without Korean state",!isGeographicGrid()&&pfPreview&&$("outage-line").value==="LINE-16-28"&&count(".network-bus")===currentMapData.buses.length);
     // Cross-grid late map response: real response is held by the existing HTTP gate.
     const control=(path,init)=>fetch("/__probe__/"+path,init).then(r=>r.json());

@@ -163,3 +163,110 @@ def test_physics_api_rejects_unsupported_grid_before_engine(endpoint,monkeypatch
                      (f"/api/v1/{endpoint}?grid_id={KOREA_OSM_GRID_ID}",valid)]:
         assert client.post(url,json=body).status_code==422
     engine.assert_not_called()
+
+
+# ----- Land boundary (coastline) layer: separate from the OSM territorial relation -----
+REAL_SOURCE = ROOT.parent / "korea-grid-poc/outputs/map/kr_grid_preview.json"
+TERRITORIAL = [[[124.4,37.9],[132.1,37.2],[126.3,32.9],[124.4,37.9]]]
+JEJU_WITH_HOLE = [[[126.2,33.2],[126.9,33.2],[126.9,33.55],[126.2,33.55],[126.2,33.2]],
+                  [[126.5,33.3],[126.6,33.3],[126.6,33.4],[126.5,33.4],[126.5,33.3]]]
+ULLEUNG = [[[130.8,37.45],[130.92,37.45],[130.92,37.55],[130.8,37.45]]]
+
+
+def land_file(tmp_path, polygons=None, kind="land_polygons"):
+    data=dict(schema_version="kr-land-boundary-1.0",country="KR",
+              polygons=[JEJU_WITH_HOLE,ULLEUNG] if polygons is None else polygons,
+              metadata=dict(kind=kind,source="OSM natural=coastline",license="ODbL-1.0"))
+    path=tmp_path/"land.json"; path.write_text(json.dumps(data)); return path
+
+
+def run_import(source, target, land=None):
+    command=[sys.executable,str(ROOT/"scripts/import_kr_osm_map.py"),"--source",str(source),"--output",str(target)]
+    return subprocess.run(command+(["--land-boundary",str(land)] if land else []),capture_output=True)
+
+
+def contains(polygon, lon, lat):
+    """Even-odd point in polygon over all rings (outer + holes)."""
+    inside=False
+    for ring in polygon:
+        for (x1,y1),(x2,y2) in zip(ring,ring[1:]):
+            if (y1>lat)!=(y2>lat) and lon<x1+(lat-y1)*(x2-x1)/(y2-y1): inside=not inside
+    return inside
+
+
+def test_territorial_country_polygon_is_never_drawn_as_land(tmp_path):
+    raw=small_map(); raw["country_polygons"]=[TERRITORIAL]
+    assert load_korea_map(write_map(tmp_path/"kr.json",raw))["country_polygons"]==[]
+    raw["metadata"]["land_boundary"]=dict(kind="land_polygons")
+    assert load_korea_map(write_map(tmp_path/"kr2.json",raw))["country_polygons"]==[TERRITORIAL]
+
+
+def test_import_land_boundary_replaces_only_geography(tmp_path):
+    raw=small_map(); raw["country_polygons"]=[TERRITORIAL]
+    raw["admin_regions"]=[dict(name="Jeju",polygons=[[JEJU_WITH_HOLE[0]]])]
+    source=write_map(tmp_path/"source.json",raw); land=land_file(tmp_path)
+    plain,with_land=tmp_path/"plain.json",tmp_path/"with_land.json"
+    assert run_import(source,plain).returncode==0 and run_import(source,with_land,land).returncode==0
+    a,b=load_korea_map(plain),load_korea_map(with_land)
+    assert a["country_polygons"]==[] and "land_boundary" not in a["metadata"]
+    assert b["country_polygons"]==[JEJU_WITH_HOLE,ULLEUNG]  # multiple polygons and inner rings kept
+    assert b["metadata"]["land_boundary"]["file_sha256"]==hashlib.sha256(land.read_bytes()).hexdigest()
+    for key in ("buses","lines","powerplants","admin_regions"):
+        assert a[key]==b[key]
+    assert b["lines"][0]["coordinates"]==raw["lines"][0]["coordinates"]
+
+
+@pytest.mark.parametrize("polygons,kind",[
+    ([[[[126,33],[127,33],[127,34],[126,33.5]]]],"land_polygons"),     # ring not closed
+    ([[[[126,33],[127,33],[126,33]]]],"land_polygons"),                # fewer than 4 points
+    ([[[[126,33],[140,33],[127,34],[126,33]]]],"land_polygons"),       # outside Korea
+    ([[[[126,33],[127,"x"],[127,34],[126,33]]]],"land_polygons"),
+    ([[[[126,33,0],[127,33],[127,34],[126,33]]]],"land_polygons"),
+    ([[[[126,33],[float("nan"),33],[127,34],[126,33]]]],"land_polygons"),
+    ([[]],"land_polygons"),
+    ([TERRITORIAL],"territorial_sea"),
+])
+def test_invalid_land_boundary_is_rejected_and_previous_import_kept(tmp_path,polygons,kind):
+    source=write_map(tmp_path/"source.json",small_map()); target=tmp_path/"map.json"
+    assert run_import(source,target,land_file(tmp_path)).returncode==0
+    imported=target.read_bytes()
+    assert run_import(source,target,land_file(tmp_path,polygons,kind)).returncode!=0
+    assert target.read_bytes()==imported
+
+
+def test_mongolia_outline_unchanged_by_korea_land_handling():
+    from ai_ems.grid_catalog import load_mongolia_map
+    path=ROOT/"data/grids/mn-osm-35k-map.json"
+    if not path.is_file(): pytest.skip("Mongolia map not generated")
+    raw=json.loads(path.read_text(encoding="utf-8")); data=load_mongolia_map(path)
+    assert data["country_polygons"]==raw["country_polygons"]
+    assert [r["polygons"] for r in data["admin_regions"]]==[r["polygons"] for r in raw["admin_regions"]]
+
+
+@pytest.mark.skipif(not REAL_MAP.is_file(), reason="Import actual Korean national map first")
+def test_actual_land_boundary_is_coastline_not_territorial_sea():
+    data=load_korea_map(REAL_MAP); polygons=data["country_polygons"]
+    land=data["metadata"]["land_boundary"]
+    assert land["kind"]=="land_polygons" and land["license"]=="ODbL-1.0" and len(polygons)==land["displayed_polygons"]
+    lons=[p[0] for polygon in polygons for ring in polygon for p in ring]
+    assert max(lons)<131.9 and min(lons)>124.5  # the 12nm circle reached 132.12E, the baseline 124.37E
+    def on_land(lon,lat): return any(contains(p,lon,lat) for p in polygons)
+    for name,lon,lat in [("Seoul",126.98,37.57),("Jeju",126.53,33.36),("Ulleungdo",130.87,37.50),
+                         ("Dokdo Dongdo",131.8696,37.2412),("Dokdo Seodo",131.8650,37.2420),("Busan",129.07,35.18)]:
+        assert on_land(lon,lat),name
+    sea=[(126.0,35.9),(126.5,33.9),(132.0,37.24),(131.0,37.30)]  # West Sea, Jeju strait, Dokdo/Ulleung territorial sea
+    assert not any(on_land(lon,lat) for lon,lat in sea)
+    if REAL_SOURCE.is_file():
+        territorial=json.loads(REAL_SOURCE.read_text(encoding="utf-8"))["country_polygons"]
+        assert all(any(contains(p,lon,lat) for p in territorial) for lon,lat in sea)  # what the old outline filled
+    dokdo=[p for p in polygons if all(131.85<x<131.88 and 37.23<y<37.25 for x,y in p[0])]
+    assert len(dokdo)>=2
+
+
+@pytest.mark.skipif(not (REAL_MAP.is_file() and REAL_SOURCE.is_file()), reason="actual source and import required")
+def test_actual_transmission_data_identical_to_source_after_land_import():
+    imported,source=load_korea_map(REAL_MAP),load_korea_map(REAL_SOURCE)
+    for key in ("buses","lines","powerplants","admin_regions","transformers","generators"):
+        assert imported[key]==source[key],key
+    assert imported["metadata"]["source_map_sha256"]==hashlib.sha256(REAL_SOURCE.read_bytes()).hexdigest()
+    assert imported["metadata"]["ac_pf_readiness"]=="NOT_READY"

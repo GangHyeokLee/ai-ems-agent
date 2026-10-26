@@ -61,7 +61,11 @@ def run_probe(chrome, url, probe, output, free_port):
                 handled.add(stage["name"])
                 x,y=stage["x"],stage["y"]
                 if stage["name"]=="zoom":
-                    call("Input.dispatchMouseEvent",dict(type="mouseWheel",x=x,y=y,deltaX=0,deltaY=-500))
+                    call("Input.dispatchMouseEvent",dict(type="mouseWheel",x=x,y=y,deltaX=0,deltaY=stage.get("deltaY",-500)))
+                elif stage["name"]=="click":
+                    call("Input.dispatchMouseEvent",dict(type="mouseMoved",x=x,y=y))
+                    call("Input.dispatchMouseEvent",dict(type="mousePressed",x=x,y=y,button="left",buttons=1,clickCount=1))
+                    call("Input.dispatchMouseEvent",dict(type="mouseReleased",x=x,y=y,button="left",buttons=0,clickCount=1))
                 else:
                     call("Input.dispatchMouseEvent",dict(type="mouseMoved",x=x,y=y))
                     call("Input.dispatchMouseEvent",dict(type="mousePressed",x=x,y=y,button="left",buttons=1,clickCount=1))

@@ -31,6 +31,10 @@ MAX_PREVIEW_BUSES = 50000
 MAX_PREVIEW_LINES = 100000
 MAX_PREVIEW_PLANTS = 100000
 MAX_PREVIEW_TRANSFORMERS = 100000
+MAX_BOUNDARY_POLYGONS = 5000
+MAX_BOUNDARY_VERTICES = 100000
+# Korean land layer: generous lon/lat box around the mainland, Jeju, Ulleungdo and Dokdo.
+KOREA_LAND_BOUNDS = (124.0, 32.5, 132.5, 39.0)
 
 
 def list_grids(
@@ -278,7 +282,7 @@ def load_geographic_map(map_file: Path, *, preserve_provenance: bool = False) ->
         })
 
     raw_polygons = payload.get("country_polygons", [])
-    if not isinstance(raw_polygons, list) or len(raw_polygons) > 100:
+    if not isinstance(raw_polygons, list) or len(raw_polygons) > MAX_BOUNDARY_POLYGONS:
         raise ValueError("국경 GeoJSON 폴리곤 개수가 올바르지 않습니다.")
     polygons = []
     total_vertices = 0
@@ -302,8 +306,10 @@ def load_geographic_map(map_file: Path, *, preserve_provenance: bool = False) ->
                     raise ValueError("국경 GeoJSON 좌표 범위가 올바르지 않습니다.")
                 cleaned_points.append([lon, lat])
                 total_vertices += 1
-                if total_vertices > 50000:
+                if total_vertices > MAX_BOUNDARY_VERTICES:
                     raise ValueError("국경 GeoJSON 좌표 개수가 너무 많습니다.")
+            if cleaned_points[0] != cleaned_points[-1]:
+                raise ValueError("국경 GeoJSON 경계선이 닫혀 있지 않습니다.")
             cleaned_rings.append(cleaned_points)
         polygons.append(cleaned_rings)
 
@@ -338,9 +344,11 @@ def load_geographic_map(map_file: Path, *, preserve_provenance: bool = False) ->
                             and -180 <= lon <= 180 and -90 <= lat <= 90):
                         raise ValueError("행정구역 좌표 범위가 올바르지 않습니다.")
                     total_vertices += 1
-                    if total_vertices > 120000:
+                    if total_vertices > MAX_BOUNDARY_VERTICES + 70000:
                         raise ValueError("행정구역 경계 좌표가 너무 많습니다.")
                     points.append([lon, lat])
+                if points[0] != points[-1]:
+                    raise ValueError("행정구역 경계선이 닫혀 있지 않습니다.")
                 rings.append(points)
             cleaned.append(rings)
         regions.append({"name": name, "polygons": cleaned})
@@ -436,4 +444,12 @@ def _cached_korea_map(path: str, *file_identity: int) -> dict[str, Any]:
             raise ValueError("한국 선로 경로와 양단 모선 불일치")
     if data["transformers"] or any(p["mapped_bus_id"] is not None for p in data["powerplants"]):
         raise ValueError("한국 지도에 검증되지 않은 전기적 접속이 포함되었습니다.")
+    # The OSM country relation includes the territorial sea; only an imported land layer is drawn.
+    land = meta.get("land_boundary")
+    if not (isinstance(land, dict) and land.get("kind") == "land_polygons"):
+        data["country_polygons"] = []
+    west, south, east, north = KOREA_LAND_BOUNDS
+    if any(not (west <= lon <= east and south <= lat <= north)
+           for polygon in data["country_polygons"] for ring in polygon for lon, lat in ring):
+        raise ValueError("한국 육지 경계 좌표가 범위를 벗어났습니다.")
     return data

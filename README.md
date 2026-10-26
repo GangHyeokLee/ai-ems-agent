@@ -56,14 +56,22 @@
 | `kr-osm-transmission` | KR · 한국 OSM 송전망 (154/345/765 kV) | 지도 전용, 계산·AI 비활성 |
 
 한국 지도는 원본 프로젝트를 변경하지 않고 다음 명령으로 검증·가져오기 한다.
-실제 한국 원본 JSON 경로를 `--source`로 전달한다.
+실제 한국 원본 JSON 경로를 `--source`로 전달한다. 원본의 국가 폴리곤은 영해를 포함한
+관할 경계이므로 표시하지 않고, 같은 OSM 추출본의 해안선(`natural=coastline`)으로 만든
+육지 경계를 `--land-boundary`로 넣는다. 육지 경계 생성에는 osmium·shapely·pyproj가
+필요하며 형제 프로젝트의 가상환경을 쓸 수 있다.
 
 ```bash
+../korea-grid-poc/.venv/bin/python scripts/build_kr_land_boundary.py \
+  --pbf ../korea-grid-poc/data/raw/south-korea-261020.osm.pbf \
+  --output data/grids/kr-land-boundary.json
 .venv/bin/python scripts/import_kr_osm_map.py \
-  --source ../korea-grid-poc/outputs/map/kr_grid_preview.json
+  --source ../korea-grid-poc/outputs/map/kr_grid_preview.json \
+  --land-boundary data/grids/kr-land-boundary.json
 ```
 
 기본 배포 파일은 `data/grids/kr-osm-transmission-map.json`이며 Git 제외 대상이다.
+`--land-boundary` 없이 가져오면 국가 외곽선 없이 행정구역 경계와 송전망만 표시한다.
 서버 설정 `AI_EMS_KOREA_MAP_FILE`로 승인된 외부 JSON을 읽기 전용으로 지정할 수도 있다.
 경로는 서버 운영 설정이며 HTTP 요청으로 선택할 수 없다. 파일 누락·손상 시 한국만
 사용 불가로 표시하며 KPG·몽골은 유지한다. 한국 지도는 실제 선로 경로와 OSM ID,
