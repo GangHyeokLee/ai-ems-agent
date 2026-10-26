@@ -57,3 +57,36 @@ cd ~/Projects/ai-ems-agent
 - 그래프는 입력 그대로 쓴다. 거리 병합, 교차 연결, 전압 간 연결, 변압기 추정을 하지 않는다.
 - 후보는 검토 목록이다. 모델에 반영하지 않는다. 가설적 성분 수는 "후보가 모두 실제 접속이라면"이라는 상한 민감도일 뿐이다.
 - 중복 ID, 없는 모선 참조, 비유한 좌표, `base.nc`의 모선·선로별 배열 길이 불일치가 있으면 실패한다(종료 코드 2).
+
+## 독립 접속 후보 검토 화면
+
+기존 분석을 먼저 생성한 뒤 아래 명령으로 검토 화면을 만든다. 기존 분석이 있고 입력이 바뀌지 않았다면 두 번째 명령만 실행한다.
+
+```bash
+cd ~/Projects/ai-ems-agent
+.venv/bin/python -m pipelines.kr.analyze_topology --korea-project ../korea-grid-poc
+.venv/bin/python -m pipelines.kr.review_candidates --korea-project ../korea-grid-poc
+```
+
+`outputs/kr_topology/review/index.html`을 브라우저에서 직접 연다. 데이터·JavaScript·CSS가 하나의 HTML에 포함되어 있어 `file://`에서도 동작하며 서버, 외부 지도 타일, 인터넷 연결이 필요 없다. WSL에서는 다음과 같이 열 수 있다.
+
+```bash
+explorer.exe "$(wslpath -w outputs/kr_topology/review/index.html)"
+```
+
+출력은 기존 `outputs/` Git 제외 정책을 따른다.
+
+| 파일 | 내용 |
+|---|---|
+| `review/index.html` | 필터·검색·순위·SVG 지도·검토 메모·JSON 가져오기/내보내기가 있는 독립 화면 |
+| `review/review_candidates.csv` | 변전소별 개별 후보·거리·점수 내역·중복 성분 쌍·안정적인 검토 키 |
+| `review/review_summary.json` | 후보/성분 쌍/변전소 집계, 점수 정책, 입력 SHA256 |
+| 브라우저 다운로드 `review_decisions.json` | 사용자가 내보낸 기록. 생성기는 만들거나 덮어쓰지 않음 |
+
+`--analysis-dir`, `--output-dir`, `--map`, `--osm-objects`로 경로를 지정할 수 있다. `--map`과 기존 분석 결과는 필수다. 원본 지도·OSM 객체 해시가 분석 결과와 다르면 분석 재실행을 요청하며 실패한다. `--osm-objects`는 선택 사항이며 생략 시 추가 객체 파일에만 있는 근거는 사용할 수 없다.
+
+검토 대상은 `same_substation_same_voltage`만이다. 현재 실데이터는 384건, 고유 성분 쌍 367개, 변전소 165곳이다. 동일 성분 쌍이 여러 변전소에서 나타나는 17쌍은 각 변전소 근거를 유지한다. 기본 정렬은 성분 쌍별 최고 점수로 정한 367개 쌍의 검토 순서이며, 개별 후보 점수순/거리순 정렬도 제공한다. 점수는 검토 순서이고 접속 확률이 아니다.
+
+화면에서 상태·메모·자료 출처를 입력하고 **검토 JSON 내보내기**를 누른다. 다운로드된 파일을 보관하고 다음 세션에서 **검토 JSON 불러오기**로 복원한다. 입력한 내용은 화면 메모리에만 보관하므로 창을 닫기 전에 내보내야 한다. 다른 입력 버전의 기록은 재검토 보관 목록으로 분리하며 현재 상태에는 적용하지 않는다. 같은 입력의 기존 기록과 충돌하면 파일 전체를 거부한다. 현재 기록을 먼저 내보낸 뒤 새로 연 화면에서 원하는 파일을 불러온다.
+
+검토 상태가 `electrical_evidence_obtained`여도 전기적 모델을 변경하지 않는다. 점수 산식, 버전 정책, 실제 사례와 검증은 [후보 검토 검증 문서](../../docs/validation/korea-candidate-review.md)를 참고한다.

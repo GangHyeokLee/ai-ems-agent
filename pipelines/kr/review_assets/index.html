@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>K-EMS · 한국 OSM 접속 후보 검토</title><style>__REVIEW_CSS__</style></head>
+<body>
+<header><div><small>K-EMS / OSM RESEARCH WORKBENCH</small><h1>변전소 내부 접속 후보 검토</h1><p id="summary"></p></div><div class="actions"><button id="export">검토 JSON 내보내기</button><label class="button">검토 JSON 불러오기<input id="import" type="file" accept=".json,application/json"></label></div></header>
+<div class="notice">지리적 후보를 조사하는 독립 도구입니다. 점수는 검토 순서이며 접속 확률이 아닙니다. 모든 검토 상태는 사람의 기록이며 모델 연결 승인 명령이 아닙니다. 한국 AC PF: NOT_READY</div>
+<div id="message" role="status" aria-live="polite">기록은 이 화면에 임시 보관됩니다. 브라우저를 닫기 전에 JSON으로 내보내세요.</div>
+<main><aside><div class="filters">
+<label>변전소<select id="station-filter"><option value="">전체 변전소</option></select></label>
+<label>전압<select id="voltage-filter"><option value="">전체 전압</option></select></label>
+<label>검토 상태<select id="status-filter"><option value="">전체 상태</option><option value="stale">이전 버전 기록 있음 · 재검토 필요</option></select></label>
+<label>검색<input id="search" type="search" placeholder="변전소 · OSM ID · 성분 ID · 모선 ID"></label>
+<label>정렬<select id="sort"><option value="pair">성분 쌍 검토 순위</option><option value="priority">후보 점수 높은 순</option><option value="distance">거리 짧은 순</option></select></label>
+<div id="list-count"></div></div><div id="candidates" aria-label="검토 후보 목록"></div></aside>
+<section class="workspace"><div class="map-heading"><div><h2 id="selection-title">후보를 선택하세요</h2><p class="legend"><span class="cyan">● 성분 A</span> <span class="orange">● 성분 B</span> <span>― 주변 다른 성분</span> <span class="purple">▱ OSM 변전소 경계</span> <span class="red">┄ 검토 거리 (선로 아님)</span></p></div><div class="actions"><button id="zoom-in" aria-label="지도 확대">＋</button><button id="zoom-out" aria-label="지도 축소">−</button><button id="fit">변전소 맞춤</button></div></div>
+<svg id="map" role="img" aria-label="선택한 후보의 실제 위경도 지도" tabindex="0"></svg>
+<p class="map-help">휠 확대·축소 / 드래그 이동 / 설비 클릭으로 상세 확인 · 배경 타일 없이 실제 위경도를 국소 평면에 투영합니다. 지물 출처: © OpenStreetMap contributors · ODbL</p>
+<div class="details-grid"><section><h3>선택 후보의 근거</h3><dl id="facts"></dl><p id="geometry-note"></p><details><summary>점수 산식 · 확률 아님</summary><pre id="score-policy"></pre></details><details><summary>클릭한 OSM 설비 정보</summary><pre id="object-detail">지도에서 모선·선로·변전소를 선택하세요.</pre></details></section>
+<section><h3>검토 기록</h3><label>검토 상태<select id="decision-status"></select></label><label>메모<textarea id="notes" rows="4" maxlength="20000" placeholder="확인 사실과 미확인 사항을 구분하여 기록"></textarea></label><label>근거 자료의 식별자 또는 경로<textarea id="sources" rows="2" maxlength="20000" placeholder="단선도 문서 ID, OSM 객체 버전, 파일 경로 등"></textarea></label><p id="draft-note"></p><h3>추가로 필요한 자료</h3><p id="required"></p><details id="stale-panel"><summary id="stale-title">이전 입력 기록 · 재검토 필요</summary><pre id="stale-detail"></pre></details></section></div>
+</section></main>
+<script id="review-data" type="application/json">__REVIEW_DATA__</script><script>__REVIEW_JS__</script>
+</body></html>
