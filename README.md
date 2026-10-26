@@ -72,6 +72,15 @@
 
 기본 배포 파일은 `data/grids/kr-osm-transmission-map.json`이며 Git 제외 대상이다.
 `--land-boundary` 없이 가져오면 국가 외곽선 없이 행정구역 경계와 송전망만 표시한다.
+
+한국 송전망의 연결 성분과 접속 검토 후보는 `pipelines/kr`의 토폴로지 분석으로 만든다.
+분석 결과는 `outputs/kr_topology/`(Git 제외)에 저장된다. 후보는 검토용이며 모델을 바꾸지 않는다.
+절차는 [pipelines/kr/README.md](pipelines/kr/README.md), 결과는
+[한국 토폴로지 검증](docs/validation/korea-topology-analysis.md)을 참조한다.
+
+```bash
+.venv/bin/python -m pipelines.kr.analyze_topology --korea-project ../korea-grid-poc
+```
 서버 설정 `AI_EMS_KOREA_MAP_FILE`로 승인된 외부 JSON을 읽기 전용으로 지정할 수도 있다.
 경로는 서버 운영 설정이며 HTTP 요청으로 선택할 수 없다. 파일 누락·손상 시 한국만
 사용 불가로 표시하며 KPG·몽골은 유지한다. 한국 지도는 실제 선로 경로와 OSM ID,
