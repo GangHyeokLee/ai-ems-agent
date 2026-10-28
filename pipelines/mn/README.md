@@ -1,6 +1,6 @@
-# 몽골 파이프라인 — 1단계 기반
+# 몽골 파이프라인 — 기반 점검과 Stage 2A helper
 
-현재 기능의 기준선과 경로·환경을 **읽기 전용으로 검사**한다. 원본 스크립트 이관, 모델 구축·변환, 번들 생성·설치, EMS 런타임 경로 변경은 이번 단계에서 수행하지 않는다. 이 패키지를 EMS가 import하지 않으며, Python 표준 라이브러리로 검사 명령을 구동한다. 필요한 외부 라이브러리는 선택한 인터프리터의 별도 subprocess에서만 조회한다.
+Stage 1 명령은 현재 기능의 기준선과 경로·환경을 **읽기 전용으로 검사**한다. Stage 2A는 자체 helper 네 개의 코드 소유권과 경로 의존성을 정리했다. 모델 구축·변환 CLI, 번들 생성·설치, EMS 런타임 경로 전환은 활성화하지 않았다. 이 패키지를 EMS가 import하지 않으며, Python 표준 라이브러리로 검사 명령을 구동한다. 구축 helper는 별도 구축/변환 환경에서 명시적으로 import한다.
 
 ## 실행
 
@@ -87,13 +87,42 @@ JUnit은 실행별로 통과/실패/error/skip 및 원인을 분리한다. 기�
 
 같은 정적 입력·경로·Git 상태·환경에서 기본 보고서는 결정적이며 생성 시각을 넣지 않는다. 실시간 수치 관측은 환경/엔진별 허용오차로 비교한다.
 
+## Stage 2A: 이관한 라이브러리와 경로 계약
+
+| 모듈 | 경로/보호 변경 | 유지한 계산 |
+|---|---|---|
+| `audit_mn35k_parameters.py` | `AuditInputs.from_paths(paths)`로 외부 Earth·원본 보고서 입력 분리. `main(paths)`는 라이브러리 함수이며 실행 CLI 없음 | WGS84 측지거리·구면거리·전압 필터·파라미터·발전소 후보·감사 보고서 내용 |
+| `mn35k_lengths.py` | 상대 package import. `audit_line_lengths(network, paths)`, `summarize_length_stages(network, paths)`에 필수 경로 주입 | m→km, EPSG:3857, 정확한 ID 대응, 끝점·토폴로지·커넥터·미해결 길이 보존 |
+| `mn35k_refinement.py` | `export_deterministic(model, path, *, paths, protected_models=None)`의 보호 루트를 명시적으로 주입 | R/X/C, 변압기 정수·자체 MVA/1MVA 기준, `build_model`·가정 기록·NetCDF3 인코딩 |
+| `mn35k_powsybl.py` | 원본과 바이트 동일. 경로 결합 및 로컬 스크립트 import 없음 | SI/pu·부호·ID·IIDM 매핑·제어·결과 비교. PyPowSyBl은 함수 내부 import 유지 |
+
+`Paths`는 기존 CLI/`KEMS_MN_*` 설정으로 만든다. 원본 상대 경로 문자열은 출처 식별자이며 외부 Earth의 물리 위치로 해석한다. 사용자 홈, `Path(__file__)` 기반 원본 추정, `ROOT`/`EARTH`/`REPORTS` 전역 변수와 `sys.path` 수정이 이관 코드에 없다. 원본 설정·입력과 `reports/expansion`의 두 대응표는 계속 읽기 전용 외부 의존성이다. 아직 이관하지 않은 원본 스크립트는 새 패키지에서 import하지 않는다.
+
+출력은 `artifacts.py`가 **주입한 `output_dir` 내부의 새 파일에만** 허용한다. 기존 `Paths`의 원본·런타임 보호, work/output/bundle 분리와 심볼릭 링크 정규화를 재사용한다. 기존 파일은 일반 파일·심볼릭 링크·하드링크 모두 덮어쓰지 않는다. 임시 파일에 직렬화한 뒤 보호 원본의 SHA256을 재검사하고 배타적으로 공개한다. 실패하면 임시 파일을 지운다. 대상이 실행 중 생겨도 교체하지 않는다.
+
+MN/MN_35k 원본 모델 두 개의 Stage 1 해시 pin은 항상 적용한다. `protected_models`는 기존 설정의 추가 보호 항목이며, 빈 dict나 다른 해시로 고정 보호를 해제할 수 없다. 감사 보고서 6개는 하나의 묶음이다. 같은 파일시스템의 비공개 임시 디렉터리에서 전부 생성하고 기존 내용 검증·파일 구성·원본 해시를 확인한 뒤, 완성된 디렉터리를 한 번에 공개한다. 중간 실패는 임시 디렉터리만 정리하며 최종 보고서 경로를 만들지 않는다. 기존 디렉터리(빈 디렉터리 포함)·파일·심볼릭 링크는 교체하거나 지우지 않는다. Linux의 `renameat2(RENAME_NOREPLACE)`와 Windows의 비대체 rename을 사용하고, 원자적 비대체 공개를 지원하지 않는 환경에서는 실패한다. 감사 Markdown은 원본 감사 시점의 문구를 보존한 것으로, 현재 EMS의 PF 준비도를 새로 판정한 문서가 아니다.
+
+PyPSA/GIS가 없는 EMS 환경의 전체 pytest에서는 구축 테스트 모듈 2개가 이유를 명시하고 skip된다. 아래 별도 변환 환경 실행은 실제 데이터 비교6개·보고서 실패 회귀3개와 고정 샘플31개를 수행한다. 표준 라이브러리 출력 보호 테스트30개도 같이 실행한다. 원본 14개 스크립트나 실제 173/166모선 모델은 재구축하지 않고, 출력 동등성은 3모선 시험 모델과 새 임시 감사 보고서로 확인한다.
+
+```bash
+# 저장소 루트. 기존 환경을 설치·수정하거나 Pixi run으로 동기화하지 않는다.
+export KEMS_MN_SOURCE_PROJECT="$(realpath ../mongolia-grid-poc)"
+export KEMS_MN_EARTH_CHECKOUT="$KEMS_MN_SOURCE_PROJECT/pypsa-earth"
+PROJ_DATA="$KEMS_MN_EARTH_CHECKOUT/.pixi/envs/default/share/proj" \
+PYTHONDONTWRITEBYTECODE=1 \
+"$KEMS_MN_SOURCE_PROJECT/.venv-powsybl/bin/python" -B -m pytest -q \
+  tests/mn_build tests/test_mn_artifacts.py
+```
+
+PROJ 경로도 명시적 실행 환경이다. 전용 변환 venv는 PyPSA/GIS가 있는 Pixi 환경과 PyPowSyBl을 사용하고 EMS `.venv`와 합치지 않는다. EMS의 `requirements.txt`는 변경하지 않았다. 실제 결과와 제한은 [Stage 2A 검증 보고서](../../docs/validation/mongolia-pipeline-stage2a.md)를 참고한다.
+
 ## 다음 이관 순서
 
 먼저 모든 `ROOT`, `EARTH`, `REPORTS`, `Path.home()`, `sys.path.insert`와 보호 출력 경로를 명시적 경로 객체로 전환한다. 해시 검사를 제거하지 않고 논리적 원본 식별자와 물리 위치를 구분한다. 이후 다음 순서로 작게 이관한다.
 
 | 순서 | 파일 | 확인할 검증 |
 |---|---|---|
-| 1 | `audit_mn35k_parameters.py`, `mn35k_lengths.py`, `mn35k_refinement.py`, `mn35k_powsybl.py` | 거리/단위/정수 변환·원본 보호·순수 helper 테스트 |
+| 1 (Stage 2A 완료) | `audit_mn35k_parameters.py`, `mn35k_lengths.py`, `mn35k_refinement.py`, `mn35k_powsybl.py` | 거리/단위/정수 변환·원본 보호·순수 helper 테스트 |
 | 2 | `validate_mn_grid.py`, `validate_mn35k_poc.py`, `build_mn35k_poc.py` | 173/159/27, 원본 보존, 길이 미해결 18개, NetCDF/Ybus·재현성 |
 | 3 | `run_mn35k_acpf.py`, `run_mn35k_reactive_support.py` | 초기 108대와 현재 45대 시나리오 분리, 166/156/27·PV43/PQ122/Slack1·20MVAr |
 | 4 | `audit_mn35k_plants.py`, `run_mn35k_data_informed_pf.py`, `diagnose_mn35k_reactive.py`, `audit_mn35k_220kv_lines.py` | 공개 레코드·접속 후보·비수렴 상태·부하/길이/Q 진단 보존 |
