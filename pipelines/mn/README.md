@@ -1,6 +1,6 @@
-# 몽골 파이프라인 — 기반 점검과 Stage 2A helper
+# 몽골 파이프라인 — 기반 점검과 검증 전용 수동 모델 구축
 
-Stage 1 명령은 현재 기능의 기준선과 경로·환경을 **읽기 전용으로 검사**한다. Stage 2A는 자체 helper 네 개의 코드 소유권과 경로 의존성을 정리했다. 모델 구축·변환 CLI, 번들 생성·설치, EMS 런타임 경로 전환은 활성화하지 않았다. 이 패키지를 EMS가 import하지 않으며, Python 표준 라이브러리로 검사 명령을 구동한다. 구축 helper는 별도 구축/변환 환경에서 명시적으로 import한다.
+Stage 1 명령은 현재 기능의 기준선과 경로·환경을 **읽기 전용으로 검사**한다. Stage 2A는 자체 helper 네 개의 코드 소유권과 경로 의존성을 정리했다. Stage 2B는 검증기와 수동 모델 빌더를 이관하고 명시적 검증 재생성 함수만 제공한다. 모델 구축·변환 CLI, EMS 배포 번들 설치, 런타임 경로 전환은 활성화하지 않았다. 이 패키지를 EMS가 import하지 않으며, Python 표준 라이브러리로 검사 명령을 구동한다. 구축 코드는 별도 구축/변환 환경에서 명시적으로 import한다.
 
 ## 실행
 
@@ -102,7 +102,7 @@ JUnit은 실행별로 통과/실패/error/skip 및 원인을 분리한다. 기�
 
 MN/MN_35k 원본 모델 두 개의 Stage 1 해시 pin은 항상 적용한다. `protected_models`는 기존 설정의 추가 보호 항목이며, 빈 dict나 다른 해시로 고정 보호를 해제할 수 없다. 감사 보고서 6개는 하나의 묶음이다. 같은 파일시스템의 비공개 임시 디렉터리에서 전부 생성하고 기존 내용 검증·파일 구성·원본 해시를 확인한 뒤, 완성된 디렉터리를 한 번에 공개한다. 중간 실패는 임시 디렉터리만 정리하며 최종 보고서 경로를 만들지 않는다. 기존 디렉터리(빈 디렉터리 포함)·파일·심볼릭 링크는 교체하거나 지우지 않는다. Linux의 `renameat2(RENAME_NOREPLACE)`와 Windows의 비대체 rename을 사용하고, 원자적 비대체 공개를 지원하지 않는 환경에서는 실패한다. 감사 Markdown은 원본 감사 시점의 문구를 보존한 것으로, 현재 EMS의 PF 준비도를 새로 판정한 문서가 아니다.
 
-PyPSA/GIS가 없는 EMS 환경의 전체 pytest에서는 구축 테스트 모듈 2개가 이유를 명시하고 skip된다. 아래 별도 변환 환경 실행은 실제 데이터 비교6개·보고서 실패 회귀3개와 고정 샘플31개를 수행한다. 표준 라이브러리 출력 보호 테스트30개도 같이 실행한다. 원본 14개 스크립트나 실제 173/166모선 모델은 재구축하지 않고, 출력 동등성은 3모선 시험 모델과 새 임시 감사 보고서로 확인한다.
+PyPSA/GIS가 없는 EMS 환경에서는 구축 전용 테스트 모듈이 이유를 명시하고 skip된다. Stage 2A의 구성은 실제 데이터 비교6개·보고서 실패 회귀3개·고정 샘플31개·출력 보호30개다. 아래 실행 명령은 이후 추가한 Stage 2B 검사도 함께 실행한다. Stage 2A 자체 동등성은 3모선 시험 모델과 새 임시 감사 보고서로 확인했고, 실제173모선 재생성은 아래 Stage 2B의 별도 승인된 검증 범위다.
 
 ```bash
 # 저장소 루트. 기존 환경을 설치·수정하거나 Pixi run으로 동기화하지 않는다.
@@ -116,6 +116,28 @@ PYTHONDONTWRITEBYTECODE=1 \
 
 PROJ 경로도 명시적 실행 환경이다. 전용 변환 venv는 PyPSA/GIS가 있는 Pixi 환경과 PyPowSyBl을 사용하고 EMS `.venv`와 합치지 않는다. EMS의 `requirements.txt`는 변경하지 않았다. 실제 결과와 제한은 [Stage 2A 검증 보고서](../../docs/validation/mongolia-pipeline-stage2a.md)를 참고한다.
 
+## Stage 2B: 검증기와 검증 전용 빌더
+
+`validate_mn_grid.validate(paths, report_dir=None)`는 MN 기본 모델과 발전소/OSM 입력을 검사하고 새 보고서 묶음만 원자적으로 공개한다. 누락 입력과 실행 중 입력 해시 변경은 실패한다. 원본의 빈 계통 PF 진단 자동 호출은 사용하지 않고 `NOT_EXECUTED_STAGE2B_NO_PF`로 구분한다. `validate_mn35k_poc.validate_model()`의 기존 수치 검사·허용오차·Ybus 조립은 유지했다. 선택적 `matrices={}` 인자는 같은 조립 과정에서 실제 행렬을 관측하기 위한 것으로 반환 JSON 계약은 바꾸지 않는다.
+
+`build_mn35k_poc.rebuild_for_verification(paths, destination, config_path=None)`는 운영 API/CLI와 연결되지 않은 명시적 검증 함수다. 생성 대상은 `paths.output_dir` 내부의 새 디렉터리여야 한다. 모델·CSV9개·JSON4개·Markdown3개, 총17개 파일을 비공개 영역에서 완성·검증한 뒤 한 번에 공개한다. 기존 파일/디렉터리/링크를 교체하지 않으며, 실패하면 최종 모델도 노출하지 않는다. Stage 2A exporter와 디렉터리 공개 helper를 그대로 재사용한다.
+
+`passive_build_contract.json`은 원본 `reports/model_refinement/input_hashes.json`의 파일57개·해시를 고정한다. `passive_inputs.py`는 논리적 `pypsa-earth/...` 식별자를 주입한 Earth 위치에 대응시키며, 원본 설정·과거 manifest 자체·기존 보완 모델의 hash도 확인한다. 파일/디렉터리 누락, 입력 집합 변화, SHA256 차이, 설정 변경을 자동 대체하거나 승인하지 않는다. 원본 Python 파일2개는 실행하지 않고 과거 입력 증거로만 hash를 검사한다. 새 코드의 hash는 별도 `build_provenance.json`에 기록한다.
+
+검증 재생성 예시(EMS 루트, 매번 사용하지 않은 새 최종 이름 지정):
+
+```bash
+export KEMS_MN_SOURCE_PROJECT="$(realpath ../mongolia-grid-poc)"
+export KEMS_MN_EARTH_CHECKOUT="$KEMS_MN_SOURCE_PROJECT/pypsa-earth"
+export KEMS_MN_OUTPUT_DIR=outputs/mn_stage2b/generated
+PROJ_DATA="$KEMS_MN_EARTH_CHECKOUT/.pixi/envs/default/share/proj" \
+MPLCONFIGDIR=/tmp/mn-stage2b-mpl PYTHONDONTWRITEBYTECODE=1 \
+"$KEMS_MN_SOURCE_PROJECT/.venv-powsybl/bin/python" -B -c \
+'from types import SimpleNamespace; from pipelines.mn.paths import resolve; from pipelines.mn.build_mn35k_poc import rebuild_for_verification; p=resolve(SimpleNamespace()); r=rebuild_for_verification(p, p.output_dir / "verification-review-new"); print(r["artifact"])'
+```
+
+이 함수는 원본173모선 수동 모델만 비교 재생성한다. PF·LPF·Slack/PV 할당·발전기·부하·리액터 합성은 수행하지 않는다. 기존166모선 PF 시나리오와 EMS XIIDM/보고서 경로는 그대로다. [Stage 2B 검증 보고서](../../docs/validation/mongolia-pipeline-stage2b.md)에 원본 대비 차이·실행 명령·NetCDF/Ybus/해시·회귀 결과를 기록했다.
+
 ## 다음 이관 순서
 
 먼저 모든 `ROOT`, `EARTH`, `REPORTS`, `Path.home()`, `sys.path.insert`와 보호 출력 경로를 명시적 경로 객체로 전환한다. 해시 검사를 제거하지 않고 논리적 원본 식별자와 물리 위치를 구분한다. 이후 다음 순서로 작게 이관한다.
@@ -123,7 +145,7 @@ PROJ 경로도 명시적 실행 환경이다. 전용 변환 venv는 PyPSA/GIS가
 | 순서 | 파일 | 확인할 검증 |
 |---|---|---|
 | 1 (Stage 2A 완료) | `audit_mn35k_parameters.py`, `mn35k_lengths.py`, `mn35k_refinement.py`, `mn35k_powsybl.py` | 거리/단위/정수 변환·원본 보호·순수 helper 테스트 |
-| 2 | `validate_mn_grid.py`, `validate_mn35k_poc.py`, `build_mn35k_poc.py` | 173/159/27, 원본 보존, 길이 미해결 18개, NetCDF/Ybus·재현성 |
+| 2 (Stage 2B 완료) | `validate_mn_grid.py`, `validate_mn35k_poc.py`, `build_mn35k_poc.py` | 173/159/27, 원본 보존, 길이 미해결 18개, NetCDF/Ybus·재현성 |
 | 3 | `run_mn35k_acpf.py`, `run_mn35k_reactive_support.py` | 초기 108대와 현재 45대 시나리오 분리, 166/156/27·PV43/PQ122/Slack1·20MVAr |
 | 4 | `audit_mn35k_plants.py`, `run_mn35k_data_informed_pf.py`, `diagnose_mn35k_reactive.py`, `audit_mn35k_220kv_lines.py` | 공개 레코드·접속 후보·비수렴 상태·부하/길이/Q 진단 보존 |
 | 5 | `convert_mn35k_to_powsybl.py` | 이미 이관한 `mn35k_powsybl.py` 사용, 양 엔진 단위/부호/기준용량·PF/N-1 비교 |
