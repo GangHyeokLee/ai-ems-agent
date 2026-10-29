@@ -1,6 +1,6 @@
 # 몽골 파이프라인 — 기반 점검과 검증 전용 수동 모델 구축
 
-Stage 1 명령은 현재 기능의 기준선과 경로·환경을 **읽기 전용으로 검사**한다. Stage 2A는 자체 helper 네 개의 코드 소유권과 경로 의존성을 정리했다. Stage 2B는 검증기와 수동 모델 빌더를, Stage 2C는 초기 합성 AC PF와 무효전력 보상 코드를 이관했다. Stage 2D는 공개 발전소 후보와 data-informed PF·무효전력·220kV 진단을 이관했다. Stage 3A는 최종 변환기를 이관하고 격리된 XIIDM·EMS 호환성 검증 함수를 제공한다. 재생성·분석·변환은 명시적인 검증 함수로만 실행한다. 모델 구축·변환 CLI, EMS 배포 번들 설치, 런타임 경로 전환은 활성화하지 않았다. 이 패키지를 EMS가 import하지 않으며, Python 표준 라이브러리로 검사 명령을 구동한다. 구축 코드는 별도 구축/변환 환경에서 명시적으로 import한다.
+Stage 1 명령은 현재 기능의 기준선과 경로·환경을 **읽기 전용으로 검사**한다. Stage 2A~2D는 자체 구축·합성·진단 코드를, Stage 3A는 변환기를 이관했다. 재생성·분석·변환은 별도 구축 환경의 명시적인 검증 함수로만 실행한다. Stage 3B는 검증된 번들 후보를 만들고 Stage 3C는 프로세스 시작 시 승인된 번들을 선택하는 읽기 전용 런타임을 제공한다. EMS는 이 패키지의 번들 검증 모듈을 사용하지만 PyPSA·구축/변환 코드를 import하지 않는다. 모델 구축·변환 운영 CLI, 번들 설치·실행 중 교체는 제공하지 않는다. 기존 `.env`와 활성 모델은 변경하지 않았다.
 
 ## 실행
 
@@ -284,9 +284,86 @@ Earth, 기존 EMS `data/`, `outputs/`를 가리고 `/tmp`의 번들 복사본에
 `runtime_compatible=true`여도 `activated=false`다. GADM 경계가 포함되어
 재배포/상업 이용 허가가 확인되지 않았으므로 `external_distribution_approved=false`를
 유지한다. 사내 상업 PoC의 이용 권한도 확인됐다고 주장하지 않는다.
-실제 활성 경로 전환·워크스테이션 전송·설치·복귀는 Stage 3C의 별도 검토 대상이다.
+Stage 3C에서는 새 개발용 프로세스의 선택·종료·복귀만 검증했다.
+기존 서버의 활성 경로 전환·워크스테이션 전송·설치는 별도 승인 대상이다.
 [Stage 3B 검증 보고서](../../docs/validation/mongolia-pipeline-stage3b.md)에
 런타임 파일 계약, 수치 검증, 독립성 증거, 출처·재배포 검토와 회귀 결과를 기록한다.
+
+## Stage 3C: 번들만 사용하는 EMS 실행과 복귀
+
+번들 선택은 **프로세스 시작 시 고정**한다. 아래 두 환경변수를 함께 전달하면 지도·PF Preview·참조 레이어·XIIDM·대응표·검증 보고서를 manifest의 동일 버전에서 읽는다. 둘 중 하나만 설정하거나 빈 값을 전달해도 명시적 선택 실패다. 잘못된 번들에서 외부 원본으로 fallback하지 않는다. 두 변수를 모두 생략할 때만 기존 개별 `AI_EMS_MN_XIIDM_FILE`/`AI_EMS_MN_POWSYBL_REPORTS_DIR` 방식이 유지된다. 번들 선택 시 이 개별 경로들은 사용하지 않는다. `KEMS_MN_BUNDLE_DIR`은 구축 출력 부모를 지정하는 Stage 1 설정이므로 런타임 선택자와 다르다.
+
+| 런타임 설정 | 의미 |
+|---|---|
+| `AI_EMS_MN_BUNDLE_DIR` | 읽기 전용으로 선택할 완성된 번들 디렉터리 |
+| `AI_EMS_MN_BUNDLE_MANIFEST_SHA256` | 운영자가 번들 외부의 승인 기록에서 전달하는 신뢰 SHA256 |
+
+이번에 승인된 로컬 시험 대상은 다음과 같다. manifest를 즉석에서 hash한 값을 승인 값처럼 사용하지 않는다.
+
+| 버전 | `outputs/mn_stage3b/bundles/` 아래 디렉터리 | 승인 manifest SHA256 |
+|---|---|---|
+| Historical | `mn-osm-35k-historical-20261029-review02` | `9b81a942eceb86bc695b0a6771d04cc7a84ebcf06bf1f4f75c5e09da6e0fc59c` |
+| Stage 3A | `mn-osm-35k-stage3a-20261029-review02` | `953022c62fb8a4cbb377f8bdb96e248252027616e58b3085ddf0da4eafdf0bd9` |
+
+새 개발 서버 예시다. 기존 프로세스와 겹치지 않는 포트를 선택하고 기존 `.env`는 편집하지 않는다. 포트 18000/18001은 예시이며 이번 자동 검증은 매번 OS가 배정한 빈 포트를 사용했다.
+
+```bash
+# 터미널 1: 별도 Physics 서버. 현재 Physics API는 KPG용이다.
+PYTHONPATH="$PWD/src:$PWD" \
+.venv/bin/python -B -m uvicorn ai_ems.api.app:app --host 127.0.0.1 --port 18001
+
+# 터미널 2: 새 Web 서버. 아래 환경변수는 이 자식 프로세스에만 전달한다.
+AI_EMS_MN_BUNDLE_DIR="$PWD/outputs/mn_stage3b/bundles/mn-osm-35k-historical-20261029-review02" \
+AI_EMS_MN_BUNDLE_MANIFEST_SHA256=9b81a942eceb86bc695b0a6771d04cc7a84ebcf06bf1f4f75c5e09da6e0fc59c \
+PYTHONPATH="$PWD/src:$PWD" \
+.venv/bin/python -B -m uvicorn web_app:app --host 127.0.0.1 --port 18000
+
+# 터미널 3: 실제 선택·검증 상태 및 HTTP 해석 확인
+curl --fail http://127.0.0.1:18001/api/health
+curl --fail http://127.0.0.1:18000/api/health
+curl --fail http://127.0.0.1:18000/api/grids
+curl --fail http://127.0.0.1:18000/api/grids/mn-osm-35k/runtime-status
+curl --fail http://127.0.0.1:18000/api/grids/mn-osm-35k/pf-preview
+curl --fail 'http://127.0.0.1:18000/api/grids/mn-osm-35k/security-analysis?outage_line_id=751261406-1_0'
+curl --fail 'http://127.0.0.1:18000/api/grids/mn-osm-35k/sensitivity-analysis?outage_line_id=751261406-1_0&monitored_line_id=303374638-1_0&top_n=45'
+```
+
+Web의 몽골 API/Agent는 같은 프로세스 안의 기존 Mongolia 서비스와 PyPowSyBl을 호출한다. Physics 서버를 먼저 확인하는 절차는 두 서버의 상태를 구분하기 위한 것이며 몽골 계산이 Physics HTTP를 거친다는 의미는 아니다. `/api/health`는 일반 서버 생존 확인이다. 몽골의 준비 상태는 `/api/grids/mn-osm-35k/runtime-status`의 `VERIFIED`, `available=true`, `numerical_checks=186` 및 `security-status`로 확인한다. 검증 실패는 몽골 기능만 unavailable/503으로 처리하며 KPG·한국 OSM 조회는 유지한다.
+
+런타임은 신뢰 manifest, 정확한 파일 집합·바이트·링크·출처 계약을 검사하고 실제 PF/N-1/Sensitivity186개 값을 대조한 뒤 준비 상태가 된다. 진단은 번들 ID·승인 SHA·선택된 경로·버전·제어를 제공하며 비밀 환경변수는 출력하지 않는다. 요청 전후에도 무결성을 재검사한다. 실행 중 변조가 발견되면 캐시를 폐기하고 같은 프로세스에서는 재활성화하지 않는다. 파일을 복구한 뒤에도 새 프로세스로 재검증한다. HTTP 요청으로 번들/파일 경로를 바꿀 수 없다.
+
+안전한 전환·복귀 절차:
+
+1. 시험 서버의 진단 JSON과 API 결과를 번들 밖의 새 증거 경로에 저장한다.
+2. **직접 시작한 시험 프로세스만** Ctrl+C로 정상 종료한다. 기존 EMS 서버는 그대로 둔다.
+3. Stage 3A 디렉터리와 해당 승인 SHA를 함께 전달하여 새 프로세스를 시작하고 동일 검사를 실행한다.
+4. 시험 프로세스를 정상 종료하고 위 Historical 설정으로 새 프로세스를 시작한다.
+5. 최초 Historical 번들 ID·manifest SHA·모델 경로·186개 값·Agent 도구 결과로 복귀했는지 확인한다. 서로 다른 버전의 파일을 합치지 않는다.
+
+실제 독립 서버·Chrome 재검증 명령은 다음과 같다. `/tmp` 또는 개발 저장소 밖의 새 `--basetemp`를 사용한다. `bwrap`은 시험에서 원본 프로젝트와 개발 EMS 전체를 빈 mount로 가리는 도구이며 일반 EMS 실행 의존성은 아니다.
+
+```bash
+AI_EMS_STAGE3C_TESTS=1 PYTHONDONTWRITEBYTECODE=1 \
+.venv/bin/python -B -m pytest -q tests/test_mongolia_bundle_runtime.py \
+  tests/test_mongolia_bundle_servers.py --basetemp=/tmp/mn-stage3c-review-new
+
+AI_EMS_STAGE3C_TESTS=1 AI_EMS_BROWSER_TESTS=1 \
+AI_EMS_CHROME="$PWD/.cache/mn-stage1-chrome/chrome-linux64/chrome" \
+FONTCONFIG_FILE="$PWD/.cache/korean-fonts/fonts.conf" PYTHONDONTWRITEBYTECODE=1 \
+.venv/bin/python -B -m pytest -q --basetemp=/tmp/mn-stage3c-chrome-review-new
+```
+
+Stage 4 준비 항목:
+
+- **코드/데이터:** `src/ai_ems`, `web_app.py`, `ui/`, `studies/`, `pipelines/mn/`의 번들 검증 코드와 고정 계약, 승인된 완성 번들 한 버전. Web이 시작 시 KPG도 읽으므로 `data/KPG193_ver2_0_powsybl_full.mat`, `data/bus_location.csv`, `data/grids/kr-geography.json`, `data/grids/kr-osm-transmission-map.json`도 필요하다. 몽골의 별도 개발용 지도/PF/NetCDF/원본 보고서는 필요 없다. 한국 검토 도구를 별도 서비스하려면 그 정적 데이터와 기존 서비스 절차도 별도로 준비한다.
+- **실행 환경:** 검증한 Python3.11.16, PyPowSyBl1.16.1 및 native 엔진, numpy/pandas/scipy/networkx/python-dotenv, 기존 FastAPI/Uvicorn·LangChain/LangGraph·Ollama 클라이언트와 KPG 의존성. `requirements.txt`는 이번에 바꾸지 않았다. 이미 설치된 networkx의 명시적 런타임 의존성 선언·대상 OS의 native 엔진 호환성은 Stage4 전에 정리해야 한다. 전체 검증 버전은 보고서에 있다.
+- **구축 전용:** PyPSA, GIS, Powerplantmatching, Pixi, Earth 소스, 원본 PBF/NetCDF, `.venv-powsybl`은 번들 기반 EMS 실행에 필요 없다. Chrome·pytest·bwrap은 검증 도구다. 이번 시험은 기존 EMS venv를 읽기 전용으로 연결했으며 환경 설치/갱신은 하지 않았다.
+- **설정/네트워크:** 번들 두 선택자와 필요 시 `AI_EMS_CASE_FILE`, `AI_EMS_BUS_LOCATION_FILE`, `AI_EMS_KOREA_MAP_FILE`. Web/Physics를 별도 loopback 포트로 실행한다. 몽골 지도/PF/N-1/Sensitivity에는 외부 원본 서버가 필요 없다. LLM을 사용할 때만 승인한 목적지의 DNS·TLS·네트워크 접근과 `AI_EMS_MODEL`, `AI_EMS_LLM_BASE_URL`, 기존 인증 설정이 필요하다. 인증 값은 승인된 비밀 관리 경로로 전달하고 보고서에 출력하지 않는다.
+- **Agent:** 몽골 선택 시 기존 `/api/grids/mn-osm-35k/chat`를 사용한다. 도구 이름은 몽골 전용이며 실제 계통/발전소 접속이 검증됐다는 뜻이 아니다. 로컬 모의 LLM 검증과 실제 외부 LLM 연결 결과를 구분한다. 이번 승인된 외부 요청은503으로 실패했으므로 실제 모델 응답 성공으로 보고하지 않는다.
+- **장애/승인:** `runtime-status`의 원인을 확인하고 실패 번들을 교체 승인하지 않는다. 해당 시험 프로세스만 종료한 뒤 승인된 Historical로 재시작한다. 원본87개 계약 중 이번에 수정한 코드3개는 별도 SHA 변경 기록을 남겼다. 현재 트리의 Stage1 엄격 검사는 이3개를 NOT_READY로 판정하며 원래 계약을 완화하지 않았다. 새 구축 기준선 승인은 독립 리뷰 후 별도 작업이다. 기존 데이터/모델84개 비교와 과거 코드 복사본의87개 검증은 보고서에서 구분한다.
+- **이전 제한:** GADM 등 번들 출처별 이용·재배포 조건 및 사내 이전 승인이 해결되어야 실제 워크스테이션 설치를 진행할 수 있다. 이번은 현재 개발 PC 내부 검증이며 파일 반출·상업/수출 패키지 승인을 수행하지 않았다.
+
+실제 명령, API·브라우저·원본 접근 차단 증거와 잔여 제한은 [Stage 3C 검증 보고서](../../docs/validation/mongolia-pipeline-stage3c.md)에 기록한다.
 
 ## 다음 이관 순서
 

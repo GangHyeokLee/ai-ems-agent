@@ -1,10 +1,11 @@
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -49,6 +50,8 @@ from ai_ems.config import (
     MONGOLIA_XIIDM_FILE,
     PROJECT_ROOT,
     KOREA_MAP_FILE,
+    MONGOLIA_BUNDLE_DIR,
+    MONGOLIA_BUNDLE_MANIFEST_SHA256,
 )
 from ai_ems.mongolia_security import (
     ExcludedOutageLine,
@@ -58,6 +61,7 @@ from ai_ems.mongolia_security import (
     UnknownOutageLine,
 )
 from ai_ems.mongolia_sensitivity import InvalidMonitoredLine, SensitivityVerificationFailed
+from ai_ems.mongolia_runtime import MongoliaBundleRuntime
 
 UI_DIR = Path("ui")
 MONGOLIA_MAP_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-map.json"
@@ -65,6 +69,7 @@ MONGOLIA_PF_PREVIEW_FILE = PROJECT_ROOT / "data" / "grids" / "mn35k-synthetic-pf
 # Reference-only display layers; deliberately separate from the hash-bound base map.
 MONGOLIA_REFERENCE_LAYERS_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-reference-layers.json"
 KPG_GEOGRAPHY_FILE = PROJECT_ROOT / "data" / "grids" / "kr-geography.json"
+_mongolia_bundle_runtime = MongoliaBundleRuntime(MONGOLIA_BUNDLE_DIR, MONGOLIA_BUNDLE_MANIFEST_SHA256)
 
 network = load_network(CASE_FILE)
 agent_graph = create_agent_graph(network)
@@ -77,6 +82,11 @@ agent_sessions: dict[str, list[Any]] = {}
 
 def _load_validated_mongolia_pf() -> dict[str, Any]:
     # Resolve module paths at call time so the configured assets are always re-validated.
+    if _mongolia_bundle_runtime.selected:
+        files = _mongolia_bundle_runtime.files()
+        result = load_mongolia_pf_preview(files.pf_preview, files.map)
+        _mongolia_bundle_runtime.guard()
+        return result
     return load_mongolia_pf_preview(MONGOLIA_PF_PREVIEW_FILE, MONGOLIA_MAP_FILE)
 
 
@@ -87,6 +97,8 @@ _mongolia_security_services: dict[tuple, MongoliaSecurityService] = {}
 
 
 def _mongolia_security() -> MongoliaSecurityService:
+    if _mongolia_bundle_runtime.selected:
+        return _mongolia_bundle_runtime
     files = ModelFiles(
         MONGOLIA_XIIDM_FILE,
         MONGOLIA_POWSYBL_REPORTS_DIR,
@@ -115,9 +127,32 @@ bus_location_map = {
     for _, row in bus_locations.iterrows()
 }
 
-app = FastAPI(
-    title="AI-EMS Agent",
-)
+@asynccontextmanager
+async def _lifespan(app):
+    _mongolia_bundle_runtime.start()
+    yield
+
+
+app = FastAPI(title="AI-EMS Agent", lifespan=_lifespan)
+
+
+@app.middleware("http")
+async def _guard_mongolia_bundle(request, call_next):
+    scoped = (_mongolia_bundle_runtime.selected
+              and request.url.path.startswith("/api/grids/mn-osm-35k/")
+              and request.url.path not in {"/api/grids/mn-osm-35k/runtime-status", "/api/grids/mn-osm-35k/security-status"})
+    if scoped:
+        try:
+            _mongolia_bundle_runtime.guard()
+        except MongoliaModelUnavailable as exc:
+            return JSONResponse(status_code=503, content={"detail": str(exc)})
+    response = await call_next(request)
+    if scoped and response.status_code < 400:
+        try:
+            _mongolia_bundle_runtime.guard()
+        except MongoliaModelUnavailable as exc:
+            return JSONResponse(status_code=503, content={"detail": str(exc)})
+    return response
 
 
 class ChatRequest(BaseModel):
@@ -151,10 +186,12 @@ def health():
 
 @app.get("/api/grids")
 def grid_catalog():
+    map_file, preview_file = (_mongolia_bundle_runtime.catalog_paths() if _mongolia_bundle_runtime.selected
+                              else (MONGOLIA_MAP_FILE, MONGOLIA_PF_PREVIEW_FILE))
     return {
         "grids": list_grids(
-            MONGOLIA_MAP_FILE,
-            MONGOLIA_PF_PREVIEW_FILE,
+            map_file,
+            preview_file,
             _mongolia_security().status(),
             KOREA_MAP_FILE,
         ),
@@ -168,7 +205,8 @@ def grid_map(grid_id: str):
         return network_map()
     if grid_id == MONGOLIA_GRID_ID:
         try:
-            return load_mongolia_map(MONGOLIA_MAP_FILE)
+            map_file = (_mongolia_bundle_runtime.files().map if _mongolia_bundle_runtime.selected else MONGOLIA_MAP_FILE)
+            return load_mongolia_map(map_file)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
@@ -186,10 +224,7 @@ def grid_map(grid_id: str):
 @app.get("/api/grids/mn-osm-35k/pf-preview")
 def mongolia_pf_preview():
     try:
-        return load_mongolia_pf_preview(
-            MONGOLIA_PF_PREVIEW_FILE,
-            MONGOLIA_MAP_FILE,
-        )
+        return _load_validated_mongolia_pf()
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
@@ -199,11 +234,26 @@ def mongolia_pf_preview():
 @app.get("/api/grids/mn-osm-35k/reference-layers")
 def mongolia_reference_layers():
     try:
+        if _mongolia_bundle_runtime.selected:
+            files = _mongolia_bundle_runtime.files()
+            return load_mongolia_reference_layers(files.reference, files.map)
         return load_mongolia_reference_layers(MONGOLIA_REFERENCE_LAYERS_FILE, MONGOLIA_MAP_FILE)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/grids/mn-osm-35k/runtime-status")
+def mongolia_runtime_status():
+    diagnostic = _mongolia_bundle_runtime.diagnostics()
+    if not _mongolia_bundle_runtime.selected:
+        status = _mongolia_security().status()
+        diagnostic.update(available=status["available"], validation_status="LEGACY",
+                          paths={"map": str(MONGOLIA_MAP_FILE), "pf_preview": str(MONGOLIA_PF_PREVIEW_FILE),
+                                 "reference": str(MONGOLIA_REFERENCE_LAYERS_FILE), "xiidm": str(MONGOLIA_XIIDM_FILE),
+                                 "reports": str(MONGOLIA_POWSYBL_REPORTS_DIR)})
+    return {"grid_id": MONGOLIA_GRID_ID, **diagnostic}
 
 
 @app.get("/api/grids/mn-osm-35k/security-status")
@@ -564,6 +614,8 @@ def mongolia_chat(request: ChatRequest) -> dict[str, Any]:
     # so the LLM is never asked to answer without verified numbers.
     try:
         _load_validated_mongolia_pf()
+    except MongoliaModelUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=404,

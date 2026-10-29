@@ -38,13 +38,13 @@ KOREA_LAND_BOUNDS = (124.0, 32.5, 132.5, 39.0)
 
 
 def list_grids(
-    mongolia_map_file: Path,
+    mongolia_map_file: Path | None,
     mongolia_pf_preview_file: Path | None = None,
     mongolia_security_status: dict[str, Any] | None = None,
     korea_map_file: Path | None = None,
 ) -> list[dict[str, Any]]:
     """Return supported grids with independently gated map/analysis capabilities."""
-    map_ready = mongolia_map_file.is_file()
+    map_ready = bool(mongolia_map_file and mongolia_map_file.is_file())
     pf_preview_ready = bool(mongolia_pf_preview_file and mongolia_pf_preview_file.is_file())
     security_ready = bool(map_ready and mongolia_security_status and mongolia_security_status.get("available") is True)
     sensitivity_ready = bool(security_ready and mongolia_security_status.get("sensitivity_available") is True)

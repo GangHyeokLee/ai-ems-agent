@@ -1,0 +1,22 @@
+{
+  "schema": "mn-stage3c-code-change-audit-1",
+  "basis": "Explicit Stage 3C runtime path integration; original Stage 1 contract is not modified. This is review evidence, not replacement model approval.",
+  "stage1_contract_sha256": "bde2dbd9f55fc6eef6efdfee1cb5ff1a84dd05500b7deda28c96ff910456ff73",
+  "files": {
+    "ems_code.src/ai_ems/config.py": {
+      "path": "src/ai_ems/config.py",
+      "before": "4beae767c720b5d26d7b1816ca314f564731dedfc8a4899824e786bcbd1a13f0",
+      "after": "3c865cfb16f7456be039e6c1a8d9262d4f659bd676b28bad010aa2362ed49ccd"
+    },
+    "ems_code.src/ai_ems/grid_catalog.py": {
+      "path": "src/ai_ems/grid_catalog.py",
+      "before": "12d49b8421d49688674b5edb8e1856100afb3053c3ed9c0ffc0b815435e9abe4",
+      "after": "cbaf9030b925b97912ca1563b1e868fe89ac4ebefc0ba670152b188c60cab2e6"
+    },
+    "ems_code.web_app.py": {
+      "path": "web_app.py",
+      "before": "7596544bbc58d7beb6dfbc64c09a0007a2c2b53ade3bb98803960b9749b54125",
+      "after": "715c19742c19408f609c3b64b8fc4a23f8b7b55e2bf11a0cfaca392eebef83d7"
+    }
+  }
+}

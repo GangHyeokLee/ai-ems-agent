@@ -60,6 +60,11 @@ MONGOLIA_POWSYBL_REPORTS_DIR = _path_from_env(
     "../mongolia-grid-poc/reports/pypowsybl_conversion",
 )
 
+# Optional operator-only, process-start selection. Empty/partial explicit
+# settings are errors, not permission to fall back to the legacy paths above.
+MONGOLIA_BUNDLE_DIR = os.getenv("AI_EMS_MN_BUNDLE_DIR")
+MONGOLIA_BUNDLE_MANIFEST_SHA256 = os.getenv("AI_EMS_MN_BUNDLE_MANIFEST_SHA256")
+
 WEB_HOST = os.getenv(
     "AI_EMS_WEB_HOST",
     "127.0.0.1",

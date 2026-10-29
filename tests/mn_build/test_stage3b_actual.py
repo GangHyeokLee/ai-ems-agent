@@ -85,6 +85,12 @@ def test_runtime_copied_bundle_without_source_earth_build_env_or_dev_assets(real
                    "--tmpfs", str(paths.ems_root/"data"), "--tmpfs", str(paths.ems_root/"outputs")]
         if not paths.earth_checkout.is_relative_to(paths.source_project):
             command += ["--tmpfs", str(paths.earth_checkout)]
+        # The original bundle may live outside EMS outputs when an independent
+        # baseline EMS root or /tmp basetemp is injected. Mask that actual
+        # location too, rather than assuming hiding ems_root/outputs covers it.
+        origin = Path(receipt["bundle"]).parent
+        if not origin.is_relative_to(paths.ems_root/"outputs"):
+            command += ["--tmpfs", str(origin)]
         command += ["--", str(paths.runtime_python), "-B", "-I", str(evidence),
                     str(paths.ems_root/"pipelines/mn/bundle_probe.py"), "--bundle", str(copy),
                     "--manifest-sha256", receipt["trusted_manifest_sha256"], "--ems-root", str(paths.ems_root)]

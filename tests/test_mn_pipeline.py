@@ -259,7 +259,20 @@ def test_real_asset_checks_are_deterministic_and_keep_model_roles(real_paths):
     paths,first=preflight.assemble(real_paths,contract)
     _,second=preflight.assemble(real_paths,contract)
     assert first==second
-    assert first['ready'],[c for c in first['checks'] if c['passed'] is False]
+    # Stage 3C intentionally changes these three runtime entry files. Keep the
+    # original 87-role contract STRICT: it must reject their old byte pins,
+    # while every data/model/helper identity continues to match. The separate
+    # review record pins both old and new bytes; no data tolerance is relaxed.
+    audit=json.loads((ROOT/'docs/validation/mongolia-pipeline-stage3c-code-hashes.json').read_text())
+    assert audit['stage1_contract_sha256']==inventory.sha256(inventory.CONTRACT)
+    expected={'ems_code.src/ai_ems/config.py','ems_code.src/ai_ems/grid_catalog.py','ems_code.web_app.py'}
+    assert set(audit['files'])==expected
+    failures=[c for c in first['checks'] if c['passed'] is False]
+    assert not first['ready'] and {c['name'] for c in failures}=={'file:'+role for role in expected},failures
+    assert len(first['files'])==87
+    for role,spec in audit['files'].items():
+        assert first['files'][role]['sha256']==spec['after']
+        assert first['files'][role]['expected_sha256']==spec['before']
     assert first['facts']['map_counts']['Bus']==173
     assert first['facts']['xiidm_counts']['Bus']==166
     assert first['netcdf_models']['map_model']['result']['format']=='HDF5/NetCDF4'
