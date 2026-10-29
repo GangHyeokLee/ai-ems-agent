@@ -1,6 +1,6 @@
 # 몽골 파이프라인 — 기반 점검과 검증 전용 수동 모델 구축
 
-Stage 1 명령은 현재 기능의 기준선과 경로·환경을 **읽기 전용으로 검사**한다. Stage 2A는 자체 helper 네 개의 코드 소유권과 경로 의존성을 정리했다. Stage 2B는 검증기와 수동 모델 빌더를, Stage 2C는 초기 합성 AC PF와 무효전력 보상 코드를 이관했다. Stage 2D는 공개 발전소 후보와 data-informed PF·무효전력·220kV 진단을 이관했다. 재생성과 분석은 명시적인 검증 함수로만 실행한다. 모델 구축·변환 CLI, EMS 배포 번들 설치, 런타임 경로 전환은 활성화하지 않았다. 이 패키지를 EMS가 import하지 않으며, Python 표준 라이브러리로 검사 명령을 구동한다. 구축 코드는 별도 구축/변환 환경에서 명시적으로 import한다.
+Stage 1 명령은 현재 기능의 기준선과 경로·환경을 **읽기 전용으로 검사**한다. Stage 2A는 자체 helper 네 개의 코드 소유권과 경로 의존성을 정리했다. Stage 2B는 검증기와 수동 모델 빌더를, Stage 2C는 초기 합성 AC PF와 무효전력 보상 코드를 이관했다. Stage 2D는 공개 발전소 후보와 data-informed PF·무효전력·220kV 진단을 이관했다. Stage 3A는 최종 변환기를 이관하고 격리된 XIIDM·EMS 호환성 검증 함수를 제공한다. 재생성·분석·변환은 명시적인 검증 함수로만 실행한다. 모델 구축·변환 CLI, EMS 배포 번들 설치, 런타임 경로 전환은 활성화하지 않았다. 이 패키지를 EMS가 import하지 않으며, Python 표준 라이브러리로 검사 명령을 구동한다. 구축 코드는 별도 구축/변환 환경에서 명시적으로 import한다.
 
 ## 실행
 
@@ -201,6 +201,34 @@ PYVERIFY
 
 원본과 이관 구현 및 과거 보고서의 비교, 비수렴·입력/출력 실패 회귀와 전체 검증 명령은 [Stage 2D 보고서](../../docs/validation/mongolia-pipeline-stage2d.md)에 있다. 기존 보고서의 원본 실험 문구·논리적 경로는 유지했으며 실제 실행 경로와 코드 소유권은 README와 `analysis_provenance.json`에서 구분한다.
 
+## Stage 3A: PyPowSyBl 변환과 격리된 EMS 호환성 검증
+
+`convert_mn35k_to_powsybl.convert_for_verification(paths, destination, config_path=None)`는 원본 설정이 지정한 **과거45대 NetCDF**만 변환한다. 입력은 `21bd0d…` hash의 `pypsa-earth/networks/MN_35k_poc/scenarios/synthetic_reactive_support_base.nc`다. 초기108대, 비수렴 data-informed, Stage2C의 다른 산출물을 자동 선택하지 않는다. 설정 사본도 pinned bytes와 같아야 한다.
+
+기존 `mn35k_powsybl.py`는 원본과 바이트 동일하게 유지한다. 원본 변환기의 수식·제어·PF/N-1·허용오차를 보존하고, `conversion_inputs.py`/`conversion_contract.json`으로128개 source와2개 EMS 참조 파일을 검사한다. `conversion_checks.py`는 ID/연결/정격·바이트 기록·재로드·N-1과 EMS 제어 호환성의 공개 전 검증을 담당한다.
+
+한 번의 검증은 XIIDM·기존 계약의 대응표/비교 CSV·JSON·새 Markdown·provenance16개를 비공개 디렉터리에서 완성한 뒤 원자적으로 공개한다. 실패하거나 기존 경로/파일/링크가 있으면 공개하지 않는다. XIIDM `caseDate`에 따른 바이트 hash와, 그 한 필드만 제외한 canonical XML hash를 별도로 기록한다. 전기적 검증을 hash 한 개로 대체하지 않는다.
+
+구축/변환은 기존 외부 Python에서 실행한다. EMS 호환성은 기존 Stage1 `preflight.run_probe()`/`probe.numerical()`을 재사용해 **별도 EMS Python**에서 검사한다. `ModelFiles`에 신규 임시 XIIDM·보고서를 명시적으로 전달해 PF·N-1 세 사례·Sensitivity132개 후보를 독립 객체로 실행한다. 기존 `.venv`의 의존성·설정·활성 파일을 바꾸지 않는다. 운영 변환 CLI·배포 번들 설치/롤백은 활성화하지 않았다.
+
+```bash
+# EMS 루트, 반드시 사용하지 않은 새 최종 이름 지정.
+export KEMS_MN_SOURCE_PROJECT="$(realpath ../mongolia-grid-poc)"
+export KEMS_MN_EARTH_CHECKOUT="$KEMS_MN_SOURCE_PROJECT/pypsa-earth"
+export KEMS_MN_OUTPUT_DIR=outputs/mn_stage3a/generated
+PROJ_DATA="$KEMS_MN_EARTH_CHECKOUT/.pixi/envs/default/share/proj" \
+MPLCONFIGDIR=/tmp/mn-stage3a-mpl PYTHONDONTWRITEBYTECODE=1 \
+"$KEMS_MN_SOURCE_PROJECT/.venv-powsybl/bin/python" -B - <<'PYVERIFY'
+from types import SimpleNamespace
+from pipelines.mn.paths import resolve
+from pipelines.mn.convert_mn35k_to_powsybl import convert_for_verification
+p = resolve(SimpleNamespace())
+print(convert_for_verification(p, p.output_dir / "historical-review-new"))
+PYVERIFY
+```
+
+이 함수는 실제 모델을 새로 변환하며 PyPSA/PyPowSyBl 환경과 기존 EMS Python·참조 파일이 필요하다. 결과의 `validation_passed=true`/`runtime_compatible=true`는 검증 통과를 뜻하며 `activated=false`를 유지한다. 미검증 실제 계통 데이터로 승격하거나 기존 모델을 교체하지 않는다. [Stage 3A 검증 보고서](../../docs/validation/mongolia-pipeline-stage3a.md)에 원본 비교·hash·수치·예외·전체 테스트와 Stage3B 요구사항을 기록했다.
+
 ## 다음 이관 순서
 
 먼저 모든 `ROOT`, `EARTH`, `REPORTS`, `Path.home()`, `sys.path.insert`와 보호 출력 경로를 명시적 경로 객체로 전환한다. 해시 검사를 제거하지 않고 논리적 원본 식별자와 물리 위치를 구분한다. 이후 다음 순서로 작게 이관한다.
@@ -211,7 +239,7 @@ PYVERIFY
 | 2 (Stage 2B 완료) | `validate_mn_grid.py`, `validate_mn35k_poc.py`, `build_mn35k_poc.py` | 173/159/27, 원본 보존, 길이 미해결 18개, NetCDF/Ybus·재현성 |
 | 3 (Stage 2C 완료) | `run_mn35k_acpf.py`, `run_mn35k_reactive_support.py` | 초기 108대와 현재 45대 시나리오 분리, 166/156/27·PV43/PQ122/Slack1·20MVAr |
 | 4 (Stage 2D 완료) | `audit_mn35k_plants.py`, `run_mn35k_data_informed_pf.py`, `diagnose_mn35k_reactive.py`, `audit_mn35k_220kv_lines.py` | 공개 레코드·접속 후보·비수렴 상태·부하/길이/Q 진단 보존 |
-| 5 | `convert_mn35k_to_powsybl.py` | 이미 이관한 `mn35k_powsybl.py` 사용, 양 엔진 단위/부호/기준용량·PF/N-1 비교 |
+| 5 (Stage 3A 완료) | `convert_mn35k_to_powsybl.py` | 이미 이관한 `mn35k_powsybl.py` 사용, 양 엔진 단위/부호/기준용량·PF/N-1 비교 |
 | 6 | 기존 EMS exporter·번들 경계 정리 (후속 단계) | 지도–PF–모델 해시 계약, 실제 배포/롤백·런타임 독립성 |
 
 AST 위상 정렬은 import 의존 그룹 6개를 산출한다. 위 수동 순서는 데이터 소비 관계까지 반영하므로 위상 그룹과 동일하지 않다. 원본 8개 테스트 파일은 대응 모듈과 함께 별도 구축 테스트 영역으로 이관한다. bare import와 `tests`의 `sys.path` 주입도 같이 정리한다.
