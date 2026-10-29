@@ -229,6 +229,65 @@ PYVERIFY
 
 이 함수는 실제 모델을 새로 변환하며 PyPSA/PyPowSyBl 환경과 기존 EMS Python·참조 파일이 필요하다. 결과의 `validation_passed=true`/`runtime_compatible=true`는 검증 통과를 뜻하며 `activated=false`를 유지한다. 미검증 실제 계통 데이터로 승격하거나 기존 모델을 교체하지 않는다. [Stage 3A 검증 보고서](../../docs/validation/mongolia-pipeline-stage3a.md)에 원본 비교·hash·수치·예외·전체 테스트와 Stage3B 요구사항을 기록했다.
 
+## Stage 3B: 독립 배포 후보 번들 생성·검증
+
+`bundle_build.create_bundle()`은 `Paths.bundle_dir` 안에 고유한
+`mn-osm-35k-{historical|stage3a}-<version>` 디렉터리를 원자적으로 공개한다.
+기본 입력은 기존 과거 XIIDM과 해당 보고서 묶음이다. 모델 재변환·설치·활성화는
+수행하지 않는다. PyPSA 없이 기존 EMS Python으로 생성/검증할 수 있지만,
+**생성 시에는** 원본 데이터와 Stage 1의 87개 기준 파일이 필요하다.
+
+```bash
+# EMS 루트. version은 매번 새 이름으로 지정한다. 기존 결과는 교체하지 않는다.
+export KEMS_MN_SOURCE_PROJECT="$(realpath ../mongolia-grid-poc)"
+.venv/bin/python -B -m pipelines.mn.bundle_cli create \
+  --source-project "$KEMS_MN_SOURCE_PROJECT" \
+  --bundle-dir outputs/mn/bundles --version review-new
+
+# Stage 3A의 완성된 변환 묶음을 명시적으로 선택할 때만:
+.venv/bin/python -B -m pipelines.mn.bundle_cli create \
+  --source-project "$KEMS_MN_SOURCE_PROJECT" \
+  --bundle-dir outputs/mn/bundles --version review-new \
+  --model-source stage3a \
+  --conversion-directory outputs/mn_stage3a/generated/historical-02
+
+# 생성 명령이 출력한 trusted_manifest_sha256을 별도 검토/보관한 후 전달한다.
+# 번들 안의 manifest를 즉석에서 hash해 신뢰 기준으로 삼지 않는다.
+.venv/bin/python -B -m pipelines.mn.bundle_cli validate \
+  --bundle outputs/mn/bundles/mn-osm-35k-historical-review-new \
+  --manifest-sha256 '<외부에 보관하고 승인한 SHA256>'
+.venv/bin/python -B -m pipelines.mn.bundle_cli runtime \
+  --bundle outputs/mn/bundles/mn-osm-35k-historical-review-new \
+  --manifest-sha256 '<외부에 보관하고 승인한 SHA256>' \
+  --runtime-python "$PWD/.venv/bin/python" --ems-root "$PWD"
+
+# 신규 고정 샘플과 실제 원본/복사본 검사; 원본 프로젝트는 수정하지 않는다.
+.venv/bin/python -B -m pytest -q tests/mn_build/test_stage3b_samples.py
+KEMS_MN_SOURCE_PROJECT="$KEMS_MN_SOURCE_PROJECT" \
+.venv/bin/python -B -m pytest -q tests/mn_build/test_stage3b_actual.py \
+  --basetemp=outputs/mn_stage3b/independent-review-new
+```
+
+생성 결과 JSON을 저장하려면 **기존 파일을 덮어쓰지 않는 별도 경로**에 보관한다.
+이 receipt는 서명이 아니며, 무신뢰 경로에서 번들과 함께 받은 receipt만으로는
+출처를 인증할 수 없다. 검토한 hash를 별도 신뢰 채널/배포 승인 기록에 고정해야 한다.
+정적 검증에는 표준 라이브러리만 필요하며 `Paths`나 원본 경로를 읽지 않는다.
+런타임 검증에는 EMS 코드·고정 계약·EMS Python 및 실행 라이브러리가 필요하다.
+PyPSA/Earth/Pixi/원본 NetCDF/변환 venv는 필요 없다.
+
+독립성 테스트는 Linux `bwrap`의 읽기 전용 mount와 빈 mount로 원본 프로젝트,
+Earth, 기존 EMS `data/`, `outputs/`를 가리고 `/tmp`의 번들 복사본에서 검증한다.
+테스트용 bwrap은 EMS 실행 의존성이 아니다. 생성의 비대체 공개는 기존 Linux
+`renameat2(RENAME_NOREPLACE)`와 고정한 부모 디렉터리 fd를 사용하며 지원되지 않는
+플랫폼에서는 실패한다. 정적 검증/읽기 전용 실행은 공개 기능과 분리되어 있다.
+
+`runtime_compatible=true`여도 `activated=false`다. GADM 경계가 포함되어
+재배포/상업 이용 허가가 확인되지 않았으므로 `external_distribution_approved=false`를
+유지한다. 사내 상업 PoC의 이용 권한도 확인됐다고 주장하지 않는다.
+실제 활성 경로 전환·워크스테이션 전송·설치·복귀는 Stage 3C의 별도 검토 대상이다.
+[Stage 3B 검증 보고서](../../docs/validation/mongolia-pipeline-stage3b.md)에
+런타임 파일 계약, 수치 검증, 독립성 증거, 출처·재배포 검토와 회귀 결과를 기록한다.
+
 ## 다음 이관 순서
 
 먼저 모든 `ROOT`, `EARTH`, `REPORTS`, `Path.home()`, `sys.path.insert`와 보호 출력 경로를 명시적 경로 객체로 전환한다. 해시 검사를 제거하지 않고 논리적 원본 식별자와 물리 위치를 구분한다. 이후 다음 순서로 작게 이관한다.
