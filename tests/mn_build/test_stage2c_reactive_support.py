@@ -167,4 +167,3 @@ def test_limited_220kv_pv_does_not_turn_nonconvergence_into_success(
     assert outcome["status"] == "AC_PF_NOT_CONVERGED"
     assert attempts[-1]["result"]["subnetworks"][0]["n_iter"] == 100
     assert not network.shunt_impedances.shape[0]
-

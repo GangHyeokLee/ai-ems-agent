@@ -1,6 +1,6 @@
 # 몽골 파이프라인 — 기반 점검과 검증 전용 수동 모델 구축
 
-Stage 1 명령은 현재 기능의 기준선과 경로·환경을 **읽기 전용으로 검사**한다. Stage 2A는 자체 helper 네 개의 코드 소유권과 경로 의존성을 정리했다. Stage 2B는 검증기와 수동 모델 빌더를, Stage 2C는 초기 합성 AC PF와 무효전력 보상 코드를 이관했다. 재생성은 명시적인 검증 함수로만 실행한다. 모델 구축·변환 CLI, EMS 배포 번들 설치, 런타임 경로 전환은 활성화하지 않았다. 이 패키지를 EMS가 import하지 않으며, Python 표준 라이브러리로 검사 명령을 구동한다. 구축 코드는 별도 구축/변환 환경에서 명시적으로 import한다.
+Stage 1 명령은 현재 기능의 기준선과 경로·환경을 **읽기 전용으로 검사**한다. Stage 2A는 자체 helper 네 개의 코드 소유권과 경로 의존성을 정리했다. Stage 2B는 검증기와 수동 모델 빌더를, Stage 2C는 초기 합성 AC PF와 무효전력 보상 코드를 이관했다. Stage 2D는 공개 발전소 후보와 data-informed PF·무효전력·220kV 진단을 이관했다. 재생성과 분석은 명시적인 검증 함수로만 실행한다. 모델 구축·변환 CLI, EMS 배포 번들 설치, 런타임 경로 전환은 활성화하지 않았다. 이 패키지를 EMS가 import하지 않으며, Python 표준 라이브러리로 검사 명령을 구동한다. 구축 코드는 별도 구축/변환 환경에서 명시적으로 import한다.
 
 ## 실행
 
@@ -167,6 +167,40 @@ PYVERIFY
 
 보고서 본문은 원본 실험의 문구·논리적 경로를 보존했다. 현재 실행할 함수·실제 경로·코드/입력 해시·환경은 이 README와 각 `build_provenance.json`이 제공한다. 원본/이관 코드 hash와 계산 결과 hash를 혼동하지 않는다. 기존45대 NetCDF와 이번 출력의 차원 선언 순서 차이, 정확한 수치 비교·명령·회귀 결과는 [Stage 2C 검증 보고서](../../docs/validation/mongolia-pipeline-stage2c.md)에 기록했다. 실제 계통/운전 자료로 승격하지 않는다.
 
+## Stage 2D: 공개 발전소 후보·실험·계통 진단
+
+`audit_mn35k_plants`, `run_mn35k_data_informed_pf`, `diagnose_mn35k_reactive`, `audit_mn35k_220kv_lines`는 각각 `analyze_for_verification(paths, destination)`을 제공한다. 기존 EMS/운영 CLI에 연결하지 않는다. 진단기는 data-informed PF의 구성 helper를 사용하므로 **발전소 감사 → data-informed PF → 무효전력 진단 → 220kV 감사** 순서로 이관·비교했다. 진단 입력은 원본에 고정된 과거 보고서이며, 새 분석 산출물로 조용히 바꾸지 않는다.
+
+`diagnostic_inputs.py`와 `diagnostic_contract.json`은 기존 Stage 1~2C 경로·보호 기능을 재사용하며151개 입력/보존 파일의 SHA256과8개 보고서 디렉터리 집합을 고정한다. 코드 해시·원본 커밋·출처·실행 환경·결과 해시는 별도로 기록한다. 원본 Python은 해시 증거로만 읽고 실행 의존성으로 import하지 않는다. 과거 브랜치나 `git show`를 데이터 입력으로 사용하지 않는다. Git 저장소가 없는 복사 입력에서도 분석 가능함을 검사했다.
+
+각 분석은 `output_dir` 내부의 새 디렉터리로만 원자적으로 공개한다. 모든 결과를 비공개 영역에서 생성·검사한 뒤 기존 디렉터리 공개 helper로 한 번에 공개한다. 기존 파일/디렉터리/심볼릭 링크/하드링크를 교체하지 않는다. I/O·실행 오류와 불완전 묶음은 최종 결과 없이 정리된다. **완성된 진단 보고서는 수렴 모델을 뜻하지 않는다.** 모든 provenance와 반환값의 `model_usable=false`, `model_activated=false`를 유지한다. 예상 밖 수렴으로 실험 NetCDF가 생성돼도 그 새 분석 묶음에만 포함된다.
+
+공개27개 레코드와265개 공간 후보, 실제 접속 증거0건, 후보 ID1·5의 `ASSUMED_CONNECTION`을 보존한다. data-informed 최종 분류는 `DATA_INFORMED_SCENARIO_NOT_CONVERGED`이며 NetCDF를 생성하지 않는다. 기존45대 기준 모델·XIIDM·N-1·Sensitivity 설정은 그대로다.
+
+```bash
+# EMS 루트. 기존 외부 환경을 직접 사용한다. 매번 새 최종 이름 지정.
+export KEMS_MN_SOURCE_PROJECT="$(realpath ../mongolia-grid-poc)"
+export KEMS_MN_EARTH_CHECKOUT="$KEMS_MN_SOURCE_PROJECT/pypsa-earth"
+export KEMS_MN_OUTPUT_DIR=outputs/mn_stage2d/generated
+PROJ_DATA="$KEMS_MN_EARTH_CHECKOUT/.pixi/envs/default/share/proj" \
+MPLCONFIGDIR=/tmp/mn-stage2d-mpl PYTHONDONTWRITEBYTECODE=1 \
+"$KEMS_MN_SOURCE_PROJECT/.venv-powsybl/bin/python" -B - <<'PYVERIFY'
+from types import SimpleNamespace
+from pipelines.mn.paths import resolve
+from pipelines.mn import audit_mn35k_plants as plants
+from pipelines.mn import run_mn35k_data_informed_pf as data
+from pipelines.mn import diagnose_mn35k_reactive as reactive
+from pipelines.mn import audit_mn35k_220kv_lines as lines
+p = resolve(SimpleNamespace())
+for name, module in [("plants", plants), ("data-informed", data),
+                     ("reactive", reactive), ("220kv", lines)]:
+    result = module.analyze_for_verification(p, p.output_dir / (name + "-review-new"))
+    print(result["artifact"])
+PYVERIFY
+```
+
+원본과 이관 구현 및 과거 보고서의 비교, 비수렴·입력/출력 실패 회귀와 전체 검증 명령은 [Stage 2D 보고서](../../docs/validation/mongolia-pipeline-stage2d.md)에 있다. 기존 보고서의 원본 실험 문구·논리적 경로는 유지했으며 실제 실행 경로와 코드 소유권은 README와 `analysis_provenance.json`에서 구분한다.
+
 ## 다음 이관 순서
 
 먼저 모든 `ROOT`, `EARTH`, `REPORTS`, `Path.home()`, `sys.path.insert`와 보호 출력 경로를 명시적 경로 객체로 전환한다. 해시 검사를 제거하지 않고 논리적 원본 식별자와 물리 위치를 구분한다. 이후 다음 순서로 작게 이관한다.
@@ -176,7 +210,7 @@ PYVERIFY
 | 1 (Stage 2A 완료) | `audit_mn35k_parameters.py`, `mn35k_lengths.py`, `mn35k_refinement.py`, `mn35k_powsybl.py` | 거리/단위/정수 변환·원본 보호·순수 helper 테스트 |
 | 2 (Stage 2B 완료) | `validate_mn_grid.py`, `validate_mn35k_poc.py`, `build_mn35k_poc.py` | 173/159/27, 원본 보존, 길이 미해결 18개, NetCDF/Ybus·재현성 |
 | 3 (Stage 2C 완료) | `run_mn35k_acpf.py`, `run_mn35k_reactive_support.py` | 초기 108대와 현재 45대 시나리오 분리, 166/156/27·PV43/PQ122/Slack1·20MVAr |
-| 4 | `audit_mn35k_plants.py`, `run_mn35k_data_informed_pf.py`, `diagnose_mn35k_reactive.py`, `audit_mn35k_220kv_lines.py` | 공개 레코드·접속 후보·비수렴 상태·부하/길이/Q 진단 보존 |
+| 4 (Stage 2D 완료) | `audit_mn35k_plants.py`, `run_mn35k_data_informed_pf.py`, `diagnose_mn35k_reactive.py`, `audit_mn35k_220kv_lines.py` | 공개 레코드·접속 후보·비수렴 상태·부하/길이/Q 진단 보존 |
 | 5 | `convert_mn35k_to_powsybl.py` | 이미 이관한 `mn35k_powsybl.py` 사용, 양 엔진 단위/부호/기준용량·PF/N-1 비교 |
 | 6 | 기존 EMS exporter·번들 경계 정리 (후속 단계) | 지도–PF–모델 해시 계약, 실제 배포/롤백·런타임 독립성 |
 

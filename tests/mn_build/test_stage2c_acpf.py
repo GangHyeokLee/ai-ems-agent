@@ -170,4 +170,3 @@ def test_no_success_claim_or_result_hash_in_failure_report(tmp_path, source, con
     assert record["result_model_sha256"] is None
     assert record["numerical_status"] == "AC_PF_EXECUTION_ERROR"
     assert "AC_PF_CONVERGED" not in (tmp_path / "acpf_execution_report.md").read_text()
-

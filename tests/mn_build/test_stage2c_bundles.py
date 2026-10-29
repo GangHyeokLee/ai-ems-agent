@@ -5,12 +5,12 @@ import json
 from pathlib import Path
 import shutil
 import sys
-import xarray as xr
 
 import numpy as np
 import pandas as pd
 import pytest
 pypsa = pytest.importorskip("pypsa", reason="Synthetic PF requires separate build environment")
+import xarray as xr
 
 from pipelines.mn import run_mn35k_acpf as initial, run_mn35k_reactive_support as reactive
 from pipelines.mn import synthetic_inputs as inputs
