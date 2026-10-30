@@ -91,3 +91,6 @@ outputs/
 data/grids/
 *.nc
 *.raw
+
+# Local UI design references
+/local-reference/
