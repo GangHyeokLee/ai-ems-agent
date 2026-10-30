@@ -415,6 +415,8 @@
     const MIN_MAP_WIDTH = 360;
     const MIN_ASSISTANT_WIDTH = 520;
     let mapProjection = null;
+    // Optional display coordinates are separate from the hash-bound map/PF data.
+    let mongoliaDisplayGeometry = new Map();
     let selectedGridId = "kr-kpg193";
     let gridEntries = [];
     const VOLTAGE_COLORS = {"35":"#0891b2","110":"#2563eb","154":"#7c3aed","220":"#b45309","345":"#0f766e","765":"#be123c"};
@@ -1121,6 +1123,7 @@
       document.getElementById("voltage-filters").replaceChildren();
       updateAnalysisLegend();      // overlays were part of the old SVG
       currentMapData = null;
+      mongoliaDisplayGeometry = new Map();
       resetMapZoom();
       resetPfPreview();
       document.getElementById("plant-legend").hidden = true;
@@ -1134,6 +1137,19 @@
         const data = await response.json();
         if (token !== gridSwitchToken) return;
         if (!response.ok) throw new Error(data.detail || "지도를 불러오지 못했습니다.");
+        if (selectedGridId === "mn-osm-35k") {
+          // Missing or rejected optional coordinates retain the original map.
+          // Resolve before painting; a stale response can never enter another grid.
+          let geometry = null;
+          try {
+            const reply = await fetch("/api/grids/mn-osm-35k/display-geometry", {signal: AbortSignal.timeout(10000)});
+            if (reply.ok) geometry = await reply.json();
+          } catch (error) { /* Optional display asset unavailable: use bus chords. */ }
+          if (token !== gridSwitchToken) return;
+          if (geometry?.grid_id === "mn-osm-35k" && geometry.display_only === true && geometry.connectors === "omitted" && Array.isArray(geometry.lines)) {
+            mongoliaDisplayGeometry = new Map(geometry.lines.map(line => [line.line_id, line]));
+          }
+        }
         currentMapData = data;
         generatorStateMap = new Map((data.generators || []).map((item) => [item.generator_id, item]));
         if (!Array.isArray(data.buses) || data.buses.length === 0) throw new Error("좌표가 있는 모선이 없습니다.");
@@ -1287,7 +1303,13 @@
         const p1 = mapProjection(bus1);
         const p2 = mapProjection(bus2);
 
-        const route = Array.isArray(line.coordinates) && line.coordinates.length > 1
+        const display = mongoliaDisplayGeometry.get(line.line_id);
+        // Each source-supported piece starts with M. Never join omitted connectors.
+        const route = display
+          ? display.osm_parts.map(part => part.map(([longitude, latitude], i) => {
+              const p = mapProjection({longitude, latitude}); return `${i ? "L" : "M"}${p.x},${p.y}`;
+            }).join(" ")).join(" ")
+          : Array.isArray(line.coordinates) && line.coordinates.length > 1
           ? line.coordinates.map(([longitude, latitude], i) => { const p = mapProjection({longitude, latitude}); return `${i ? "L" : "M"}${p.x},${p.y}`; }).join(" ") : null;
         const makeLineShape = () => {
           const shape = document.createElementNS(SVG_NS, route ? "path" : "line");
@@ -1302,6 +1324,7 @@
         const element = makeLineShape();
         element.setAttribute("class", "network-line layer-line");
         element.dataset.lineId = line.line_id;
+        if (isMongoliaGrid()) element.dataset.geometrySource = display ? "osm" : "straight";
         element.style.stroke = voltageColor(line.voltage_kv);
         svg.appendChild(element);
 
@@ -1462,6 +1485,11 @@
         title = `발전기 · ${generators.length}대`;
         entries = [[dataColor("#16a34a"), `모델 발전기 (${buses.size}개 모선)`]];
         note = "";
+      }
+      if (isMongoliaGrid()) {
+        note = mongoliaDisplayGeometry.size
+          ? `원본 OSM 경로 ${mongoliaDisplayGeometry.size}선로 · 합성 연결 생략 · 나머지 ${data.lines.length - mongoliaDisplayGeometry.size}선로는 모선 간 직선`
+          : "GIS 표시 자료 미적용 · 모선 간 직선 표시";
       }
       legend.replaceChildren();
       legend.hidden = !title;
@@ -1817,6 +1845,7 @@
 
     function showLineTooltip(event, line, bus1, bus2) {
       const result = pfLineResultMap.get(String(line.line_id));
+      const display = mongoliaDisplayGeometry.get(String(line.line_id));
       const rows = pfPreview
         ? result && result.analysis_status === "ANALYZED"
           ? `
@@ -1829,6 +1858,9 @@
         : `<div class="map-tooltip-row">${pfResultState(null)}</div>`;
       showMapTooltip(event, `
         <div class="map-tooltip-title">선로 ${escapeHtml(line.line_id)}</div>
+        ${isMongoliaGrid() ? `<div class="map-tooltip-row"><strong>경로 표시</strong>: ${display
+          ? `원본 OSM way ${escapeHtml(display.osm_way_id)} · 합성 연결 ${formatPfNumber(display.omitted_connector_km, 2)} km 생략`
+          : "모선 간 직선 · 실제 선로 경로 아님"}</div>` : ""}
         <div class="map-tooltip-row"><strong>양단 모선</strong>: ${escapeHtml(line.bus1_id)} (${escapeHtml(bus1.name_korean || "-")}) ↔ ${escapeHtml(line.bus2_id)} (${escapeHtml(bus2.name_korean || "-")})</div>
         <div class="map-tooltip-row"><strong>정격전압</strong>: ${formatPfNumber(line.voltage_kv, 2)} kV</div>
         ${line.osm_id ? `<div class="map-tooltip-row"><strong>OSM</strong>: ${escapeHtml(line.osm_id)} · ${escapeHtml(line.source || "")}</div>` : ""}
@@ -2328,13 +2360,20 @@
       });
     }
     // Short lines (a few km) vanish at national scale, so ring the monitored line's midpoint.
-    function renderMonitoredLineMarker(ends) {
+    function renderMonitoredLineMarker(ends, lineId) {
       if (!mapProjection || !currentMapData || !ends) return;
       const bus0 = currentMapData.buses.find((item) => String(item.bus_id) === String(ends.bus0));
       const bus1 = currentMapData.buses.find((item) => String(item.bus_id) === String(ends.bus1));
       if (!bus0 || !bus1) return;
       const p0 = mapProjection(bus0), p1 = mapProjection(bus1);
-      const cx = (p0.x + p1.x) / 2, cy = (p0.y + p1.y) / 2;
+      let cx = (p0.x + p1.x) / 2, cy = (p0.y + p1.y) / 2;
+      if (mongoliaDisplayGeometry.has(lineId)) {
+        const route = [...document.querySelectorAll('.network-line')].find(node => node.dataset.lineId === lineId);
+        if (route?.getTotalLength() > 0) {
+          const middle = route.getPointAtLength(route.getTotalLength() / 2);
+          cx = middle.x; cy = middle.y;
+        }
+      }
       const group = document.createElementNS(SVG_NS, "g");
       group.setAttribute("class", "sensitivity-marker analysis-marker monitored-marker");
       const circle = document.createElementNS(SVG_NS, "circle");
@@ -2379,7 +2418,7 @@
       if (!vm.overlay.monitoredLineId) return;
       highlightLine(vm.overlay.monitoredLineId, "monitored-line");
       renderCandidateMarkers(vm);
-      renderMonitoredLineMarker(vm.overlay.monitoredEnds);
+      renderMonitoredLineMarker(vm.overlay.monitoredEnds, vm.overlay.monitoredLineId);
     }
 
     // ===== Shared apply: update results without changing the user's panel state. =====

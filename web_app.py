@@ -20,6 +20,7 @@ from ai_ems.grid_catalog import (
 )
 from ai_ems.pf_preview import load_mongolia_pf_preview
 from ai_ems.reference_layers import load_mongolia_reference_layers
+from ai_ems.mongolia_geometry import load_mongolia_display_geometry
 from ai_ems.kpg_pf_preview import (
     KpgPreviewUnavailable,
     get_kpg_pf_preview,
@@ -68,6 +69,7 @@ MONGOLIA_MAP_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-map.json"
 MONGOLIA_PF_PREVIEW_FILE = PROJECT_ROOT / "data" / "grids" / "mn35k-synthetic-pf-preview.json"
 # Reference-only display layers; deliberately separate from the hash-bound base map.
 MONGOLIA_REFERENCE_LAYERS_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-reference-layers.json"
+MONGOLIA_DISPLAY_GEOMETRY_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-display-geometry.json"
 KPG_GEOGRAPHY_FILE = PROJECT_ROOT / "data" / "grids" / "kr-geography.json"
 _mongolia_bundle_runtime = MongoliaBundleRuntime(MONGOLIA_BUNDLE_DIR, MONGOLIA_BUNDLE_MANIFEST_SHA256)
 
@@ -219,6 +221,19 @@ def grid_map(grid_id: str):
         except (ValueError, OSError) as exc:
             raise HTTPException(status_code=422, detail="한국 지도 데이터 검증에 실패했습니다.") from exc
     raise HTTPException(status_code=404, detail="Unknown grid ID")
+
+
+@app.get("/api/grids/mn-osm-35k/display-geometry")
+def mongolia_display_geometry():
+    # Optional display data are bound to the selected map, including bundle
+    # mode. They never replace a manifest asset or a calculation input.
+    try:
+        map_file = (_mongolia_bundle_runtime.files().map if _mongolia_bundle_runtime.selected else MONGOLIA_MAP_FILE)
+        return load_mongolia_display_geometry(MONGOLIA_DISPLAY_GEOMETRY_FILE, map_file)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="몽골 GIS 표시 자료가 없습니다.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/grids/mn-osm-35k/pf-preview")
