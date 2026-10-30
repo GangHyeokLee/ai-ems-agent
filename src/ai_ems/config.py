@@ -45,6 +45,26 @@ BUS_LOCATION_FILE = _path_from_env(
     "data/bus_location.csv",
 )
 
+# Trusted operator configuration; no HTTP request can select a local map path.
+KOREA_MAP_FILE = _path_from_env("AI_EMS_KOREA_MAP_FILE", "data/grids/kr-osm-transmission-map.json")
+
+# Mongolia PyPowSyBl model supplied (read-only) by the sibling mongolia-grid-poc repository.
+# Server-side settings only; HTTP requests can never choose these paths.
+MONGOLIA_XIIDM_FILE = _path_from_env(
+    "AI_EMS_MN_XIIDM_FILE",
+    "../mongolia-grid-poc/pypsa-earth/networks/MN_35k_poc/powsybl/mn35k_synthetic_powsybl.xiidm",
+)
+
+MONGOLIA_POWSYBL_REPORTS_DIR = _path_from_env(
+    "AI_EMS_MN_POWSYBL_REPORTS_DIR",
+    "../mongolia-grid-poc/reports/pypowsybl_conversion",
+)
+
+# Optional operator-only, process-start selection. Empty/partial explicit
+# settings are errors, not permission to fall back to the legacy paths above.
+MONGOLIA_BUNDLE_DIR = os.getenv("AI_EMS_MN_BUNDLE_DIR")
+MONGOLIA_BUNDLE_MANIFEST_SHA256 = os.getenv("AI_EMS_MN_BUNDLE_MANIFEST_SHA256")
+
 WEB_HOST = os.getenv(
     "AI_EMS_WEB_HOST",
     "127.0.0.1",
@@ -75,11 +95,12 @@ LOG_LEVEL = os.getenv(
 )
 
 
-def get_llm_client_kwargs(base_url: str) -> dict:
+def get_llm_client_kwargs(base_url: str, *, environ=None) -> dict:
     """Return optional authentication headers for both Ollama HTTP clients."""
-    api_key = os.getenv("AI_EMS_LLM_API_KEY", "").strip()
-    client_id = os.getenv("AI_EMS_CF_ACCESS_CLIENT_ID", "").strip()
-    client_secret = os.getenv("AI_EMS_CF_ACCESS_CLIENT_SECRET", "").strip()
+    settings = os.environ if environ is None else environ
+    api_key = settings.get("AI_EMS_LLM_API_KEY", "").strip()
+    client_id = settings.get("AI_EMS_CF_ACCESS_CLIENT_ID", "").strip()
+    client_secret = settings.get("AI_EMS_CF_ACCESS_CLIENT_SECRET", "").strip()
     if api_key and (client_id or client_secret):
         raise ValueError(
             "AI_EMS_LLM_API_KEY and Cloudflare Access credentials cannot be set together."

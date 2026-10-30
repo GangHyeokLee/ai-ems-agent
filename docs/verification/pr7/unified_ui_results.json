@@ -1,0 +1,435 @@
+{
+  "results": [
+    {
+      "name": "KPG equipment legend from model generators",
+      "pass": true,
+      "detail": "발전기 · 201대모델 발전기 (59개 모선)모선 단위 표시 · 클릭 시 발전기 목록"
+    },
+    {
+      "name": "KPG Security: KPG bullet format",
+      "pass": true,
+      "detail": [
+        "Outage: LINE-16-28",
+        "Status: CONVERGED",
+        "Violations: 1",
+        "Violated Equipment: LINE-16-22",
+        "Loading: 103.21 %",
+        "Limit: 1906.00 MVA",
+        "Post-contingency: 1967.28 MVA"
+      ]
+    },
+    {
+      "name": "KPG Security: outage red + violation amber",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "KPG Security: analysis legend lists outage + violation",
+      "pass": true,
+      "detail": [
+        "outage",
+        "violation"
+      ]
+    },
+    {
+      "name": "KPG Sensitivity: header rows",
+      "pass": true,
+      "detail": [
+        "Target Line: LINE-16-22",
+        "Top Candidates: 5"
+      ]
+    },
+    {
+      "name": "KPG Sensitivity: first candidate",
+      "pass": true,
+      "detail": [
+        "1. GEN-19#0",
+        "Bus 19 · 마포용산",
+        "민감도: 0.4211"
+      ]
+    },
+    {
+      "name": "KPG Sensitivity: 5 candidate items",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "KPG Sensitivity: monitored line magenta + ring",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "KPG Sensitivity: rank markers (shared style)",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "KPG Sensitivity: legend adds monitored + candidate",
+      "pass": true,
+      "detail": [
+        "outage",
+        "violation",
+        "monitored",
+        "candidate"
+      ]
+    },
+    {
+      "name": "Layer off: analysis legend + markers hidden",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Layer off: lines back to base colours",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Switch: results and overlays reset",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN equipment legend from power-plant records",
+      "pass": true,
+      "detail": "발전소 데이터 · 27건Solar 15Hard Coal 2Wind 3Lignite 1Oil 6레코드 기준 · 중복 가능 · 용량/연결 검증 전"
+    },
+    {
+      "name": "MN Security: KPG bullet format",
+      "pass": true,
+      "detail": [
+        "Outage: 751261406-1_0 (10–25, 220 kV)",
+        "Status: CONVERGED",
+        "Violations: 0"
+      ]
+    },
+    {
+      "name": "Same Security components (row fields + row parts)",
+      "pass": true,
+      "detail": {
+        "kpg": {
+          "kind": "security",
+          "rows": [
+            "outage",
+            "status",
+            "violations"
+          ],
+          "rowParts": [
+            "result-label+result-value+result-sub",
+            "result-label+result-value+result-sub",
+            "result-label+result-value+result-sub"
+          ],
+          "item": [
+            "result-row:equipment",
+            "result-row:loading",
+            "result-row:limit",
+            "result-row:value"
+          ],
+          "blocks": [
+            "result-rows",
+            "result-items",
+            "result-notice"
+          ]
+        },
+        "mn": {
+          "kind": "security",
+          "rows": [
+            "outage",
+            "status",
+            "violations"
+          ],
+          "rowParts": [
+            "result-label+result-value+result-sub",
+            "result-label+result-value+result-sub",
+            "result-label+result-value+result-sub"
+          ],
+          "item": [],
+          "blocks": [
+            "result-rows",
+            "result-notice",
+            "result-details"
+          ]
+        }
+      }
+    },
+    {
+      "name": "MN Security: diagnostics only in collapsed details",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN Security: short synthetic notice visible",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN Security: outage red, no violation",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN Security: analysis legend lists outage only",
+      "pass": true,
+      "detail": [
+        "outage"
+      ]
+    },
+    {
+      "name": "MN Sensitivity: header rows",
+      "pass": true,
+      "detail": [
+        "Target Line: 484276912-1_0 (13–59, 220 kV)",
+        "Top Candidates: 5"
+      ]
+    },
+    {
+      "name": "MN Sensitivity: first candidate",
+      "pass": true,
+      "detail": [
+        "1. SYNTHETIC_PV_7",
+        "Bus 7 · 110 kV",
+        "민감도: -1.0074"
+      ]
+    },
+    {
+      "name": "MN Sensitivity: 5 candidate items",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Same Sensitivity components (rows + candidate item)",
+      "pass": true,
+      "detail": {
+        "kpg": {
+          "kind": "sensitivity",
+          "rows": [
+            "target",
+            "candidates"
+          ],
+          "rowParts": [
+            "result-label+result-value+result-sub",
+            "result-label+result-value+result-sub"
+          ],
+          "item": [
+            "result-item-title",
+            "result-item-sub",
+            "result-item-value"
+          ],
+          "blocks": [
+            "result-rows",
+            "result-items",
+            "result-notice"
+          ]
+        },
+        "mn": {
+          "kind": "sensitivity",
+          "rows": [
+            "target",
+            "candidates"
+          ],
+          "rowParts": [
+            "result-label+result-value+result-sub",
+            "result-label+result-value+result-sub"
+          ],
+          "item": [
+            "result-item-title",
+            "result-item-sub",
+            "result-item-value"
+          ],
+          "blocks": [
+            "result-rows",
+            "result-items",
+            "result-notice",
+            "result-details"
+          ]
+        }
+      }
+    },
+    {
+      "name": "MN Sensitivity: FD, flows, definition, caveats in details",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN Sensitivity: base text has no long diagnostics",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN Sensitivity: monitored line magenta + ring + rank markers",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN Sensitivity: legend outage + monitored + candidate",
+      "pass": true,
+      "detail": [
+        "outage",
+        "monitored",
+        "candidate"
+      ]
+    },
+    {
+      "name": "MN island: concise status rows + alert",
+      "pass": true,
+      "detail": [
+        "Outage: 484333456-1_0 (10–19, 220 kV)",
+        "Status: CONVERGED (주 계통만 수렴)",
+        "Violations: 0",
+        "계통 분리: 모선 11개 · 합성 부하 1.80 MW · 합성 발전기 4대 · 분리 섬 PF 미실행"
+      ]
+    },
+    {
+      "name": "MN island: Sensitivity disabled with reason",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN island: isolated overlay + legend",
+      "pass": true,
+      "detail": [
+        "outage",
+        "isolated"
+      ]
+    },
+    {
+      "name": "Back to KPG: clean state",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Back to KPG: Security works",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Chat security: answer appended",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Chat security: same card as REST result",
+      "pass": true,
+      "detail": [
+        "Outage: LINE-16-28",
+        "Status: CONVERGED",
+        "Violations: 1",
+        "Violated Equipment: LINE-16-22",
+        "Loading: 103.21 %",
+        "Limit: 1906.00 MVA",
+        "Post-contingency: 1967.28 MVA"
+      ]
+    },
+    {
+      "name": "Chat security: outage input + overlays",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Chat sensitivity: answer appended",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Chat sensitivity: shared card",
+      "pass": true,
+      "detail": [
+        "Target Line: LINE-16-22",
+        "Top Candidates: 5",
+        "1. GEN-19#0"
+      ]
+    },
+    {
+      "name": "Chat sensitivity: same component skeleton as panel run",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Chat sensitivity: monitored ring + rank markers",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Chat generator: answer appended",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Chat generator: result rendered",
+      "pass": true,
+      "detail": "\n        Generator: GEN-124#1\n        Bus: 124 · 영광\n        Slack Mode: single\n        Base LF: CONVERGED\n        Post L"
+    },
+    {
+      "name": "Chat generator: outage marker + legend",
+      "pass": true,
+      "detail": [
+        "violation",
+        "generator-outage"
+      ]
+    },
+    {
+      "name": "Chat redispatch: workflow answer rendered",
+      "pass": true,
+      "detail": null
+    }
+  ],
+  "visible_text": {
+    "kpgSecurity": [
+      "Outage: LINE-16-28",
+      "Status: CONVERGED",
+      "Violations: 1",
+      "Violated Equipment: LINE-16-22",
+      "Loading: 103.21 %",
+      "Limit: 1906.00 MVA",
+      "Post-contingency: 1967.28 MVA"
+    ],
+    "kpgSensitivity": [
+      "Target Line: LINE-16-22",
+      "Top Candidates: 5",
+      "1. GEN-19#0",
+      "Bus 19 · 마포용산",
+      "민감도: 0.4211",
+      "2. GEN-10#0",
+      "Bus 10 · 고양",
+      "민감도: 0.3638",
+      "3. GEN-21",
+      "Bus 21 · 서인천",
+      "민감도: 0.3513",
+      "4. GEN-34",
+      "Bus 34 · 제물포",
+      "민감도: 0.3452",
+      "5. GEN-34#10",
+      "Bus 34 · 제물포",
+      "민감도: 0.3452"
+    ],
+    "mnSecurity": [
+      "Outage: 751261406-1_0 (10–25, 220 kV)",
+      "Status: CONVERGED",
+      "Violations: 0"
+    ],
+    "mnSensitivity": [
+      "Target Line: 484276912-1_0 (13–59, 220 kV)",
+      "Top Candidates: 5",
+      "1. SYNTHETIC_PV_7",
+      "Bus 7 · 110 kV",
+      "민감도: -1.0074",
+      "2. SYNTHETIC_PV_61",
+      "Bus 61 · 110 kV",
+      "민감도: -1.0018",
+      "3. SYNTHETIC_PV_106",
+      "Bus 106 · 110 kV",
+      "민감도: -0.9965",
+      "4. SYNTHETIC_PV_96",
+      "Bus 96 · 110 kV",
+      "민감도: -0.9961",
+      "5. SYNTHETIC_PV_63",
+      "Bus 63 · 110 kV",
+      "민감도: -0.9957"
+    ],
+    "mnIsland": [
+      "Outage: 484333456-1_0 (10–19, 220 kV)",
+      "Status: CONVERGED (주 계통만 수렴)",
+      "Violations: 0",
+      "계통 분리: 모선 11개 · 합성 부하 1.80 MW · 합성 발전기 4대 · 분리 섬 PF 미실행"
+    ]
+  }
+}

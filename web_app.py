@@ -1,10 +1,11 @@
 import json
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -13,8 +14,29 @@ from langchain_core.messages import (
 )
 from pydantic import BaseModel
 
+from ai_ems.grid_catalog import (
+    KPG_GRID_ID, MONGOLIA_GRID_ID, KOREA_OSM_GRID_ID, KOREA_OSM_NOTE,
+    list_grids, load_mongolia_map, load_korea_map,
+)
+from ai_ems.pf_preview import load_mongolia_pf_preview
+from ai_ems.reference_layers import load_mongolia_reference_layers
+from ai_ems.mongolia_geometry import load_mongolia_display_geometry
+from ai_ems.kpg_pf_preview import (
+    KpgPreviewUnavailable,
+    get_kpg_pf_preview,
+    validate_kpg_pf_preview,
+)
 from ai_ems import load_network
 from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph
+from ai_ems.agent.mongolia_graph import (
+    MONGOLIA_SYSTEM_PROMPT,
+    DisallowedMongoliaTool,
+    requests_analysis,
+    create_mongolia_agent_graph,
+    detect_unsupported_request,
+    unsupported_request_answer,
+)
+from ai_ems.agent.mongolia_tools import ANALYSIS_TOOL_TYPES, MONGOLIA_TOOL_NAMES
 from ai_ems.agent.tools import create_agent_tools
 from ai_ems.tools.security_tools import (
     get_limit_unit,
@@ -25,9 +47,31 @@ from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
 from ai_ems.config import (
     BUS_LOCATION_FILE,
     CASE_FILE,
+    MONGOLIA_POWSYBL_REPORTS_DIR,
+    MONGOLIA_XIIDM_FILE,
+    PROJECT_ROOT,
+    KOREA_MAP_FILE,
+    MONGOLIA_BUNDLE_DIR,
+    MONGOLIA_BUNDLE_MANIFEST_SHA256,
 )
+from ai_ems.mongolia_security import (
+    ExcludedOutageLine,
+    ModelFiles,
+    MongoliaModelUnavailable,
+    MongoliaSecurityService,
+    UnknownOutageLine,
+)
+from ai_ems.mongolia_sensitivity import InvalidMonitoredLine, SensitivityVerificationFailed
+from ai_ems.mongolia_runtime import MongoliaBundleRuntime
 
 UI_DIR = Path("ui")
+MONGOLIA_MAP_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-map.json"
+MONGOLIA_PF_PREVIEW_FILE = PROJECT_ROOT / "data" / "grids" / "mn35k-synthetic-pf-preview.json"
+# Reference-only display layers; deliberately separate from the hash-bound base map.
+MONGOLIA_REFERENCE_LAYERS_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-reference-layers.json"
+MONGOLIA_DISPLAY_GEOMETRY_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-display-geometry.json"
+KPG_GEOGRAPHY_FILE = PROJECT_ROOT / "data" / "grids" / "kr-geography.json"
+_mongolia_bundle_runtime = MongoliaBundleRuntime(MONGOLIA_BUNDLE_DIR, MONGOLIA_BUNDLE_MANIFEST_SHA256)
 
 network = load_network(CASE_FILE)
 agent_graph = create_agent_graph(network)
@@ -36,6 +80,42 @@ direct_agent_tools = {
     for tool in create_agent_tools(network)
 }
 agent_sessions: dict[str, list[Any]] = {}
+
+
+def _load_validated_mongolia_pf() -> dict[str, Any]:
+    # Resolve module paths at call time so the configured assets are always re-validated.
+    if _mongolia_bundle_runtime.selected:
+        files = _mongolia_bundle_runtime.files()
+        result = load_mongolia_pf_preview(files.pf_preview, files.map)
+        _mongolia_bundle_runtime.guard()
+        return result
+    return load_mongolia_pf_preview(MONGOLIA_PF_PREVIEW_FILE, MONGOLIA_MAP_FILE)
+
+
+mongolia_agent_sessions: dict[str, list[Any]] = {}
+
+# Mongolia PyPowSyBl Security Analysis: separate model, never the KPG `network`.
+_mongolia_security_services: dict[tuple, MongoliaSecurityService] = {}
+
+
+def _mongolia_security() -> MongoliaSecurityService:
+    if _mongolia_bundle_runtime.selected:
+        return _mongolia_bundle_runtime
+    files = ModelFiles(
+        MONGOLIA_XIIDM_FILE,
+        MONGOLIA_POWSYBL_REPORTS_DIR,
+        MONGOLIA_PF_PREVIEW_FILE,
+        MONGOLIA_MAP_FILE,
+    )
+    key = (files.xiidm, files.reports_dir, files.pf_preview, files.map_file)
+    if key not in _mongolia_security_services:
+        _mongolia_security_services[key] = MongoliaSecurityService(files)
+    return _mongolia_security_services[key]
+
+# Resolve the service lazily; each domain call uses its own validated network.
+mongolia_agent_graph = create_mongolia_agent_graph(
+    _load_validated_mongolia_pf, load_security=_mongolia_security,
+)
 
 bus_locations = pd.read_csv(BUS_LOCATION_FILE)
 
@@ -49,19 +129,49 @@ bus_location_map = {
     for _, row in bus_locations.iterrows()
 }
 
-app = FastAPI(
-    title="AI-EMS Agent",
-)
+@asynccontextmanager
+async def _lifespan(app):
+    _mongolia_bundle_runtime.start()
+    yield
+
+
+app = FastAPI(title="AI-EMS Agent", lifespan=_lifespan)
+
+
+@app.middleware("http")
+async def _guard_mongolia_bundle(request, call_next):
+    scoped = (_mongolia_bundle_runtime.selected
+              and request.url.path.startswith("/api/grids/mn-osm-35k/")
+              and request.url.path not in {"/api/grids/mn-osm-35k/runtime-status", "/api/grids/mn-osm-35k/security-status"})
+    if scoped:
+        try:
+            _mongolia_bundle_runtime.guard()
+        except MongoliaModelUnavailable as exc:
+            return JSONResponse(status_code=503, content={"detail": str(exc)})
+    response = await call_next(request)
+    if scoped and response.status_code < 400:
+        try:
+            _mongolia_bundle_runtime.guard()
+        except MongoliaModelUnavailable as exc:
+            return JSONResponse(status_code=503, content={"detail": str(exc)})
+    return response
 
 
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+    grid_id: str = KPG_GRID_ID
 
 
 class GeneratorContingencyRequest(BaseModel):
     generator_id: str
     slack_mode: Literal["single", "distributed"] = "single"
+    grid_id: str = KPG_GRID_ID
+
+
+def _require_kpg_grid(grid_id: str) -> None:
+    if grid_id != KPG_GRID_ID:
+        raise HTTPException(status_code=409, detail="이 API는 KPG 시험계통 전용입니다. 지정한 계통의 계산·채팅을 지원하지 않습니다.")
 
 
 @app.get("/")
@@ -74,6 +184,147 @@ def health():
     return {
         "status": "ok",
     }
+
+
+@app.get("/api/grids")
+def grid_catalog():
+    map_file, preview_file = (_mongolia_bundle_runtime.catalog_paths() if _mongolia_bundle_runtime.selected
+                              else (MONGOLIA_MAP_FILE, MONGOLIA_PF_PREVIEW_FILE))
+    return {
+        "grids": list_grids(
+            map_file,
+            preview_file,
+            _mongolia_security().status(),
+            KOREA_MAP_FILE,
+        ),
+        "default_grid_id": KPG_GRID_ID,
+    }
+
+
+@app.get("/api/grids/{grid_id}/map")
+def grid_map(grid_id: str):
+    if grid_id == KPG_GRID_ID:
+        return network_map()
+    if grid_id == MONGOLIA_GRID_ID:
+        try:
+            map_file = (_mongolia_bundle_runtime.files().map if _mongolia_bundle_runtime.selected else MONGOLIA_MAP_FILE)
+            return load_mongolia_map(map_file)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if grid_id == KOREA_OSM_GRID_ID:
+        try:
+            return load_korea_map(KOREA_MAP_FILE)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="한국 지도 데이터가 없습니다.") from exc
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=422, detail="한국 지도 데이터 검증에 실패했습니다.") from exc
+    raise HTTPException(status_code=404, detail="Unknown grid ID")
+
+
+@app.get("/api/grids/mn-osm-35k/display-geometry")
+def mongolia_display_geometry():
+    # Optional display data are bound to the selected map, including bundle
+    # mode. They never replace a manifest asset or a calculation input.
+    try:
+        map_file = (_mongolia_bundle_runtime.files().map if _mongolia_bundle_runtime.selected else MONGOLIA_MAP_FILE)
+        return load_mongolia_display_geometry(MONGOLIA_DISPLAY_GEOMETRY_FILE, map_file)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="몽골 GIS 표시 자료가 없습니다.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/grids/mn-osm-35k/pf-preview")
+def mongolia_pf_preview():
+    try:
+        return _load_validated_mongolia_pf()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/grids/mn-osm-35k/reference-layers")
+def mongolia_reference_layers():
+    try:
+        if _mongolia_bundle_runtime.selected:
+            files = _mongolia_bundle_runtime.files()
+            return load_mongolia_reference_layers(files.reference, files.map)
+        return load_mongolia_reference_layers(MONGOLIA_REFERENCE_LAYERS_FILE, MONGOLIA_MAP_FILE)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/grids/mn-osm-35k/runtime-status")
+def mongolia_runtime_status():
+    diagnostic = _mongolia_bundle_runtime.diagnostics()
+    if not _mongolia_bundle_runtime.selected:
+        status = _mongolia_security().status()
+        diagnostic.update(available=status["available"], validation_status="LEGACY",
+                          paths={"map": str(MONGOLIA_MAP_FILE), "pf_preview": str(MONGOLIA_PF_PREVIEW_FILE),
+                                 "reference": str(MONGOLIA_REFERENCE_LAYERS_FILE), "xiidm": str(MONGOLIA_XIIDM_FILE),
+                                 "reports": str(MONGOLIA_POWSYBL_REPORTS_DIR)})
+    return {"grid_id": MONGOLIA_GRID_ID, **diagnostic}
+
+
+@app.get("/api/grids/mn-osm-35k/security-status")
+def mongolia_security_status():
+    return {"grid_id": MONGOLIA_GRID_ID, **_mongolia_security().status()}
+
+
+@app.get("/api/grids/mn-osm-35k/security-analysis")
+def mongolia_security_analysis(outage_line_id: str):
+    try:
+        return _mongolia_security().run_line_contingency(outage_line_id)
+    except MongoliaModelUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"몽골 Security Analysis를 사용할 수 없습니다: {exc}") from exc
+    except UnknownOutageLine as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ExcludedOutageLine as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"몽골 Security Analysis 실행 실패: {exc}") from exc
+
+
+@app.get("/api/grids/mn-osm-35k/sensitivity-analysis")
+def mongolia_sensitivity_analysis(
+    outage_line_id: str,
+    monitored_line_id: str | None = None,
+    top_n: int = 10,
+):
+    try:
+        return _mongolia_security().run_line_sensitivity(
+            outage_line_id,
+            monitored_line_id or None,
+            top_n=top_n,
+        )
+    except MongoliaModelUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"몽골 Sensitivity Analysis를 사용할 수 없습니다: {exc}") from exc
+    except UnknownOutageLine as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ExcludedOutageLine, InvalidMonitoredLine) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SensitivityVerificationFailed as exc:
+        raise HTTPException(status_code=422, detail=f"민감도 검증 실패(결과를 반환하지 않음): {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"몽골 Sensitivity Analysis 실행 실패: {exc}") from exc
+
+
+@app.get("/api/grids/kr-kpg193/pf-preview")
+def kpg_pf_preview():
+    try:
+        return validate_kpg_pf_preview(get_kpg_pf_preview(), network_map())
+    except KpgPreviewUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"KPG 기본 PF 미리보기를 사용할 수 없습니다: {exc}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.get("/api/network-summary")
@@ -89,11 +340,17 @@ def network_summary():
 @app.get("/api/network-map")
 def network_map():
     buses = []
+    voltage_levels = network.get_voltage_levels()
+    nominal_voltage_by_bus = {
+        _bus_number(voltage_level_id): _optional_float(row["nominal_v"])
+        for voltage_level_id, row in voltage_levels.iterrows()
+    }
 
     for bus_id, location in bus_location_map.items():
         buses.append(
             {
                 "bus_id": bus_id,
+                "voltage_kv": nominal_voltage_by_bus.get(bus_id),
                 **location,
             }
         )
@@ -116,8 +373,26 @@ def network_map():
                 "line_id": line_id,
                 "bus1_id": bus1_id,
                 "bus2_id": bus2_id,
+                "voltage_kv": nominal_voltage_by_bus.get(
+                    _bus_number(voltage_level1_id)
+                ),
             }
         )
+
+    transformers_df = network.get_2_windings_transformers()
+    transformers = []
+    for transformer_id, row in transformers_df.iterrows():
+        bus1_id = _bus_number(row["voltage_level1_id"])
+        bus2_id = _bus_number(row["voltage_level2_id"])
+        if bus1_id not in bus_location_map or bus2_id not in bus_location_map:
+            continue
+        transformers.append({
+            "transformer_id": transformer_id,
+            "bus1_id": bus1_id,
+            "bus2_id": bus2_id,
+            "bus1_voltage_kv": nominal_voltage_by_bus.get(bus1_id),
+            "bus2_voltage_kv": nominal_voltage_by_bus.get(bus2_id),
+        })
 
     generators_df = network.get_generators(all_attributes=True)
     generators = []
@@ -140,18 +415,35 @@ def network_map():
             }
         )
 
-    return {
+    result = {
         "buses": buses,
         "lines": lines,
+        "transformers": transformers,
         "generators": generators,
     }
+    if KPG_GEOGRAPHY_FILE.is_file():
+        try:
+            geography = json.loads(KPG_GEOGRAPHY_FILE.read_text(encoding="utf-8"))
+            if (
+                isinstance(geography, dict)
+                and isinstance(geography.get("country_polygons"), list)
+                and isinstance(geography.get("admin_regions"), list)
+            ):
+                result["country_polygons"] = geography["country_polygons"]
+                result["admin_regions"] = geography["admin_regions"]
+                result["geography_attribution"] = geography.get("attribution", "")
+        except (OSError, ValueError):
+            pass  # Missing/invalid optional basemap must not break KPG analysis.
+    return result
 
 
 @app.get("/api/security-analysis")
 def security_analysis(
     outage_line_id: str,
     monitored_line_id: str | None = None,
+    grid_id: str = KPG_GRID_ID,
 ):
+    _require_kpg_grid(grid_id)
     monitored_line_ids = [monitored_line_id] if monitored_line_id is not None else None
 
     result = run_line_contingency(
@@ -168,7 +460,9 @@ def sensitivity_analysis(
     outage_line_id: str,
     monitored_line_id: str | None = None,
     top_n: int = 5,
+    grid_id: str = KPG_GRID_ID,
 ):
+    _require_kpg_grid(grid_id)
     if monitored_line_id is None:
         security_result = run_line_contingency(
             network,
@@ -215,7 +509,9 @@ def sensitivity_analysis(
 
 
 @app.post("/api/generator-contingency-analysis")
-def generator_contingency_analysis(request: GeneratorContingencyRequest):
+def generator_contingency_analysis(request: GeneratorContingencyRequest, grid_id: str = KPG_GRID_ID):
+    _require_kpg_grid(grid_id)
+    _require_kpg_grid(request.grid_id)
     generator_id = request.generator_id.strip()
     if not generator_id:
         raise HTTPException(
@@ -247,7 +543,9 @@ def generator_contingency_analysis(request: GeneratorContingencyRequest):
 
 
 @app.post("/api/chat")
-def chat(request: ChatRequest):
+def chat(request: ChatRequest, grid_id: str = KPG_GRID_ID):
+    _require_kpg_grid(grid_id)
+    _require_kpg_grid(request.grid_id)
     session_id = request.session_id.strip()
     user_message = request.message.strip()
 
@@ -299,6 +597,166 @@ def chat(request: ChatRequest):
         "answer": answer,
         "ui_updates": ui_updates,
     }
+
+
+@app.post("/api/grids/{grid_id}/chat")
+def grid_chat(grid_id: str, request: ChatRequest):
+    if "grid_id" in request.model_fields_set and request.grid_id != grid_id:
+        raise HTTPException(status_code=409, detail="URL과 요청의 계통 ID가 일치하지 않습니다.")
+    if grid_id == KPG_GRID_ID:
+        return {**chat(request), "grid_id": KPG_GRID_ID}
+    if grid_id == KOREA_OSM_GRID_ID:
+        raise HTTPException(status_code=409, detail=KOREA_OSM_NOTE)
+    if grid_id != MONGOLIA_GRID_ID:
+        raise HTTPException(status_code=404, detail="Unknown grid ID")
+    return mongolia_chat(request)
+
+
+@app.api_route("/api/grids/kr-osm-transmission/{operation}", methods=["GET", "POST"])
+def unsupported_korea_operation(operation: str):
+    raise HTTPException(status_code=409, detail=KOREA_OSM_NOTE)
+
+
+def mongolia_chat(request: ChatRequest) -> dict[str, Any]:
+    session_id = request.session_id.strip()
+    user_message = request.message.strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required.")
+    if not user_message:
+        raise HTTPException(status_code=400, detail="message is required.")
+
+    # Refuse to start a conversation when the validated PF data is unavailable,
+    # so the LLM is never asked to answer without verified numbers.
+    try:
+        _load_validated_mongolia_pf()
+    except MongoliaModelUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"몽골 합성 PF 데이터를 사용할 수 없습니다: {exc}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"몽골 합성 PF 데이터 검증에 실패했습니다: {exc}",
+        ) from exc
+
+    messages = mongolia_agent_sessions.get(session_id) or [
+        SystemMessage(content=MONGOLIA_SYSTEM_PROMPT),
+    ]
+    input_messages = [*messages, HumanMessage(content=user_message)]
+
+    unsupported = detect_unsupported_request(user_message)
+    if unsupported:
+        answer = unsupported_request_answer(unsupported)
+        mongolia_agent_sessions[session_id] = [*input_messages, AIMessage(content=answer)]
+        return {
+            "session_id": session_id,
+            "grid_id": MONGOLIA_GRID_ID,
+            "answer": answer,
+            "ui_updates": [],
+            "tools_used": [],
+            "unsupported_requests": unsupported,
+        }
+
+    try:
+        result = mongolia_agent_graph.invoke({"messages": input_messages})
+    except DisallowedMongoliaTool as exc:
+        raise HTTPException(status_code=502, detail=f"몽골 Agent가 허용되지 않은 Tool 호출을 시도했습니다: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"몽골 AI Agent 실행 실패(LLM 연결 또는 응답 오류): {exc}",
+        ) from exc
+
+    output_messages = result["messages"]
+    generated_messages = output_messages[len(input_messages):]
+    tools_used = [
+        call["name"]
+        for message in generated_messages
+        if isinstance(message, AIMessage)
+        for call in message.tool_calls
+    ]
+    disallowed = sorted(set(tools_used) - MONGOLIA_TOOL_NAMES)
+    if disallowed:
+        raise HTTPException(
+            status_code=502,
+            detail=f"몽골 Agent가 허용되지 않은 Tool 호출을 시도했습니다: {', '.join(disallowed)}",
+        )
+    answer = _final_ai_answer(output_messages)
+    if not answer.strip():
+        raise HTTPException(status_code=502, detail="몽골 AI Agent가 빈 응답을 반환했습니다.")
+
+    ui_updates, analysis_notes = _mongolia_analysis_evidence(generated_messages)
+    if analysis_notes:
+        # Analysis statements and numbers are derived from actual tool artifacts only.
+        answer = "\n\n".join(analysis_notes) + "\n\n합성 모델 결과이며 실제 몽골 운영 데이터가 아닙니다."
+    elif requests_analysis(user_message) or ("분석" in user_message and not tools_used):
+        answer = "이번 요청에서 검증된 분석 Tool 결과가 없습니다. 계산 수행을 확인할 수 없습니다. 사고 선로의 원본 ID와 실행할 분석을 지정해 주세요."
+    output_messages[-1] = AIMessage(content=answer, id=output_messages[-1].id)
+    mongolia_agent_sessions[session_id] = output_messages
+    return {
+        "session_id": session_id,
+        "grid_id": MONGOLIA_GRID_ID,
+        "answer": answer,
+        "ui_updates": ui_updates,
+        "tools_used": tools_used,
+        "unsupported_requests": [],
+    }
+
+
+def _mongolia_analysis_evidence(messages: list[Any]) -> tuple[list[dict], list[str]]:
+    """Only paired, successful domain ToolMessage artifacts can update Mongolia UI.
+
+    Do not pass these results through the KPG network/generator adapters.
+    Failures override model claims even if it says the computation succeeded.
+    """
+    pending: dict[str, dict] = {}
+    updates, notes = [], []
+    for message in messages:
+        if isinstance(message, AIMessage):
+            pending.update({c["id"]: c for c in message.tool_calls if c["name"] in ANALYSIS_TOOL_TYPES})
+        elif isinstance(message, ToolMessage) and message.tool_call_id in pending:
+            call = pending.pop(message.tool_call_id)
+            kind = ANALYSIS_TOOL_TYPES[call["name"]]
+            payload = message.artifact
+            valid = (
+                message.name == call["name"] and message.status != "error"
+                and isinstance(payload, dict) and payload.get("grid_id") == MONGOLIA_GRID_ID
+                and payload.get("outage_line_id") == call["args"].get("outage_line_id", "").strip()
+                and not payload.get("error")
+            )
+            if valid and kind == "security" and "post_status" in payload:
+                updates.append({"type": kind, "grid_id": MONGOLIA_GRID_ID, "result": payload})
+                note = f"선로 {payload['outage_line_id']} N-1: {payload['post_status']}."
+                if payload.get("violation_assessment_available") is True:
+                    note += f" 위반 {payload['violated_equipment_count']}건(합성 스크리닝 기준)."
+                else:
+                    note += " 사고 후 PF 비수렴: 위반 판정 불가."
+                if payload.get("island_detected"):
+                    note += f" 분리 {payload['isolated_bus_count']}모선, 주 계통만 계산하며 분리 섬 PF는 미실행."
+                notes.append(note)
+            elif valid and kind == "sensitivity" and payload.get("analysis_status") in {
+                "COMPLETED", "NOT_EVALUATED_ISLANDING", "POST_CONTINGENCY_NOT_CONVERGED",
+            }:
+                updates.append({"type": kind, "grid_id": MONGOLIA_GRID_ID, "result": payload})
+                if payload["analysis_status"] == "COMPLETED":
+                    selection = payload["monitored_line_selection"]["mode"]
+                    note = (f"사고 선로 {payload['outage_line_id']}의 주입 민감도: 감시 선로 "
+                            f"{payload['monitored_line_id']} ({'자동 선택' if selection == 'auto' else '사용자 선택'}), "
+                            f"후보 {payload['candidate_count']}개.")
+                    for c in payload["candidates"]:
+                        note += f"\n{c['rank']}. {c['generator_id']} (모선 {c['bus_id']}): {c['sensitivity']:.6f} MW/MW"
+                    notes.append(note + "\n합성 발전기 주입 민감도이며 실제 발전소·재급전 권고가 아닙니다.")
+                else:
+                    notes.append(f"{payload['analysis_status']}: {payload['message']} 후보 0개, 순위 없음.")
+            else:
+                reason = payload.get("error") if isinstance(payload, dict) else "Tool 호출 또는 입력 검증 오류"
+                notes.append(f"{call['name']} 실패: {reason or '결과 검증 실패'}. 검증된 분석 결과를 제공하지 않습니다.")
+    if pending:
+        notes.append("분석 Tool의 실제 실행 결과가 없어 성공을 확인할 수 없습니다.")
+    return updates, notes
 
 
 def _security_result_for_ui(
