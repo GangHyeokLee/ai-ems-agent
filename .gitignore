@@ -94,3 +94,6 @@ data/grids/
 
 # Local UI design references
 /local-reference/
+
+# Local browser-test data (Chrome profiles, screenshots, logs)
+/.local/

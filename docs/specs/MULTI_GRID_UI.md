@@ -57,5 +57,5 @@ AI_EMS_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests/test_browser_stale_re
   - Sensitivity Top 5와 첫 후보
   - 지도 강조 색, 링, 순위 마커, 분석·설비 범례
   - 레이어 끄기, 계통 분리, 계통 전환
-  - 스크린샷은 `outputs/browser_unified_ui/`에 저장한다.
+  - 스크린샷은 `.local/browser-tests/screenshots/browser_unified_ui/`, 결과는 `.local/browser-tests/logs/browser_unified_ui/`에 저장한다.
 - `tests/browser/stale_responses_probe.js`: 비동기 지연·오류 응답 무효화를 회귀 검사한다.

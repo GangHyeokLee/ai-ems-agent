@@ -613,9 +613,13 @@ AI_EMS_BROWSER_TESTS=1 python -m pytest -q tests/test_browser_stale_responses.py
 ```
 
 Chrome은 `AI_EMS_CHROME` 또는 WSL의 Windows Chrome / PATH의 Chrome·Chromium을 사용한다.
-결과(`results.json`)와 스크린샷은 `outputs/browser_stale_responses/`에 저장된다.
-같은 명령으로 KPG·몽골 공통 UI 비교(`tests/browser/unified_ui_probe.js`, [사양](docs/specs/MULTI_GRID_UI.md))도 실행되며 결과는 `outputs/browser_unified_ui/`에 저장된다.
-테마·도움말 검증(`tests/browser/theme_help_probe.js`, [사양](docs/specs/THEME_AND_HELP.md)) 결과는 `outputs/browser_theme_help/`에 저장된다.
+브라우저 테스트 데이터는 Git에서 제외된 `.local/browser-tests/`에 둔다. 스크린샷은 `screenshots/<suite>/`,
+결과(`results.json`)·Chrome stderr·웹 앱 로그는 `logs/<suite>/`에 저장된다. Chrome 프로필은 실행마다 새로 만들고
+종료 후 그 프로필과 그 프로필로 실행된 Chrome만 정리한다. Linux Chrome은 `.local/browser-tests/profiles/`를 쓰고,
+WSL에서 실행하는 Windows Chrome은 `%LOCALAPPDATA%\Temp\ai-ems-agent\browser-tests\profiles`를 쓴다
+(WSL 공유 경로에서는 Chrome의 파일 잠금·샌드박스 권한·SQLite가 동작하지 않음, `tests/browser/chrome_env.py` 참고).
+같은 명령으로 KPG·몽골 공통 UI 비교(`tests/browser/unified_ui_probe.js`, [사양](docs/specs/MULTI_GRID_UI.md))도 실행되며 결과는 `browser_unified_ui` 항목에 저장된다.
+테마·도움말 검증(`tests/browser/theme_help_probe.js`, [사양](docs/specs/THEME_AND_HELP.md)) 결과는 `browser_theme_help` 항목에 저장된다.
 
 실제 KPG 계통 모델 스모크 테스트:
 

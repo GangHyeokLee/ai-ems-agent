@@ -6,18 +6,26 @@ import time
 import urllib.request
 from pathlib import Path
 
+from browser.chrome_env import chrome_run
 
-def run_probe(chrome, url, probe, output, free_port):
+
+def run_probe(chrome, url, probe, output, free_port, screenshots=None):
+    # Own temporary profile per run; only its Chrome processes and directory are cleaned up afterwards.
+    with chrome_run(chrome, "cdp", Path(probe).stem) as run:
+        return _run_probe(run, chrome, url, probe, output, free_port, screenshots or output)
+
+
+def _run_probe(run, chrome, url, probe, output, free_port, screenshots):
     import websocket
     path, windows=chrome
     port=free_port()
-    profile=f"C:\\Windows\\Temp\\ai-ems-kr-cdp-{port}" if windows else f"/tmp/ai-ems-kr-cdp-{port}"
-    command=[str(path),"--headless=new",f"--user-data-dir={profile}","--no-first-run","--window-size=1600,1200",
+    command=[str(path),"--headless=new",f"--user-data-dir={run.profile}","--no-first-run","--window-size=1600,1200",
              f"--remote-debugging-port={port}","about:blank"]
     process=subprocess.Popen(command,cwd="/mnt/c" if windows else None,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
     connection=None
     counter=0
     output.mkdir(parents=True,exist_ok=True)
+    screenshots.mkdir(parents=True,exist_ok=True)
     try:
         deadline=time.monotonic()+30
         while True:
@@ -77,7 +85,7 @@ def run_probe(chrome, url, probe, output, free_port):
             if shot and shot not in handled:
                 handled.add(shot)
                 data=call("Page.captureScreenshot",dict(format="png"))["data"]
-                (output/f"{shot}.png").write_bytes(base64.b64decode(data))
+                (screenshots/f"{shot}.png").write_bytes(base64.b64decode(data))
                 evaluate("window.__krScreenshotDone = true")
             if time.monotonic()>deadline: raise TimeoutError("Korea Chrome probe")
             time.sleep(.02)
@@ -88,3 +96,4 @@ def run_probe(chrome, url, probe, output, free_port):
         process.terminate()
         try: process.wait(timeout=15)
         except subprocess.TimeoutExpired: process.kill(); process.wait(timeout=15)
+        if windows: run.stop_processes()  # ending the WSL interop process leaves Windows chrome.exe running

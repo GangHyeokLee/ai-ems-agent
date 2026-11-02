@@ -89,7 +89,7 @@ AI_EMS_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests
 - PR #8 리뷰 항목: 상시 배너 없음과 빈 행 없음, 정상 상태 비표시와 도움말 기록, 비정상 상태 상시 표시, 첫 문장 한 줄(데스크톱), 한글 어절 중간 줄바꿈 0건(Range로 실제 줄 위치 측정), Dark 오버레이(사고·위반·감시) 대비 3:1 이상
 - 장애 표시: 실패 알림 상시 표시
 
-작은 창(820×640)에서도 도움말 위치와 동작을 따로 검증한다. 결과와 대비 수치, 스크린샷은 `outputs/browser_theme_help/`에 저장된다.
+작은 창(820×640)에서도 도움말 위치와 동작을 따로 검증한다. 결과와 대비 수치는 `.local/browser-tests/logs/browser_theme_help/`, 스크린샷은 `.local/browser-tests/screenshots/browser_theme_help/`에 저장된다.
 
 ## 알려진 한계
 

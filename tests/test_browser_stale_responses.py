@@ -10,7 +10,9 @@ to ``ui/index.html`` by a local proxy. The same proxy delays real API responses 
 probe registers a gate (``/__probe__/gates``), the proxy forwards the matching request to the app,
 holds the real response until the probe releases it (or then answers HTTP 500), so no delay is
 added to application code. The probe awaits the app's own handlers instead of fixed sleeps.
-Screenshots of selected end states are written to ``outputs/browser_stale_responses/``.
+Screenshots of selected end states are written to ``.local/browser-tests/screenshots/<suite>/`` and
+probe results, Chrome stderr and web app logs to ``.local/browser-tests/logs/<suite>/``; every Chrome
+run uses its own temporary profile (see ``tests/browser/chrome_env.py``).
 """
 from __future__ import annotations
 
@@ -31,7 +33,10 @@ from pathlib import Path
 
 import pytest
 
+from browser.chrome_env import LOGS_DIR, SCREENSHOTS_DIR, log_path, run_chrome_page
+
 ROOT = Path(__file__).resolve().parents[1]
+SUITE = "browser_stale_responses"
 PROBE = ROOT / "tests" / "browser" / "stale_responses_probe.js"
 UNIFIED_PROBE = ROOT / "tests" / "browser" / "unified_ui_probe.js"
 THEME_PROBE = ROOT / "tests" / "browser" / "theme_help_probe.js"
@@ -40,16 +45,20 @@ MONGOLIA_CHAT_PROBE = ROOT / "tests" / "browser" / "mongolia_chat_probe.js"
 CHAT_PANEL_PROBE = ROOT / "tests" / "browser" / "chat_panel_state_probe.js"
 CHAT_RESTORE_PROBE = ROOT / "tests" / "browser" / "chat_session_restore_probe.js"
 PROBES = {"stale": PROBE, "unified": UNIFIED_PROBE, "theme": THEME_PROBE, "reference": REFERENCE_PROBE, "mnchat": MONGOLIA_CHAT_PROBE, "chatpanels": CHAT_PANEL_PROBE, "chatrestore": CHAT_RESTORE_PROBE}
-REFERENCE_SHOT_DIR = ROOT / "outputs" / "browser_reference_layers"
+REFERENCE_SHOT_DIR = SCREENSHOTS_DIR / "browser_reference_layers"
+REFERENCE_LOG_DIR = LOGS_DIR / "browser_reference_layers"
 REFERENCE_SCREENSHOT_STOPS = ["mn_map", "mn_zoom"]
-THEME_SHOT_DIR = ROOT / "outputs" / "browser_theme_help"
+THEME_SHOT_DIR = SCREENSHOTS_DIR / "browser_theme_help"
+THEME_LOG_DIR = LOGS_DIR / "browser_theme_help"
 THEME_SCREENSHOT_STOPS = ["kpg_light", "mn_light_island", "help_model_light", "kpg_dark", "help_model_kpg_dark",
                           "help_model_mn_dark", "mn_dark", "mn_dark_details", "help_assistant_mn_dark"]
 INDEX = ROOT / "ui" / "index.html"
-SHOT_DIR = ROOT / "outputs" / "browser_stale_responses"
+SHOT_DIR = SCREENSHOTS_DIR / "browser_stale_responses"
+LOG_DIR = LOGS_DIR / "browser_stale_responses"
 WINDOWS_CHROME = Path("/mnt/c/Program Files/Google/Chrome/Application/chrome.exe")
 SCREENSHOT_STOPS = ["mn_security", "mn_sensitivity_monitored", "kpg_sensitivity", "switch_kpg_to_mn"]
-UNIFIED_SHOT_DIR = ROOT / "outputs" / "browser_unified_ui"
+UNIFIED_SHOT_DIR = SCREENSHOTS_DIR / "browser_unified_ui"
+UNIFIED_LOG_DIR = LOGS_DIR / "browser_unified_ui"
 UNIFIED_SCREENSHOT_STOPS = ["kpg_security", "kpg_sensitivity", "mn_security", "mn_security_details",
                             "mn_sensitivity", "mn_sensitivity_details", "mn_island", "kpg_chat"]
 
@@ -237,9 +246,10 @@ def browser_app_url(session_context=False):
                if session_context else
                [sys.executable, "-m", "uvicorn", "web_app:app", "--host", "127.0.0.1", "--port", str(app_port),
                 "--log-level", "warning"])
+    server_log = log_path(SUITE, "chat_session_app" if session_context else "web_app").open("a", encoding="utf-8")
     server = subprocess.Popen(
         command,
-        cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        cwd=ROOT, stdout=server_log, stderr=subprocess.STDOUT,
     )
     upstream = f"http://127.0.0.1:{app_port}"
     try:
@@ -260,6 +270,7 @@ def browser_app_url(session_context=False):
     finally:
         server.terminate()
         server.wait(timeout=30)
+        server_log.close()
 
 
 @pytest.fixture(scope="module")
@@ -274,39 +285,8 @@ def chat_session_app_url():
 
 def run_chrome(chrome: tuple[Path, bool], url: str, profile: str, screenshot: Path | None = None,
                window: str = "1600,1200") -> str:
-    path, windows = chrome
-    if windows:
-        profile_dir = f"C:\\Windows\\Temp\\ai-ems-{profile}"
-        cwd = "/mnt/c"
-    else:
-        profile_dir = f"/tmp/ai-ems-{profile}"
-        cwd = None
-    args = [str(path), "--headless=new", f"--user-data-dir={profile_dir}", "--no-first-run",
-            f"--window-size={window}", "--virtual-time-budget=600000"]
-    target = None
-    if screenshot is not None:
-        target = Path("/mnt/c/Users/Public") / screenshot.name if windows else screenshot
-        win_target = "C:\\Users\\Public\\" + screenshot.name if windows else str(target)
-        args.append(f"--screenshot={win_target}")
-    else:
-        args.append("--dump-dom")
-    args.append(url)
-    # Retries cover harness start-up only: a fresh Chrome profile can fail its first launch, and
-    # WSL2 localhost forwarding needs a moment before Windows Chrome can reach a newly bound port.
-    for attempt in range(5):
-        if attempt:
-            time.sleep(2)
-        done = subprocess.run(args, cwd=cwd, capture_output=True, timeout=600)
-        if b"ERR_CONNECTION_REFUSED" in done.stderr:
-            continue
-        if screenshot is not None:
-            if target.is_file():
-                screenshot.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(target), screenshot)
-                return ""
-        elif done.stdout:
-            return done.stdout.decode("utf-8", "replace")
-    raise RuntimeError(f"Chrome produced no output: {done.stderr[-500:]!r}")
+    # `profile` only labels the run: every attempt gets its own temporary profile, removed afterwards.
+    return run_chrome_page(chrome, url, suite=SUITE, label=profile, screenshot=screenshot, window=window)
 
 
 def expected_checks(probe: Path) -> int:
@@ -337,8 +317,8 @@ def test_stale_responses_are_never_applied(app_url):
     url, chrome = app_url
     report = probe_results(run_chrome(chrome, url, "stale-probe"))
     results = report["results"]
-    (SHOT_DIR).mkdir(parents=True, exist_ok=True)
-    (SHOT_DIR / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    (LOG_DIR / "results.json").write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     failed = [item for item in results if not item["pass"]]
     # Every static check in the probe must have run (no scenario silently skipped).
     expected = expected_checks(PROBE)
@@ -360,8 +340,8 @@ def test_unified_ui_same_components_for_kpg_and_mongolia(app_url):
     url, chrome = app_url
     report = probe_results(run_chrome(chrome, f"{url}?probe=unified", "unified-probe"))
     results = report["results"]
-    UNIFIED_SHOT_DIR.mkdir(parents=True, exist_ok=True)
-    (UNIFIED_SHOT_DIR / "results.json").write_text(
+    UNIFIED_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    (UNIFIED_LOG_DIR / "results.json").write_text(
         json.dumps({"results": results, "visible_text": report["shots"]}, ensure_ascii=False, indent=2), encoding="utf-8")
     failed = [item for item in results if not item["pass"]]
     assert len(results) == expected_checks(UNIFIED_PROBE), [item["name"] for item in results]
@@ -387,8 +367,8 @@ def run_theme_probe(app_url, profile: str, window: str = "1600,1200", stop: str 
 def test_theme_and_help_on_both_grids(app_url):
     report = run_theme_probe(app_url, f"theme-probe-{int(time.time())}")
     results = report["results"]
-    THEME_SHOT_DIR.mkdir(parents=True, exist_ok=True)
-    (THEME_SHOT_DIR / "results.json").write_text(
+    THEME_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    (THEME_LOG_DIR / "results.json").write_text(
         json.dumps({"results": results, "contrast": report["contrast"]}, ensure_ascii=False, indent=2), encoding="utf-8")
     failed = [item for item in results if not item["pass"]]
     assert not missing_checks(THEME_PROBE, results), missing_checks(THEME_PROBE, results)
@@ -400,7 +380,8 @@ def test_help_popover_stays_inside_a_small_viewport(app_url):
     report = run_theme_probe(app_url, f"theme-narrow-{int(time.time())}", window="820,640", stop="help_model_kpg_dark")
     failed = [item for item in report["results"] if not item["pass"]]
     assert report["results"] and not failed, json.dumps(failed, ensure_ascii=False, indent=2)
-    (THEME_SHOT_DIR / "results_narrow.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    THEME_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    (THEME_LOG_DIR / "results_narrow.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def test_theme_screenshots(app_url):
@@ -421,8 +402,8 @@ def test_reference_layers_are_not_rendered_or_loaded_automatically(app_url):
     url, chrome = app_url
     report = probe_results(run_chrome(chrome, f"{url}?probe=reference", f"reference-probe-{int(time.time())}"))
     results = report["results"]
-    REFERENCE_SHOT_DIR.mkdir(parents=True, exist_ok=True)
-    (REFERENCE_SHOT_DIR / "results.json").write_text(
+    REFERENCE_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    (REFERENCE_LOG_DIR / "results.json").write_text(
         json.dumps({"results": results}, ensure_ascii=False, indent=2), encoding="utf-8")
     failed = [item for item in results if not item["pass"]]
     assert not missing_checks(REFERENCE_PROBE, results), missing_checks(REFERENCE_PROBE, results)
@@ -443,7 +424,7 @@ def test_mongolia_analysis_chat_cards_maps_and_stale_responses(app_url):
     url, chrome = app_url
     report = probe_results(run_chrome(chrome, f"{url}?probe=mnchat", "mn-analysis-chat"))
     results = report["results"]
-    target = ROOT / "outputs/browser_mongolia_chat"
+    target = LOGS_DIR / "browser_mongolia_chat"
     target.mkdir(parents=True, exist_ok=True)
     (target / "results.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     assert not missing_checks(MONGOLIA_CHAT_PROBE, results), missing_checks(MONGOLIA_CHAT_PROBE, results)
@@ -452,7 +433,7 @@ def test_mongolia_analysis_chat_cards_maps_and_stale_responses(app_url):
 
 def test_mongolia_analysis_chat_screenshot(app_url):
     url, chrome = app_url
-    shot = ROOT / "outputs/browser_mongolia_chat/chain.png"
+    shot = SCREENSHOTS_DIR / "browser_mongolia_chat" / "chain.png"
     run_chrome(chrome, f"{url}?probe=mnchat&stop=chain", "mn-analysis-chat-shot", screenshot=shot)
     assert shot.is_file() and shot.stat().st_size > 10_000
 
@@ -461,7 +442,7 @@ def test_chat_preserves_analysis_panel_state_on_both_grids(app_url):
     url, chrome = app_url
     report = probe_results(run_chrome(chrome, f"{url}?probe=chatpanels", f"chat-panels-{int(time.time())}"))
     results = report["results"]
-    target = ROOT / "outputs/browser_chat_panel_state"
+    target = LOGS_DIR / "browser_chat_panel_state"
     target.mkdir(parents=True, exist_ok=True)
     (target / "results.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     assert report["cases"] == [
@@ -478,7 +459,7 @@ def test_grid_chat_restores_history_and_real_server_context(chat_session_app_url
     url, chrome = chat_session_app_url
     report = probe_results(run_chrome(chrome, f"{url}?probe=chatrestore", f"chat-restore-{int(time.time())}"))
     results = report["results"]
-    target = ROOT / "outputs/browser_chat_session_restore"
+    target = LOGS_DIR / "browser_chat_session_restore"
     target.mkdir(parents=True, exist_ok=True)
     (target / "results.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     assert not missing_checks(CHAT_RESTORE_PROBE, results), missing_checks(CHAT_RESTORE_PROBE, results)
@@ -489,6 +470,7 @@ def test_actual_korea_national_map_input_performance_and_grid_isolation(app_url)
     from browser.chrome_cdp import run_probe
     url, chrome = app_url
     probe = ROOT / "tests/browser/korea_osm_map_probe.js"
-    report = run_probe(chrome, url + "?probe=manual", probe, ROOT / "outputs/korea_osm_integration/browser", free_port)
+    report = run_probe(chrome, url + "?probe=manual", probe, LOGS_DIR / "korea_osm_integration", free_port,
+                       screenshots=SCREENSHOTS_DIR / "korea_osm_integration")
     assert not missing_checks(probe, report["results"]), missing_checks(probe, report["results"])
     assert not [r for r in report["results"] if not r["pass"]], report

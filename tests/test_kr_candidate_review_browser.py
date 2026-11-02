@@ -15,6 +15,7 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT))
 from pipelines.kr import review_candidates as review
 from test_browser_stale_responses import find_chrome,free_port
+from browser.chrome_env import chrome_run
 from test_kr_topology_pipeline import fixture_map,write,bus,line
 from pipelines.kr.sources import load_map_graph
 from pipelines.kr.topology import analyze
@@ -31,40 +32,41 @@ def browser():
     path,windows=chrome
     if windows:
         pytest.skip('file:// review probe requires Linux Chrome; set AI_EMS_CHROME')
-    port=free_port();profile=f'C:\\Windows\\Temp\\ai-ems-review-{port}' if windows else f'/tmp/ai-ems-review-{port}'
+    port=free_port()
     font_conf=ROOT/'.cache/korean-fonts/fonts.conf'
     env={**os.environ,**({'FONTCONFIG_FILE':str(font_conf)} if font_conf.is_file() else {})}
-    process=subprocess.Popen([str(path),'--headless=new','--no-first-run',f'--user-data-dir={profile}',f'--remote-debugging-port={port}','--window-size=1600,1200','about:blank'],cwd='/mnt/c' if windows else None,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
-    connection=None;counter=0
-    try:
-        deadline=time.monotonic()+30
-        while True:
-            try:
-                with urllib.request.urlopen(f'http://127.0.0.1:{port}/json',timeout=1) as f:targets=json.load(f)
-                target=next(t for t in targets if t['type']=='page')
-                connection=websocket.create_connection(target['webSocketDebuggerUrl'],timeout=30,suppress_origin=True);break
-            except (OSError,StopIteration):
-                if process.poll() is not None:raise RuntimeError(process.stderr.read().decode()[-2000:])
-                if time.monotonic()>deadline:raise TimeoutError('Chrome start')
-                time.sleep(.1)
-        def call(method,params=None):
-            nonlocal counter
-            counter+=1;identifier=counter;connection.send(json.dumps(dict(id=identifier,method=method,params=params or {})))
+    with chrome_run(chrome,'kr_candidate_review','review') as run:  # own temporary profile, removed afterwards
+        process=subprocess.Popen([str(path),'--headless=new','--no-first-run',f'--user-data-dir={run.profile}',f'--remote-debugging-port={port}','--window-size=1600,1200','about:blank'],cwd='/mnt/c' if windows else None,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+        connection=None;counter=0
+        try:
+            deadline=time.monotonic()+30
             while True:
-                reply=json.loads(connection.recv())
-                if reply.get('id')==identifier:
-                    if 'error' in reply:raise RuntimeError(reply['error'])
-                    return reply.get('result',{})
-        def evaluate(expression):
-            reply=call('Runtime.evaluate',dict(expression=expression,returnByValue=True))
-            if 'exceptionDetails' in reply:raise RuntimeError(reply['exceptionDetails'])
-            return reply.get('result',{}).get('value')
-        yield call,evaluate
-    finally:
-        if connection:connection.close()
-        process.terminate()
-        try:process.wait(timeout=10)
-        except subprocess.TimeoutExpired:process.kill();process.wait(timeout=10)
+                try:
+                    with urllib.request.urlopen(f'http://127.0.0.1:{port}/json',timeout=1) as f:targets=json.load(f)
+                    target=next(t for t in targets if t['type']=='page')
+                    connection=websocket.create_connection(target['webSocketDebuggerUrl'],timeout=30,suppress_origin=True);break
+                except (OSError,StopIteration):
+                    if process.poll() is not None:raise RuntimeError(process.stderr.read().decode()[-2000:])
+                    if time.monotonic()>deadline:raise TimeoutError('Chrome start')
+                    time.sleep(.1)
+            def call(method,params=None):
+                nonlocal counter
+                counter+=1;identifier=counter;connection.send(json.dumps(dict(id=identifier,method=method,params=params or {})))
+                while True:
+                    reply=json.loads(connection.recv())
+                    if reply.get('id')==identifier:
+                        if 'error' in reply:raise RuntimeError(reply['error'])
+                        return reply.get('result',{})
+            def evaluate(expression):
+                reply=call('Runtime.evaluate',dict(expression=expression,returnByValue=True))
+                if 'exceptionDetails' in reply:raise RuntimeError(reply['exceptionDetails'])
+                return reply.get('result',{}).get('value')
+            yield call,evaluate
+        finally:
+            if connection:connection.close()
+            process.terminate()
+            try:process.wait(timeout=10)
+            except subprocess.TimeoutExpired:process.kill();process.wait(timeout=10)
 
 
 def load_file(call,evaluate,path):

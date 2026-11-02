@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -65,6 +65,9 @@ from ai_ems.mongolia_sensitivity import InvalidMonitoredLine, SensitivityVerific
 from ai_ems.mongolia_runtime import MongoliaBundleRuntime
 
 UI_DIR = Path("ui")
+# Artifact console (served beside the existing UI). Only these files are exposed.
+CONSOLE_DIR = UI_DIR / "console"
+CONSOLE_ASSETS = frozenset({"app.css", "api-bridge.css", "models.js", "app.js", "api-bridge.js"})
 MONGOLIA_MAP_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-map.json"
 MONGOLIA_PF_PREVIEW_FILE = PROJECT_ROOT / "data" / "grids" / "mn35k-synthetic-pf-preview.json"
 # Reference-only display layers; deliberately separate from the hash-bound base map.
@@ -177,6 +180,24 @@ def _require_kpg_grid(grid_id: str) -> None:
 @app.get("/")
 def index():
     return FileResponse(UI_DIR / "index.html")
+
+
+@app.get("/console", include_in_schema=False)
+def console_redirect():
+    # Console assets use relative URLs, so the page is always served from /console/.
+    return RedirectResponse("/console/")
+
+
+@app.get("/console/", include_in_schema=False)
+def console_index():
+    return FileResponse(CONSOLE_DIR / "index.html")
+
+
+@app.get("/console/{asset}", include_in_schema=False)
+def console_asset(asset: str):
+    if asset not in CONSOLE_ASSETS:
+        raise HTTPException(status_code=404, detail="Not Found")
+    return FileResponse(CONSOLE_DIR / asset)
 
 
 @app.get("/api/health")
