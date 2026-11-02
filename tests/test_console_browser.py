@@ -5,8 +5,10 @@ Opt-in because it needs a real Chrome and starts the full web app:
     AI_EMS_BROWSER_TESTS=1 .venv/bin/python -m pytest -q tests/test_console_browser.py
 
 A local proxy serves the real ``/console/`` from the app with ``tests/browser/console_hook.js``
-(errors, seeded Math.random, fixed Date) and ``tests/browser/console_probe.js`` injected, forwards
-every other request, and can fail, drop or hold ``GET /api/grids`` (``?scenario=`` / probe gates).
+(errors, seeded Math.random, fixed Date, optional listener log) and ``tests/browser/console_probe.js``
+injected, forwards every other request and records it, and can fail, drop, rewrite or hold the catalog,
+map, display-geometry and PF responses (``?scenario=`` / probe gates). The performance test runs
+without virtual time: the proxy holds one image so the DOM is dumped only after the probe finished.
 The parity test runs the same probe on the original Artifact HTML kept in ``local-reference/``
 (skipped when that untracked file is absent) and compares the demo fingerprints value by value.
 Screenshots are written to ``.local/browser-tests/screenshots/console_ui/`` and probe reports, Chrome
@@ -51,18 +53,54 @@ SCREENSHOTS = [
     ("demo_kpg193", "probe=shot&shot=demo", ()),
     ("demo_ieee39", "probe=shot&shot=ieee39", ()),
     ("demo_live_simulated", "probe=shot&shot=live", ()),
-    ("api_kpg193", "probe=shot&shot=api-kpg", ()),
-    ("api_mongolia", "probe=shot&shot=api-mn", ()),
+    ("api_kpg193_map", "probe=shot&shot=api-kpg", ()),
+    ("api_kpg193_pf", "probe=shot&shot=api-kpg-pf", ()),
+    ("api_mongolia_map", "probe=shot&shot=api-mn", ()),
+    ("api_mongolia_pf", "probe=shot&shot=api-mn-pf", ()),
     ("api_korea_osm", "probe=shot&shot=api-kr", ()),
     ("api_demo_screen_gated", "probe=shot&shot=api-gate", ()),
-    ("api_check_failed", "probe=shot&shot=api-error&scenario=failafter1", ()),
+    ("api_pf_error", "probe=shot&shot=api-pf-error&scenario=pf500", ()),
+    ("api_map_error", "probe=shot&shot=api-error&scenario=map500", ()),
+    ("api_gis_fallback", "probe=shot&shot=api-gis-fallback&scenario=geo404", ()),
     ("api_catalog_unavailable", "probe=shot&shot=demo&scenario=drop", ()),
     ("demo_fonts_blocked", "probe=shot&shot=demo", (BLOCK_FONTS,)),
 ]
+# Response changes the proxy applies per ?scenario= (path -> status / drop / JSON rewrite).
+KPG_MAP, KPG_PF = "/api/grids/kr-kpg193/map", "/api/grids/kr-kpg193/pf-preview"
+FAULTS = {
+    "pf500": lambda path: 500 if path.endswith("/pf-preview") else None,
+    "map500": lambda path: 500 if path == KPG_MAP else None,
+    "mapdrop": lambda path: "drop" if path == KPG_MAP else None,
+    "geo404": lambda path: 404 if path.endswith("/display-geometry") else None,
+}
+REWRITES = {
+    "geobad": lambda path: (lambda d: {**d, "grid_id": "kr-kpg193"}) if path.endswith("/display-geometry") else None,
+    "pfgrid": lambda path: (lambda d: {**d, "metadata": {**d["metadata"], "grid_id": "mn-osm-35k"}}) if path == KPG_PF else None,
+    "pfnonconv": lambda path: (lambda d: {**d, "metadata": {**d["metadata"], "pf_status": "AC_PF_FAILED"},
+                                         "summary": {**d["summary"], "pf_converged": False}}) if path == KPG_PF else None,
+}
+GIF = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b")
+
+
+class PathGates(Gates):
+    """Gates whose match may be an exact path ("=/api/grids"); the probe's own fetches never claim one."""
+
+    def claim(self, path: str):
+        if "__probe=" in path:
+            return None
+        bare = urlsplit(path).path
+        with self.lock:
+            for item in self.items.values():
+                match = item["match"]
+                if not item["used"] and (bare == match[1:] if match.startswith("=") else match in path):
+                    item["used"] = True
+                    item["requested"].set()
+                    return item
+        return None
 
 
 def run_page(chrome, url: str, label: str, *, extra=(), screenshot: Path | None = None,
-             budget: int = 600000, window: str = "1600,1000") -> str:
+             budget: int | None = 600000, window: str = "1600,1000") -> str:
     # Each attempt uses its own temporary profile; retries cover WSL2 localhost forwarding lag.
     return run_chrome_page(chrome, url, suite=SUITE, label=label, screenshot=screenshot, window=window,
                            budget=budget, extra=extra, attempts=10, pause=3, timeout=900)
@@ -128,41 +166,60 @@ def make_proxy(upstream: str, gates: Gates, scenario: dict):
         def _page(self, original: bool):
             query = parse_qs(urlsplit(self.path).query)
             gates.reset()
-            scenario.update(name=query.get("scenario", query.get("probe", ["parity"]))[0], served=0)
+            probe_mode = query.get("probe", ["parity"])[0]
+            scenario.update(name=query.get("scenario", [probe_mode])[0], hits=[], loaded=threading.Event())
             if original:
                 html = ORIGINAL.read_text(encoding="utf-8").replace("<script>", hook + "<script>", 1)
             else:
                 with urllib.request.urlopen(upstream + "/console/", timeout=60) as resp:
                     html = resp.read().decode("utf-8")
                 html = html.replace('<script src="models.js">', hook + '<script src="models.js">', 1)
+            if probe_mode == "perf":
+                # Without virtual time Chrome dumps the DOM at the load event: hold one image until the probe is done.
+                html = html.replace('<body data-mode="pub">', '<body data-mode="pub"><img src="/__probe__/hold-load" alt="" hidden>', 1)
             self._send(200, "text/html; charset=utf-8", html.replace("</body>", probe + "</body>", 1).encode("utf-8"))
 
         def do_GET(self):
             path = urlsplit(self.path).path
             if path == "/__probe__/tick":
                 return self._json(200, {"ok": True})
+            if path == "/__probe__/hits":
+                return self._json(200, {"hits": list(scenario.get("hits", []))})
+            if path == "/__probe__/hold-load":
+                scenario["loaded"].wait(timeout=900)
+                return self._send(200, "image/gif", GIF)
             if path.startswith("/__probe__/gates"):
                 return self._gates("GET")
             if path in ("/console/", "/__original__/"):
                 return self._page(original=path == "/__original__/")
+            if path.startswith("/api/"):
+                scenario.setdefault("hits", []).append(self.path)
+            name = scenario.get("name")
             if path == "/api/grids":
-                name = scenario.get("name")
-                if name == "fail500" or (name == "failafter1" and scenario["served"] >= 1):
+                if name == "fail500":
                     return self._json(500, {"detail": "forced failure (test proxy)"})
                 if name == "drop":
                     self.close_connection = True
                     return  # no response at all: the browser sees a network error
                 if name == "badjson":
                     return self._json(200, {"grids": "x"})
-                scenario["served"] = scenario.get("served", 0) + 1
-            self._forward()
+            fault = FAULTS[name](path) if name in FAULTS else None
+            if fault == "drop":
+                self.close_connection = True
+                return
+            if fault:
+                return self._json(fault, {"detail": f"forced {fault} (test proxy)"})
+            self._forward(rewrite=REWRITES[name](path) if name in REWRITES else None)
 
         def do_POST(self):
             if self.path.startswith("/__probe__/gates"):
                 return self._gates("POST")
+            if self.path.startswith("/__probe__/release-load"):
+                scenario["loaded"].set()
+                return self._json(200, {"released": True})
             self._forward(self.rfile.read(int(self.headers.get("Content-Length") or 0)))
 
-        def _forward(self, data: bytes | None = None):
+        def _forward(self, data: bytes | None = None, rewrite=None):
             gate = gates.claim(self.path)
             request = urllib.request.Request(upstream + self.path, data=data, method="POST" if data is not None else "GET")
             if data is not None:
@@ -172,6 +229,8 @@ def make_proxy(upstream: str, gates: Gates, scenario: dict):
                     body, status, ctype = resp.read(), resp.status, resp.headers.get("Content-Type", "")
             except urllib.error.HTTPError as err:
                 body, status, ctype = err.read(), err.code, err.headers.get("Content-Type", "")
+            if rewrite is not None and status == 200:
+                body = json.dumps(rewrite(json.loads(body))).encode("utf-8")
             if gate is not None:
                 gate["released"].wait(timeout=300)  # real response, delivered when the probe releases it
                 if gate["fail"]:
@@ -203,7 +262,7 @@ def console():
                 if time.time() > deadline or server.poll() is not None:
                     raise RuntimeError("web app did not start")
                 time.sleep(0.5)
-        proxy = http.server.ThreadingHTTPServer(("127.0.0.1", proxy_port), make_proxy(upstream, Gates(), {}))
+        proxy = http.server.ThreadingHTTPServer(("127.0.0.1", proxy_port), make_proxy(upstream, PathGates(), {}))
         threading.Thread(target=proxy.serve_forever, daemon=True).start()
         wait_reachable_from_chrome(chrome, f"http://127.0.0.1:{proxy_port}/__probe__/tick")
         LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -216,9 +275,9 @@ def console():
         server_log.close()
 
 
-def run_probe(console, query: str, name: str, extra=()) -> dict:
+def run_probe(console, query: str, name: str, extra=(), budget: int | None = 600000) -> dict:
     base, chrome = console
-    report = report_of(run_page(chrome, f"{base}/console/?{query}", name, extra=extra))
+    report = report_of(run_page(chrome, f"{base}/console/?{query}", name, extra=extra, budget=budget))
     (LOG_DIR / f"{name}.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     return report
 
@@ -239,6 +298,7 @@ def test_console_matches_original_artifact_demo(console):
     for name, report in [("parity_original", original), ("parity_console", ported)]:
         (LOG_DIR / f"{name}.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     assert original["errors"] == [] and ported["errors"] == [], (original["errors"], ported["errors"])
+    assert ported["diagnostics"]["apiMapHiddenInDemo"] is True
     fp = ported["fingerprint"]
     differences = {key: (original["fingerprint"][key], fp[key]) for key in original["fingerprint"] if original["fingerprint"][key] != fp[key]}
     assert not differences, json.dumps(differences, ensure_ascii=False, indent=2)
@@ -250,7 +310,7 @@ def test_console_matches_original_artifact_demo(console):
     assert all(view["on"] and view["length"] > 500 for view in fp["views"].values()) and len(fp["views"]) == 9
 
 
-def test_console_api_grids_are_separate_from_demo(console):
+def test_console_api_grid_maps_and_pf_preview(console):
     assert_passed(run_probe(console, "probe=api", "api"))
 
 
@@ -259,8 +319,20 @@ def test_console_catalog_failure_never_falls_back_to_demo(console, scenario):
     assert_passed(run_probe(console, f"probe={scenario}", f"failure_{scenario}"))
 
 
-def test_console_drops_stale_and_late_catalog_responses(console):
+@pytest.mark.parametrize("scenario", ["pf500", "map500", "mapdrop", "geo404", "geobad", "pfgrid", "pfnonconv"])
+def test_console_endpoint_failures_are_shown_not_replaced(console, scenario):
+    assert_passed(run_probe(console, f"probe={scenario}", f"endpoint_{scenario}"))
+
+
+def test_console_drops_stale_and_late_responses(console):
     assert_passed(run_probe(console, "probe=stale", "stale"))
+
+
+def test_console_map_performance_in_real_time(console):
+    # No virtual time: the probe measures real rendering, zoom and pan with performance.now().
+    report = run_probe(console, "probe=perf", "perf", budget=None)
+    assert_passed(report)
+    assert report["timings"]["grids"]["kr-osm-transmission"]["nodes"] < 80
 
 
 def test_console_catalog_timeout(console):

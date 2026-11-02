@@ -13,9 +13,10 @@ therefore live in the Windows user's own temp folder
 (``%LOCALAPPDATA%\\Temp\\ai-ems-agent\\browser-tests\\profiles``), never in C:\\Windows\\Temp, while its
 screenshots and logs are still collected in the project.
 
-Every run gets a new directory named ``ai-ems-<suite>-<label>-<pid>-<random>``. When the run ends only
-Chrome processes whose command line contains that unique name are stopped, and only that directory is
-removed; other Chrome profiles and sessions are never touched.
+Every run gets a new directory named ``ai-ems-<random>`` (kept short: Chrome's own files inside a long
+profile path exceed the Windows 260-character limit; the suite and label go to the Chrome log). When the
+run ends, or is interrupted, only Chrome processes whose command line contains that unique name are
+stopped, and only that directory is removed; other Chrome profiles and sessions are never touched.
 """
 from __future__ import annotations
 
@@ -85,6 +86,7 @@ def _slug(text: str) -> str:
 class ChromeRun:
     """One Chrome launch: its own profile and screenshot file, in paths Chrome and WSL understand."""
     run_id: str
+    label: str
     windows: bool
     directory: Path        # the run directory as seen from WSL/Linux
     profile: str           # --user-data-dir value for Chrome
@@ -108,9 +110,11 @@ class ChromeRun:
             try:
                 shutil.rmtree(self.directory)
                 return
-            except FileNotFoundError:
-                return
             except OSError:
+                # Python 3.11 rmtree also raises FileNotFoundError for an entry vanishing under it
+                # (e.g. a lockfile closed by a dying Chrome); only a missing directory means done.
+                if not self.directory.exists():
+                    return
                 if attempt == 1:
                     self.stop_processes()
                 time.sleep(0.5 * (attempt + 1))
@@ -122,7 +126,7 @@ class ChromeRun:
 def chrome_run(chrome: tuple[Path, bool], suite: str, label: str):
     """A fresh run directory (profile + screenshot target) that is removed with its processes afterwards."""
     windows = chrome[1]
-    run_id = f"ai-ems-{_slug(suite)}-{_slug(label)}-{os.getpid()}-{uuid.uuid4().hex[:10]}"
+    run_id = f"ai-ems-{uuid.uuid4().hex[:12]}"
     if windows:
         root_windows, root = windows_profiles_root()
         directory = root / run_id
@@ -131,24 +135,33 @@ def chrome_run(chrome: tuple[Path, bool], suite: str, label: str):
         directory = PROFILES_DIR / run_id
         prefix = f"{directory}/"
     (directory / "user-data").mkdir(parents=True)
-    run = ChromeRun(run_id, windows, directory, prefix + "user-data", prefix + "screenshot.png",
-                    directory / "screenshot.png")
+    run = ChromeRun(run_id, f"{_slug(suite)}/{_slug(label)}", windows, directory, prefix + "user-data",
+                    prefix + "screenshot.png", directory / "screenshot.png")
     try:
         yield run
+    except BaseException:
+        # Timeout, Ctrl-C or a failed probe: the interop process is gone but chrome.exe may still
+        # hold the profile, so stop this run's processes before removing its directory.
+        if windows:
+            run.stop_processes()
+        raise
     finally:
         run.remove()
 
 
 def _log_run(log: Path, run: ChromeRun, url: str, attempt: int, exit_code, seconds: float, stderr: bytes) -> None:
     with log.open("a", encoding="utf-8") as handle:
-        handle.write(f"=== {datetime.now():%Y-%m-%d %H:%M:%S} {run.run_id} attempt={attempt + 1} "
+        handle.write(f"=== {datetime.now():%Y-%m-%d %H:%M:%S} {run.run_id} {run.label} attempt={attempt + 1} "
                      f"exit={exit_code} seconds={seconds:.1f}\n{url}\n{stderr.decode('utf-8', 'replace')}\n")
 
 
 def run_chrome_page(chrome: tuple[Path, bool], url: str, *, suite: str, label: str, screenshot: Path | None = None,
-                    window: str = "1600,1200", budget: int = 600000, extra=(), attempts: int = 5,
+                    window: str = "1600,1200", budget: int | None = 600000, extra=(), attempts: int = 5,
                     pause: float = 2.0, timeout: float = 600) -> str:
     """Load url in headless Chrome and return the DOM, or save a screenshot to `screenshot` and return "".
+
+    `budget` is the headless virtual-time budget in ms; None runs in real time (the DOM is dumped at the
+    load event), which is the only way to measure real script and rendering cost.
 
     Each attempt uses a new profile. Retries cover harness start-up only: WSL2 localhost forwarding
     can lag behind a newly bound port, and a fresh Chrome profile can fail its first launch.
@@ -161,16 +174,15 @@ def run_chrome_page(chrome: tuple[Path, bool], url: str, *, suite: str, label: s
         if attempt:
             time.sleep(pause)
         with chrome_run(chrome, suite, label) as run:
-            args = [str(path), "--headless=new", f"--user-data-dir={run.profile}", "--no-first-run",
-                    f"--window-size={window}", f"--virtual-time-budget={budget}", *extra,
+            args = [str(path), "--headless=new", f"--user-data-dir={run.profile}", "--no-first-run", f"--window-size={window}",
+                    *([f"--virtual-time-budget={budget}"] if budget else []), *extra,
                     f"--screenshot={run.screenshot}" if screenshot is not None else "--dump-dom", url]
             started = time.monotonic()
             try:
                 done = subprocess.run(args, cwd="/mnt/c" if windows else None, capture_output=True, timeout=timeout)
             except subprocess.TimeoutExpired as error:
-                run.stop_processes()
                 _log_run(log, run, url, attempt, "timeout", time.monotonic() - started, error.stderr or b"")
-                raise
+                raise  # chrome_run() stops this run's processes before removing the profile
             _log_run(log, run, url, attempt, done.returncode, time.monotonic() - started, done.stderr)
             if b"ERR_CONNECTION_REFUSED" in done.stderr:
                 continue

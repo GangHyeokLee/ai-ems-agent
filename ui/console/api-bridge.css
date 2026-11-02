@@ -1,4 +1,4 @@
-/* K-EMS console bridge: EMS API grids beside the Artifact demo. Uses the app.css design tokens. */
+/* K-EMS console bridge: EMS API grids inside the Artifact 관제 layout. Uses the app.css design tokens. */
 
 /* Data source badges (header) */
 .kems-src{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap;flex:none}
@@ -6,53 +6,155 @@
 .kems-src-sim{background:var(--warn-bg);color:var(--warn)}
 .kems-src-api{background:var(--sel-bg);color:var(--sel)}
 .tw-api{background:var(--sel-bg);color:var(--sel)}
-/* Long status options (e.g. a catalog error) stay in the open list instead of widening the header;
-   app.css lifts the cap with .ctxr #model{max-width:none!important;min-width:210px}. */
-.ctxr #model{max-width:250px!important}
 .kems-retry{font-size:12px;border-color:var(--alarm);color:var(--alarm)}
 .kems-retry[hidden]{display:none}  /* app.css .btn sets display, which would override [hidden] */
 .mtog button:disabled,#apBtn:disabled{opacity:.45;cursor:not-allowed}
+/* Long status options (e.g. a catalog error) stay in the open list instead of widening the header;
+   app.css lifts the cap with .ctxr #model{max-width:none!important;min-width:210px}. */
+.ctxr #model{max-width:250px!important}
 
-/* API grid selected: demo screens and demo-only controls are hidden, never repurposed */
-.kems-api,.kems-gate{display:none}
+/* API grid selected: demo-only parts of the layout are hidden, never repurposed */
+.kems-only,.kems-gate{display:none!important}
 body[data-kems-src="api"] main>.view:not(#v-ops)>:not(.vhead):not(.kems-gate),
-body[data-kems-src="api"] #v-ops>:not(.vhead):not(.kems-api),
+body[data-kems-src="api"] #sld,
+body[data-kems-src="api"] #v-ops .msbox:not(.kems-search),
+body[data-kems-src="api"] #mapCard,
+body[data-kems-src="api"] #v-ops .vtop,
+body[data-kems-src="api"] #liveBtn,
+body[data-kems-src="api"] #legend,
+body[data-kems-src="api"] #tlbar,
+body[data-kems-src="api"] #v-ops .kpis:not(.kems-kpis),
+body[data-kems-src="api"] #modelDesc,
+body[data-kems-src="api"] #inj,
+body[data-kems-src="api"] #injBtn,
+body[data-kems-src="api"] #resetBtn,
+body[data-kems-src="api"] #lvTog,
+body[data-kems-src="api"] #msgs,
+body[data-kems-src="api"] #chips,
+body[data-kems-src="api"] #form,
+body[data-kems-src="api"] .panel.chat>.ph .hbtns,
+body[data-kems-src="api"] .panel.chat>.ph .sub,
 body[data-kems-src="api"] #almBtn,
 body[data-kems-src="api"] #almPop,
 body[data-kems-src="api"] .kems-demo-only{display:none!important}
-body[data-kems-src="api"] .kems-gate{display:block}
-body[data-kems-src="api"] .kems-api{display:grid}
+body[data-kems-src="api"] .kems-gate{display:block!important}
+body[data-kems-src="api"] #kemsDesc{display:block!important}
+body[data-kems-src="api"] #kemsMode{display:inline-flex!important}
+body[data-kems-src="api"] #kemsMapHost{display:block!important}
+body[data-kems-src="api"] #kemsLegend{display:flex!important}
+body[data-kems-src="api"] #kemsKpis{display:grid!important}
+body[data-kems-src="api"] #kemsSide{display:block!important}
 
 .kems-gate{padding:18px 20px;max-width:760px}
 .kems-gate b{font-size:14px}
 .kems-gate p{margin:6px 0 14px;color:var(--ink-2);font-size:13px}
 
-/* API grid panel (관제) */
-.kems-api{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:16px;align-items:start;flex:1;min-height:0;overflow:auto}
-.kems-api h2{margin:0;font-size:15px}
-.kems-api code{font-family:var(--mono);font-size:11.5px}
-.kems-pill{display:inline-flex;align-items:center;height:26px;padding:0 11px;border-radius:999px;font-size:12px;font-weight:600;white-space:nowrap}
-.kems-pill-loading{background:var(--bg);color:var(--ink-2)}
-.kems-pill-ok{background:var(--ok-bg);color:var(--ok)}
-.kems-pill-err{background:var(--alarm-bg);color:var(--alarm)}
-.kems-honest{margin:14px 20px 4px;padding:10px 14px;border-radius:8px;background:var(--warn-bg);font-size:13px;line-height:1.6}
-.kems-honest a{color:var(--sel);font-weight:500;white-space:nowrap}
-.kems-kpis{margin-top:12px}
-.kems-kpis .kpi b{color:var(--ink-3)}
-.kems-kpis .kpi em{display:block;font-style:normal;font-size:11.5px;color:var(--ink-3)}
-.kems-phs{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:16px 20px}
-.kems-ph{border:1px dashed var(--rule);border-radius:10px;padding:14px 16px;min-height:132px}
-.kems-ph b{font-size:13px}
-.kems-ph p{margin:6px 0 0;font-size:12.5px;color:var(--ink-2)}
-.kems-note{border-top:1px solid var(--rule)}
+/* 계통도 header */
+.kems-desc{font-size:12px;color:var(--ink-3);max-width:100%}
+.kems-descmain{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kems-descmain b{color:var(--ink-2);font-weight:600}
+.kems-descsub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kems-descsub[data-gis="error"],.kems-descsub[data-gis="invalid"]{color:var(--warn)}
+#kemsMode button:disabled{opacity:.45;cursor:not-allowed}
+
+/* Map */
+.kems-maphost{position:relative;width:100%;height:100%;min-height:360px;overflow:hidden}
+.kems-svg{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:none;user-select:none}
+.kems-svg.dragging{cursor:grabbing}
+.kems-svg path{vector-effect:non-scaling-stroke;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.kems-svg .k-land{fill:color-mix(in srgb,var(--steel) 8%,transparent);stroke:color-mix(in srgb,var(--steel) 34%,transparent);stroke-width:.8}
+.kems-svg .k-region{stroke:color-mix(in srgb,var(--steel) 20%,transparent);stroke-width:.6}
+.kems-svg .k-line{stroke:var(--steel);stroke-width:1.2}
+.kems-svg .k-line.k-v1{stroke:var(--ink);stroke-width:2.4;opacity:.8}
+.kems-svg .k-line.k-v2{stroke:var(--steel);stroke-width:1.4}
+.kems-svg .k-line.k-v3{stroke:var(--ink-3);stroke-width:.9}
+.kems-svg .k-line.k-vu{stroke:var(--ink-3);stroke-width:.8;stroke-dasharray:3 3}
+.kems-svg .k-line.k-straight{stroke-dasharray:5 4}
+.kems-svg .k-line.k-ld-ok{stroke:var(--steel);opacity:.6}
+.kems-svg .k-line.k-ld-high{stroke:var(--warn);opacity:1}
+.kems-svg .k-line.k-ld-over{stroke:var(--alarm);opacity:1}
+.kems-svg .k-line.k-ld-none{stroke:var(--ink-3);opacity:.7;stroke-dasharray:2 4}
+.kems-svg .k-bus{stroke-width:5}
+.kems-svg .k-bus.k-v1{stroke-width:7}
+.kems-svg .k-bus.k-v2{stroke-width:5.5}
+.kems-svg .k-bus.k-v3,.kems-svg .k-bus.k-vu{stroke-width:4}
+.kems-svg .k-bus.k-feed{stroke:var(--ink)}
+.kems-svg .k-bus.k-ring{stroke:var(--ink-2)}
+.kems-svg .k-bus.k-hole{stroke:var(--panel)}
+.kems-svg .k-bus.k-hole.k-v1{stroke-width:4.2}
+.kems-svg .k-bus.k-hole.k-v2{stroke-width:3}
+.kems-svg .k-bus.k-hole.k-v3,.kems-svg .k-bus.k-hole.k-vu{stroke-width:1.8}
+.kems-svg .k-plant{stroke:var(--ok);stroke-width:6;stroke-linecap:square}
+.kems-svg .k-trafo{stroke:var(--sel);stroke-width:5;stroke-linecap:square}
+.kems-svg .k-trafo-link{stroke:var(--sel);stroke-width:1;stroke-dasharray:3 3}
+.kems-svg .k-alert{stroke:var(--alarm);stroke-width:13;opacity:.55}
+.kems-svg .k-sel-line{stroke:var(--sel);stroke-width:5;opacity:.9}
+.kems-svg .k-sel-dot{stroke:var(--sel);stroke-width:15;opacity:.6}
+.kems-svg .k-label{fill:var(--ink-2);font-family:var(--sans);font-weight:600;paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round;pointer-events:none}
+.kems-mapmsg{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);z-index:4;max-width:min(520px,calc(100% - 32px));padding:10px 16px;border-radius:12px;background:var(--panel-2);border:1px solid var(--rule);box-shadow:var(--sh-md);font-size:13px;color:var(--ink-2);text-align:center}
+.kems-mapmsg[hidden]{display:none}
+.kems-mapmsg[data-tone="err"]{color:var(--alarm);border-color:color-mix(in srgb,var(--alarm) 45%,var(--rule))}
+.kems-card .kems-cardhead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.kems-card .kems-cardhead b{font-size:13px;word-break:break-all}
+.kems-card .kems-cardsrc{font-size:11px;color:var(--ink-3);margin:2px 0 6px}
+.kems-kv{display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:2px 0;border-top:1px dashed color-mix(in srgb,var(--rule) 70%,transparent)}
+.kems-kv span{color:var(--ink-3);flex:none}
+.kems-kv b{font-weight:500;text-align:right;word-break:break-all}
+
+/* Legend */
+.kems-lgline{width:18px;height:0;border-top:1.4px solid var(--steel)}
+.kems-lgline.k-v1{border-top:2.4px solid var(--ink);opacity:.8}
+.kems-lgline.k-v2{border-top:1.4px solid var(--steel)}
+.kems-lgline.k-v3{border-top:1px solid var(--ink-3)}
+.kems-lgline.dashed{border-top:1.4px dashed var(--steel)}
+.kems-lgline.ld-ok{border-top:2px solid var(--steel);opacity:.6}
+.kems-lgline.ld-high{border-top:2px solid var(--warn)}
+.kems-lgline.ld-over{border-top:2px solid var(--alarm)}
+.kems-lgline.ld-none{border-top:2px dotted var(--ink-3)}
+.kems-lgdot{width:7px;height:7px;border-radius:50%;border:1px solid var(--ink-2)}
+.kems-lgdot.feed{background:var(--ink);border-color:var(--ink)}
+.kems-lgdot.alert{background:color-mix(in srgb,var(--alarm) 55%,transparent);border-color:var(--alarm)}
+.kems-lgsq{width:7px;height:7px}
+.kems-lgsq.plant{background:var(--ok)}
+.kems-lgsq.trafo{background:var(--sel)}
+.kems-lgsrc{margin-left:auto;color:var(--ink-3)}
+
+/* KPI tiles */
+.kems-kpis .kpi em{display:block;font-style:normal;font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kems-kpis .kpi.kems-muted b{color:var(--ink-3)}
+.kems-kpis .kpi.kems-err b{color:var(--alarm)}
+.kems-kpis .kpi.kems-err em{color:var(--alarm)}
+.kems-kpis .kpi.kems-warn b{color:var(--warn)}
+
+/* 의사결정지원 panel for an API grid */
+.kems-side{flex:1;min-height:0;overflow:auto;padding:4px 16px 14px}
+.kems-sidehead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0 4px}
+.kems-sidehead b{font-size:13.5px}
+.kems-sidehead code{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+.kems-sidehead .btn{margin-left:auto;font-size:12px}
+.kems-sec{border-top:1px solid var(--rule);padding:10px 0 4px}
+.kems-sec h3{margin:0 0 6px;font-size:12.5px;font-weight:650;color:var(--ink-2)}
+.kems-badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.kems-facts{display:grid;gap:0}
+.kems-rank{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:transparent;border-radius:8px;padding:5px 6px}
+.kems-rank:hover{background:var(--sel-bg)}
+.kems-rank span{display:flex;flex-direction:column;min-width:0}
+.kems-rank b{font-size:12.5px;font-weight:600;font-family:var(--mono);word-break:break-all}
+.kems-rank em{font-style:normal;font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kems-rank i{font-style:normal;font-size:12.5px;font-weight:600;flex:none}
+.kems-rank i.kems-err,.kems-err{color:var(--alarm)}
+.kems-rank i.kems-warnt{color:var(--warn)}
+.kems-notwired a{font-size:12.5px;color:var(--sel)}
+.kems-sub{font-size:11px;color:var(--ink-3);margin-top:4px}
 .kems-cap{min-width:0}
+.kems-cap code{font-family:var(--mono);font-size:11px}
 .kems-y{color:var(--ok);font-weight:600}
 .kems-n,.kems-u{color:var(--ink-3)}
 .kems-w{color:var(--warn);font-weight:600}
 .kems-capnote{color:var(--warn)}
-.kems-facts{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0;padding:12px 20px 16px;font-size:12.5px;border-top:1px solid var(--rule)}
-.kems-facts dt{color:var(--ink-3)}
-.kems-facts dd{margin:0}
-.kems-msg{padding:0 20px;font-size:13px;color:var(--ink-2)}
-.kems-err{color:var(--alarm)}
-@media (max-width:980px){.kems-api{grid-template-columns:minmax(0,1fr)}.kems-phs{grid-template-columns:minmax(0,1fr)}}
+.kems-msg{margin:4px 0;font-size:12.5px;color:var(--ink-2)}
+.kems-note{padding:8px 0 0;border-top:1px solid var(--rule)}
+.kems-pill{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.kems-pill-loading{background:var(--bg);color:var(--ink-2)}
+.kems-pill-ok{background:var(--ok-bg);color:var(--ok)}
+.kems-pill-err{background:var(--alarm-bg);color:var(--alarm)}

@@ -16,6 +16,15 @@
       original.apply(console, args);
     };
   }
+  // Listener registrations are logged only once a probe sets window.__listenerLog = [] (no behaviour change).
+  const addListener = EventTarget.prototype.addEventListener;
+  EventTarget.prototype.addEventListener = function (type, listener, options) {
+    if (Array.isArray(window.__listenerLog)) {
+      const target = this === window ? 'window' : this === document ? 'document' : (this.id || String(this.tagName || this.constructor.name).toLowerCase());
+      window.__listenerLog.push([target, type]);
+    }
+    return addListener.call(this, type, listener, options);
+  };
   let seed = 20261030;
   Math.random = () => {  // mulberry32
     seed = (seed + 0x6D2B79F5) | 0;

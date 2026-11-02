@@ -11,6 +11,7 @@ import urllib.request
 import pytest
 
 from browser.chrome_cdp import run_probe
+from browser.chrome_env import LOGS_DIR, SCREENSHOTS_DIR, log_path
 from mongolia_bundle_server_probe import BUNDLES, ROOT, free_port
 from test_browser_stale_responses import find_chrome
 
@@ -32,7 +33,8 @@ def test_geometry_flow_in_real_chrome(tmp_path, monkeypatch):
     env = {**os.environ, "PYTHONPATH": f"{ROOT}/src:{ROOT}", "PYTHONDONTWRITEBYTECODE": "1",
            "AI_EMS_MN_BUNDLE_DIR": str(ROOT / "outputs/mn_stage3b/bundles" / name),
            "AI_EMS_MN_BUNDLE_MANIFEST_SHA256": approved_sha}
-    with (tmp_path / "server.log").open("w") as log:
+    server_log = log_path("mn_display_geometry", "web_app")
+    with server_log.open("w") as log:
         process = subprocess.Popen([sys.executable, "-B", "-m", "uvicorn", "web_app:app", "--host", "127.0.0.1", "--port", str(port)],
                                    cwd=ROOT, env=env, stdout=log, stderr=log)
         try:
@@ -43,9 +45,10 @@ def test_geometry_flow_in_real_chrome(tmp_path, monkeypatch):
                         break
                 except OSError:
                     if process.poll() is not None or time.monotonic() > deadline:
-                        pytest.fail((tmp_path / "server.log").read_text())
+                        pytest.fail(server_log.read_text())
                     time.sleep(0.1)
-            report = run_probe(chrome, base+"/", ROOT / "tests/browser/mn_display_geometry_probe.js", tmp_path / "chrome", free_port)
+            report = run_probe(chrome, base+"/", ROOT / "tests/browser/mn_display_geometry_probe.js", LOGS_DIR / "mn_display_geometry",
+                               free_port, screenshots=SCREENSHOTS_DIR / "mn_display_geometry")
             assert all(item["pass"] for item in report["results"]), json.dumps(report, ensure_ascii=False)
             assert len(report["results"]) >= 20
         finally:

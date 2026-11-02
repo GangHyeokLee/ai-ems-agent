@@ -59,7 +59,8 @@ def test_classic_scripts_keep_the_original_order():
     html = index_html()
     # One global scope as in the single inline script: ES modules would reject app.js's 20 duplicate
     # function declarations and change hoisting.
-    assert re.findall(r"<script[^>]*>", html) == ['<script src="models.js">', '<script src="app.js">', '<script src="api-bridge.js">']
+    assert re.findall(r"<script[^>]*>", html) == ['<script src="models.js">', '<script src="app.js">', '<script src="api-map.js">',
+                                                  '<script src="api-bridge.js">']
     assert re.findall(r'<link rel="stylesheet" href="([^"]+)">', html) == ["app.css", "api-bridge.css"]
 
 
@@ -77,6 +78,19 @@ def test_bridge_is_isolated_and_writes_text_only():
     # API values reach the page as text nodes only.
     assert not re.search(r"\.(innerHTML|outerHTML)\b|insertAdjacentHTML\(|document\.write", code)
     assert "'/api/grids'" in code and "MODELS" not in code
+    # The Artifact DC engine and demo state are never read for an EMS API grid (comments may name them).
+    statements = re.sub(r"/\*.*?\*/|//[^\n]*", "", code, flags=re.S)
+    assert not re.search(r"\b(dcpf|n1fast|n1full|redispatch|twin|BASE|lastScen)\b", statements)
+
+
+def test_api_map_renderer_is_isolated():
+    source = (CONSOLE / "api-map.js").read_text(encoding="utf-8")
+    code = source[source.index("*/") + 2:].strip()
+    # One global name only, absent from app.js; no HTML injection; no power-flow computation.
+    assert code.startswith("const KemsApiMap = (() => {\n  'use strict';") and code.endswith("})();")
+    assert "KemsApiMap" not in (CONSOLE / "app.js").read_text(encoding="utf-8")
+    assert not re.search(r"\.(innerHTML|outerHTML)\b|insertAdjacentHTML\(|document\.write|\bfetch\(", code)
+    assert not re.search(r"\b(dcpf|M\.buses|MODELS|twin)\b", code)
 
 
 @pytest.fixture(scope="module")
