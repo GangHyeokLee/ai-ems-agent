@@ -67,7 +67,7 @@ from ai_ems.mongolia_runtime import MongoliaBundleRuntime
 UI_DIR = Path("ui")
 # Artifact console (served beside the existing UI). Only these files are exposed.
 CONSOLE_DIR = UI_DIR / "console"
-CONSOLE_ASSETS = frozenset({"app.css", "api-bridge.css", "models.js", "app.js", "api-map.js", "api-analysis.js", "api-bridge.js"})
+CONSOLE_ASSETS = frozenset({"app.css", "api-bridge.css", "models.js", "app.js", "api-map.js", "api-analysis.js", "api-chat.js", "api-bridge.js"})
 MONGOLIA_MAP_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-map.json"
 MONGOLIA_PF_PREVIEW_FILE = PROJECT_ROOT / "data" / "grids" / "mn35k-synthetic-pf-preview.json"
 # Reference-only display layers; deliberately separate from the hash-bound base map.

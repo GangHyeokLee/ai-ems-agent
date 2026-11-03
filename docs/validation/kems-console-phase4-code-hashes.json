@@ -1,0 +1,15 @@
+{
+  "schema": "kems-phase4-code-change-audit-1",
+  "basis": "K-EMS Console Phase 4 PH4-01 (AI chat integration). Extends docs/validation/kems-console-phase3-code-hashes.json without modifying it, the Phase 2 or Stage 3C records, or the original Stage 1 contract: 'before' is the Phase 3 'after' pin and 'after' is the PH4-01 tree, whose only web_app.py change is the CONSOLE_ASSETS allowlist entry for api-chat.js. This record was written before that change was committed, so 'base_commit' names the commit holding the 'before' bytes. Existing chat routes and Agent code are unchanged. This is review evidence, not replacement model approval.",
+  "stage1_contract_sha256": "bde2dbd9f55fc6eef6efdfee1cb5ff1a84dd05500b7deda28c96ff910456ff73",
+  "phase3_record_sha256": "e6aa93448832bd891a8d9538cbe505f35d29d891fd95feaf506f0c430e24fa44",
+  "files": {
+    "ems_code.web_app.py": {
+      "path": "web_app.py",
+      "before": "78f7f9466f757270f25e0a79efa29defc95a4a8e105384bfbd387ee5a216a7c9",
+      "after": "6628d110f783d02ac16abec69c3346c0beeec676729c839b25a2387df8ddbcac",
+      "base_commit": "3f7b17966154765acc70cb9dad42fa2edcbe4e7f",
+      "change": "CONSOLE_ASSETS allows api-chat.js (PH4-01 console chat module); no route or Agent code changed"
+    }
+  }
+}

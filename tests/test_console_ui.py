@@ -60,7 +60,7 @@ def test_classic_scripts_keep_the_original_order():
     # One global scope as in the single inline script: ES modules would reject app.js's 20 duplicate
     # function declarations and change hoisting.
     assert re.findall(r"<script[^>]*>", html) == ['<script src="models.js">', '<script src="app.js">', '<script src="api-map.js">',
-                                                  '<script src="api-analysis.js">', '<script src="api-bridge.js">']
+                                                  '<script src="api-analysis.js">', '<script src="api-chat.js">', '<script src="api-bridge.js">']
     assert re.findall(r'<link rel="stylesheet" href="([^"]+)">', html) == ["app.css", "api-bridge.css"]
 
 
@@ -111,6 +111,18 @@ def test_api_map_renderer_is_isolated():
     assert "KemsApiMap" not in (CONSOLE / "app.js").read_text(encoding="utf-8")
     assert not re.search(r"\.(innerHTML|outerHTML)\b|insertAdjacentHTML\(|document\.write|\bfetch\(", code)
     assert not re.search(r"\b(dcpf|M\.buses|MODELS|twin)\b", code)
+
+
+def test_api_chat_module_keeps_grid_and_rendering_boundaries():
+    source = (CONSOLE / "api-chat.js").read_text(encoding="utf-8")
+    code = re.sub(r"/\*.*?\*/|//[^\n]*", "", source, flags=re.S)
+    assert "KemsApiChat" not in (CONSOLE / "app.js").read_text(encoding="utf-8")
+    assert set(re.findall(r"'(/api/[\w/.-]+)'", code)) == {
+        "/api/grids/kr-kpg193/chat", "/api/grids/mn-osm-35k/chat",
+    }
+    assert not re.search(r"\.(innerHTML|outerHTML)\b|insertAdjacentHTML\(|document\.write|\beval\(", code)
+    # PH4-02 owns analysis context and map updates; PH4-01 has no access to those APIs.
+    assert not re.search(r"\b(ui_updates|KemsApiAnalysis|KemsApiMap|dcpf|MODELS|lastScen)\b", code)
 
 
 @pytest.fixture(scope="module")

@@ -250,6 +250,7 @@ def test_cli_missing_requirements_returns_failure_and_does_not_write_source(path
 STAGE3C_CODE_HASHES=ROOT/'docs/validation/mongolia-pipeline-stage3c-code-hashes.json'
 PHASE2_CODE_HASHES=ROOT/'docs/validation/kems-console-phase2-code-hashes.json'
 PHASE3_CODE_HASHES=ROOT/'docs/validation/kems-console-phase3-code-hashes.json'
+PHASE4_CODE_HASHES=ROOT/'docs/validation/kems-console-phase4-code-hashes.json'
 WEB_APP='ems_code.web_app.py'
 
 
@@ -324,6 +325,59 @@ def test_phase3_code_record_cannot_rewrite_or_bypass_phase2(tmp_path,target,muta
     with pytest.raises(AssertionError):phase3_code_changes(*files)
 
 
+def phase4_code_changes(phase3,phase4):
+    """PH4-01 extends the exact Phase 3 bytes; all older evidence stays immutable."""
+    previous,later=(json.loads(path.read_text()) for path in (phase3,phase4))
+    assert previous['schema']=='kems-phase3-code-change-audit-1'
+    assert later['schema']=='kems-phase4-code-change-audit-1'
+    assert later['stage1_contract_sha256']==inventory.sha256(inventory.CONTRACT)
+    assert later['phase3_record_sha256']==inventory.sha256(phase3)
+    assert set(later['files'])=={WEB_APP}
+    for role,change in later['files'].items():
+        assert change['path']==previous['files'][role]['path']=='web_app.py'
+        assert change['before']==previous['files'][role]['after']!=change['after']
+        assert re.fullmatch('[0-9a-f]{64}',change['after'])
+        assert re.fullmatch('[0-9a-f]{40}',change['base_commit'])
+    return later['files']
+
+
+@pytest.mark.parametrize('target,mutation',[
+    (0,lambda r,o:r['files'][WEB_APP].update(after=o['files'][WEB_APP]['after'])),
+    (1,lambda r,o:r['files'][WEB_APP].update(before=o['files'][WEB_APP]['before'])),
+    (1,lambda r,o:r['files'][WEB_APP].update(after=r['files'][WEB_APP]['before'])),
+    (1,lambda r,o:r['files'][WEB_APP].update(path='ui/console/api-chat.js')),
+    (1,lambda r,o:r['files'][WEB_APP].update(base_commit='3f7b179')),
+    (1,lambda r,o:r['files'].update({'ems_code.src/ai_ems/config.py':{**r['files'][WEB_APP],'path':'src/ai_ems/config.py'}})),
+    (1,lambda r,o:r.update(stage1_contract_sha256='0'*64)),
+    (1,lambda r,o:r.update(phase3_record_sha256='0'*64)),
+    (1,lambda r,o:r['files'][WEB_APP].update(after='invalid-hash')),
+    (1,lambda r,o:r.update(schema='kems-phase3-code-change-audit-1'))],
+    ids=['phase3-after-rewritten','phase4-skips-phase3','phase4-no-change','phase4-other-path',
+         'phase4-short-commit','phase4-extra-role','phase4-other-contract','phase4-other-phase3-record',
+         'phase4-invalid-after','phase4-wrong-schema'])
+def test_phase4_code_record_cannot_rewrite_or_bypass_phase3(tmp_path,target,mutation):
+    # Mutate isolated JSON copies only; never the working tree or original evidence.
+    files=[tmp_path/'phase3.json',tmp_path/'phase4.json']
+    for file,source in zip(files,(PHASE3_CODE_HASHES,PHASE4_CODE_HASHES)):file.write_bytes(source.read_bytes())
+    assert phase4_code_changes(*files)
+    records=[json.loads(file.read_text()) for file in files]
+    mutation(records[target],records[1-target])
+    files[target].write_text(json.dumps(records[target],indent=2)+'\n')
+    with pytest.raises(AssertionError):phase4_code_changes(*files)
+
+
+def test_phase4_code_record_pins_only_console_chat_asset(tmp_path):
+    change=phase4_code_changes(PHASE3_CODE_HASHES,PHASE4_CODE_HASHES)[WEB_APP]
+    current=ROOT/change['path']
+    assert inventory.sha256(current)==change['after']
+    source=current.read_bytes()
+    addition=b'"api-chat.js", '
+    assert source.count(addition)==1
+    previous=tmp_path/'phase3-web_app.py'
+    previous.write_bytes(source.replace(addition,b'',1))
+    assert inventory.sha256(previous)==change['before']
+
+
 @pytest.fixture(scope='module')
 def real_paths():
     source=ROOT.parent/'mongolia-grid-poc'
@@ -348,11 +402,12 @@ def test_real_asset_checks_are_deterministic_and_keep_model_roles(real_paths):
     failures=[c for c in first['checks'] if c['passed'] is False]
     assert not first['ready'] and {c['name'] for c in failures}=={'file:'+role for role in expected},failures
     assert len(first['files'])==87
-    # Phase 2 and Phase 3 changed web_app.py again. Each record chains onto the
-    # exact bytes of the one before it, Stage 3C and Phase 2 'after' stay the
+    # Phases 2, 3 and 4 changed web_app.py again. Each record chains onto the
+    # exact bytes of the one before it, Stage 3C and Phase 2/3 'after' stay the
     # historical pins, and only the newest record may pin the current bytes.
     later=phase2_code_changes(STAGE3C_CODE_HASHES,PHASE2_CODE_HASHES)
     latest=phase3_code_changes(PHASE2_CODE_HASHES,PHASE3_CODE_HASHES)
+    latest={**latest,**phase4_code_changes(PHASE3_CODE_HASHES,PHASE4_CODE_HASHES)}
     for role,spec in audit['files'].items():
         assert first['files'][role]['sha256']==latest.get(role,later.get(role,spec))['after']
         assert first['files'][role]['expected_sha256']==spec['before']

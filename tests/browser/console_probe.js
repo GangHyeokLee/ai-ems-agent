@@ -72,7 +72,28 @@
   const diagnostics = {};  // reported, not compared
   async function parity() {
     const fp = {};
+    const clock = window.__probeClock;
+    const controlled = !!clock && Date.now() === clock.now() && new Date().getTime() === clock.now();
+    check('parity: controlled wall clock active before demo actions', controlled);
+    if (!controlled) throw new Error('Parity requires the controlled Date fixture');
+    diagnostics.clockSteps = [];
+    const checkpoint = (label, milliseconds = 10000) => {
+      const timestamp = clock.advance(milliseconds);
+      diagnostics.clockSteps.push({label, timestamp});
+      if (Date.now() !== timestamp) throw new Error('Parity clock was replaced');
+    };
+    const renderAges = (label) => {
+      // engTag() creates an empty span; its five-second interval may straddle a capture.
+      // Run the actual renderer at the controlled time instead of dropping its output.
+      ageTick();
+      const rendered = [...document.querySelectorAll('#msgs .engtag .age')]
+        .every((badge) => badge.textContent.includes('기준 스냅샷'));
+      check(`parity: snapshot age badges rendered (${label})`, rendered);
+      if (!rendered) throw new Error('Snapshot age renderer left an empty badge');
+    };
+    checkpoint('initial', 0);
     await wait(1500);
+    renderAges('initial');
     fp.initial = {...kpis(), alarms: document.querySelectorAll('#alarms li').length, sld: document.querySelectorAll('#sld *').length,
       injOptions: byId('inj').options.length, chips: [...document.querySelectorAll('#chips .chip')].map((b) => b.textContent),
       desc: text('modelDesc'), placeholder: byId('q').placeholder, msgs: norm(byId('msgs').innerText), title: document.title,
@@ -81,10 +102,12 @@
 
     fp.chat = [];
     for (const q of QUERIES) {
+      checkpoint(`query: ${q}`);
       const before = byId('msgs').children.length;
       byId('q').value = q;
       byId('form').requestSubmit();
       await settle();
+      renderAges(q);
       const answers = byId('msgs').querySelectorAll('.a');
       fp.chat.push({q, added: byId('msgs').children.length - before, answer: norm(answers.length ? answers[answers.length - 1].innerText : '')});
     }
@@ -96,6 +119,7 @@
     // Start from 맞춤: app.js animateTo() has no lower clamp on its easing time, so under headless virtual
     // time (rAF stamps behind performance.now) the animated viewBox is not comparable run to run.
     const viewBox = () => byId('sld').getAttribute('viewBox');
+    checkpoint('map controls');
     if (animId) cancelAnimationFrame(animId);
     byId('zfit').click(); await wait(300);
     fp.zoom = {start: viewBox()};
@@ -104,6 +128,7 @@
     byId('zfit').click(); await wait(300); fp.zoom.fit = viewBox();
     diagnostics.mapLabelsAfterFit = [...byId('sld').querySelectorAll('text')].filter(visible).map((t) => t.textContent);
 
+    checkpoint('scenario drawer');
     byId('scnBtn').click();
     await wait(600);
     fp.drawer = {open: visible(byId('drawer')), title: text('drTitle'), items: byId('drBody').querySelectorAll('button').length};
@@ -111,11 +136,13 @@
     await wait(600);
     fp.drawer.closedAfter = byId('drawer').hidden;
 
+    checkpoint('fault injection');
     role('연구자');
     await wait(300);
     byId('injBtn').click();
     await wait(1500);
     fp.inject = {...kpis(), alarms: document.querySelectorAll('#alarms li').length, line: byId('inj').value};
+    checkpoint('reset');
     byId('resetBtn').click();
     await wait(1500);
     fp.reset = kpis();
@@ -124,19 +151,23 @@
 
     fp.models = {};
     for (const id of ['ieee39', 'ieee14', 'six', 'kpg193']) {
+      checkpoint(`model: ${id}`);
       choose(id);
       await wait(2500);
       fp.models[id] = {...kpis(), desc: text('modelDesc'), sld: document.querySelectorAll('#sld *').length,
         alarms: document.querySelectorAll('#alarms li').length, injOptions: byId('inj').options.length};
     }
 
+    checkpoint('timeline open');
     byId('tlOpen').click();
     await wait(4000);
     fp.timeline = {time: text('tlTime'), stat: norm(byId('tlStat').innerText)};
+    checkpoint('timeline play');
     byId('tlPlay').click();
     await wait(6000);
     fp.timeline.afterPlay = text('tlTime');
     fp.timeline.kpis = kpis();
+    checkpoint('timeline close');
     byId('tlClose').click();
     await wait(800);
 
@@ -144,8 +175,10 @@
     // differs run to run under headless virtual time (also between two runs of the original).
     fp.views = {};
     for (const view of VIEWS) {
+      checkpoint(`view: ${view}`);
       nav(view);
       await wait(3000);
+      renderAges(`view: ${view}`);
       const section = byId(`v-${view}`);
       const hideSvg = document.createElement('style');
       hideSvg.textContent = 'svg{display:none!important}';
@@ -161,25 +194,30 @@
     await wait(500);
     fp.bench = {};
     for (const id of ['runBench', 'runQB', 'runReg', 'runOpqB', 'runScnB']) {
+      checkpoint(`benchmark: ${id}`);
       byId(id).click();
       for (let i = 0; i < 600 && (i < 6 || byId(id).disabled || busy); i++) await wait(500);
     }
     for (const id of ['bCases', 'bMatch', 'bViol', 'bFix', 'qbPass', 'qbAct', 'qbEv', 'qbFix', 'rgP', 'rgPct', 'rgN', 'opqP', 'scnP']) fp.bench[id] = text(id);
     for (const id of ['bench', 'qb', 'regT', 'opqT', 'scnT', 'qbRuns']) fp.bench[`${id}Rows`] = byId(id).querySelectorAll('tr').length;
 
+    checkpoint('lake start');
     nav('sn');
     await wait(500);
     byId('lkRun').click();
     await wait(8000);
+    checkpoint('lake stop', 8000);
     byId('lkRun').click();
     fp.lake = norm(byId('lkStat').innerText);
 
+    checkpoint('learning workflow');
     nav('ml');
     await wait(500);
     byId('mlRunBtn').click();
     await wait(20000);
     fp.ml = norm(byId('mlLog').innerText).slice(-300);
 
+    checkpoint('knowledge search');
     nav('kb');
     await wait(500);
     byId('kbQ').value = '선로 과부하 조치';
@@ -192,6 +230,7 @@
     await wait(300);
     fp.roles = {};
     for (const name of ['관제사', '책임자', '연구자']) {
+      checkpoint(`role: ${name}`);
       role(name);
       await wait(500);
       fp.roles[name] = [...document.querySelectorAll('nav button[data-v]')].filter((b) => !b.hidden).map((b) => b.dataset.v);
@@ -202,10 +241,12 @@
     nav('ops');
     await wait(500);
 
+    checkpoint('simulated live mode');
     document.querySelector('.mtog button[data-m="live"]').click();
     await wait(5000);
     fp.live = {mode: MODE, bodyMode: document.body.dataset.mode, model: byId('model').value, tw: text('twMode'), desc: text('modelDesc'),
       sys: norm(byId('msgs').innerText).slice(0, 200), loadIsNumber: /MW$/.test(text('kLoad'))};
+    checkpoint('return to public mode', 5000);
     document.querySelector('.mtog button[data-m="pub"]').click();
     await wait(2000);
     fp.backToPub = {mode: MODE, model: byId('model').value, ...kpis()};

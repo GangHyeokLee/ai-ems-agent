@@ -17,7 +17,8 @@
  * grids whose catalog flags allow them. This file owns when a request is sent, its cancellation
  * (grid switch, re-run on another outage line) and the per-view analysis state; api-analysis.js
  * owns the per-grid API contracts, response validation, the result display and the map overlay.
- * The assistant is not wired yet (Phase 4).
+ * PH4-01: api-chat.js owns a persistent, grid-scoped chat panel and calls the existing Agent APIs.
+ * Chat does not receive analysis context or apply map updates (reserved for PH4-02).
  * Everything lives in this IIFE so no app.js global lexical name can collide.
  */
 (() => {
@@ -38,7 +39,7 @@
     ['security_analysis_available', '선로 N-1 Security Analysis', '연동'],
     ['sensitivity_analysis_available', 'Sensitivity Analysis', '연동'],
     ['generator_contingency_available', '발전기 탈락 해석', '미연동'],
-    ['chat_available', 'AI 채팅', '미연동'],
+    ['chat_available', 'AI 채팅', '연동'],
     ['analysis_available', 'KPG 해석 묶음 (호환 플래그)', '일부 연동 (선로 N-1·Sensitivity)'],
   ];
   // Wired in this console only for a grid whose analysis API contract api-analysis.js knows.
@@ -776,6 +777,9 @@
 
   const side = h('div', {class: 'kems-only kems-side', id: 'kemsSide', 'aria-live': 'polite'});
   chatPanel.querySelector('#msgs').before(side);
+  const chatHost = h('section', {class: 'kems-only kems-chat', id: 'kemsChat'});
+  side.after(chatHost);
+  const apiChat = KemsApiChat.create(chatHost);
 
   // The Artifact zoom buttons drive the API map while an API grid is shown (their own handlers move the demo map).
   mapPanel.querySelector('.ph .zoom').addEventListener('click', (event) => {
@@ -994,7 +998,8 @@
       rows.map(([flag, label, wired]) => {
         const value = entryFlag(entry, flag);
         const note = CAPABILITY_NOTES[flag] && typeof entry[CAPABILITY_NOTES[flag]] === 'string' ? entry[CAPABILITY_NOTES[flag]] : null;
-        const shown = ANALYSIS_FLAGS.has(flag) && !KemsApiAnalysis.adapter(entry.id) ? '미연동 (해석 API 연동 없음)' : wired;
+        const shown = ANALYSIS_FLAGS.has(flag) && !KemsApiAnalysis.adapter(entry.id) ? '미연동 (해석 API 연동 없음)'
+          : flag === 'chat_available' && !KemsApiChat.supported(entry.id, entry) ? '미연동 (채팅 API 연동 없음)' : wired;
         return h('tr', {'data-flag': flag},
           h('td', {}, label, h('div', {class: 'd'}, h('code', {}, flag)), note ? h('div', {class: 'd kems-capnote'}, note) : null),
           h('td', {}, value === true ? h('span', {class: 'kems-y'}, '제공') : value === false ? h('span', {class: 'kems-n'}, '미제공') : h('span', {class: 'kems-u'}, '응답에 없음')),
@@ -1079,9 +1084,6 @@
       view.status === 'ready' ? pfSection(view) : null,
       view.status === 'ready' ? topLinesSection(view) : null,
       h('section', {class: 'kems-sec', 'data-sec': 'capability'}, h('h3', {}, 'EMS API 기능 상태'), capability),
-      h('section', {class: 'kems-sec kems-notwired', 'data-sec': 'notwired'}, h('h3', {}, 'AI 채팅'),
-        h('p', {class: 'kems-msg'}, 'AI 채팅(Phase 4)은 아직 이 콘솔에 연동되지 않았습니다. Artifact의 데모 규칙 엔진·사고 주입은 EMS API 계통에 실행하지 않습니다.'),
-        h('a', {href: '/'}, '기존 화면에서 채팅 열기')),
       entry && typeof entry.note === 'string' ? h('p', {class: 'note kems-note'}, entry.note) : null,
     ];
     side.replaceChildren(...sections.flat().filter(Boolean));  // replaceChildren() does not flatten arrays
@@ -1106,11 +1108,13 @@
       const tw = document.getElementById('twMode');
       tw.textContent = 'EMS API';
       tw.className = 'twm tw-api';
-      tw.title = 'EMS API 계통 · 지도와 PF 미리보기(조회 전용) · 기능 플래그가 허용한 선로 N-1·Sensitivity · 채팅 미연동';
+      tw.title = 'EMS API 계통 · 지도와 PF 미리보기(조회 전용) · 기능 플래그가 허용한 선로 N-1·Sensitivity·AI 채팅';
       const mapText = !view ? '' : {ready: '지도 연동', loading: '지도 불러오는 중', error: '지도 오류', unavailable: '지도 미제공'}[view.map.status] || '확인 중';
       const support = view && view.status === 'ready' ? analysisSupport(view) : null;
-      const analysisText = !support ? '해석 확인 중' : support.security.ok
-        ? `N-1${support.sensitivity.ok ? '·Sensitivity' : ''} 연동 · 채팅 미연동` : '해석 미지원 · 채팅 미연동';
+      const chatText = !view || view.status !== 'ready' ? '채팅 확인 중'
+        : KemsApiChat.supported(view.gridId, view.entry) ? 'AI 채팅 연동' : '채팅 미지원';
+      const analysisText = (!support ? '해석 확인 중' : support.security.ok
+        ? `N-1${support.sensitivity.ok ? '·Sensitivity' : ''} 연동` : '해석 미지원') + ` · ${chatText}`;
       const pfText = !view ? '' : {ready: 'PF 미리보기 · 조회 전용', nonconverged: 'PF 비수렴', unsupported: 'PF 미지원', loading: 'PF 불러오는 중',
         error: 'PF 조회 실패', invalid: 'PF 검증 실패', blocked: 'PF 표시 안 함'}[view.pf.status] || 'PF 확인 중';
       info.replaceChildren(
@@ -1157,6 +1161,13 @@
     for (const button of gateButtons) button.textContent = `데모 계통으로 전환 · ${DEMO_LABELS[state.lastDemo] || state.lastDemo}`;
     renderOptions();
     const view = api ? state.view : null;
+    apiChat.setContext(view ? {
+      gridId: view.gridId, name: API_ALIASES[view.gridId] || view.gridId,
+      enabled: view.status === 'ready' && KemsApiChat.supported(view.gridId, view.entry),
+      reason: view.status !== 'ready' ? '계통의 채팅 지원 상태를 확인하지 못했습니다.'
+        : view.gridId === 'kr-osm-transmission' ? '한국 OSM은 지도 전용 계통으로 AI 채팅을 지원하지 않습니다.'
+          : '이 계통은 현재 AI 채팅을 사용할 수 없습니다.',
+    } : null);
     if (view) {
       renderDesc(view);
       renderMapMessage(view);

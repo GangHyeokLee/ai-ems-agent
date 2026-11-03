@@ -36,7 +36,22 @@
   const RealDate = Date;
   const start = RealDate.UTC(2026, 9, 30, 1, 0, 0);  // 10:00 KST
   const origin = performance.now();
-  const now = () => start + Math.floor(performance.now() - origin);
+  // Parity compares a single inline Artifact against separately loaded console scripts.
+  // CPU/network loading time must not change timestamp-derived snapshot IDs. The probe
+  // advances this wall clock at matching user actions; performance/rAF clocks stay real.
+  const parity = new URLSearchParams(location.search).get('probe') === 'parity';
+  let elapsed = 0;
+  if (parity) {
+    window.__probeClock = Object.freeze({
+      now: () => start + elapsed,
+      advance: (milliseconds) => {
+        if (!Number.isFinite(milliseconds) || milliseconds < 0) throw new Error('Invalid parity clock step');
+        elapsed += milliseconds;
+        return start + elapsed;
+      },
+    });
+  }
+  const now = () => parity ? start + elapsed : start + Math.floor(performance.now() - origin);
   class FixedDate extends RealDate {
     constructor(...args) {
       if (args.length) super(...args);
