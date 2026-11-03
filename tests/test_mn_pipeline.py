@@ -246,6 +246,46 @@ def test_cli_missing_requirements_returns_failure_and_does_not_write_source(path
     assert main(argv+['--numerical-reference','reference.json'])==2
 
 
+STAGE3C_CODE_HASHES=ROOT/'docs/validation/mongolia-pipeline-stage3c-code-hashes.json'
+PHASE2_CODE_HASHES=ROOT/'docs/validation/kems-console-phase2-code-hashes.json'
+WEB_APP='ems_code.web_app.py'
+
+
+def phase2_code_changes(stage3c,phase2):
+    """Phase 2 pins extend, never rewrite, the Stage 1 contract and the exact Stage 3C record bytes."""
+    audit,later=(json.loads(path.read_text()) for path in (stage3c,phase2))
+    assert later['schema']=='kems-phase2-code-change-audit-1'
+    assert later['stage1_contract_sha256']==inventory.sha256(inventory.CONTRACT)
+    assert later['stage3c_record_sha256']==inventory.sha256(stage3c)
+    assert set(later['files'])=={WEB_APP}
+    for role,change in later['files'].items():
+        assert change['path']==audit['files'][role]['path']
+        assert change['before']==audit['files'][role]['after']!=change['after']
+        assert (change['commits'][0]['sha256'],change['commits'][-1]['sha256'])==(change['before'],change['after'])
+    return later['files']
+
+
+@pytest.mark.parametrize('target,mutation',[
+    (0,lambda r,o:r['files'][WEB_APP].update(after=o['files'][WEB_APP]['after'])),
+    (1,lambda r,o:r['files'][WEB_APP].update(before=o['files'][WEB_APP]['before'])),
+    (1,lambda r,o:r['files'][WEB_APP].update(after=r['files'][WEB_APP]['before'])),
+    (1,lambda r,o:r['files'][WEB_APP].update(path='ui/console/api-map.js')),
+    (1,lambda r,o:r['files'][WEB_APP]['commits'].pop()),
+    (1,lambda r,o:r['files'].update({'ems_code.src/ai_ems/config.py':o['files']['ems_code.src/ai_ems/config.py']})),
+    (1,lambda r,o:r.update(stage1_contract_sha256='0'*64)),
+    (1,lambda r,o:r.update(stage3c_record_sha256='0'*64))],
+    ids=['stage3c-after-rewritten','phase2-skips-stage3c','phase2-no-change','phase2-other-path',
+         'phase2-stale-commits','phase2-extra-role','phase2-other-contract','phase2-other-stage3c-record'])
+def test_phase2_code_record_cannot_rewrite_or_bypass_stage3c(tmp_path,target,mutation):
+    files=[tmp_path/'stage3c.json',tmp_path/'phase2.json']
+    for file,source in zip(files,(STAGE3C_CODE_HASHES,PHASE2_CODE_HASHES)):file.write_bytes(source.read_bytes())
+    assert phase2_code_changes(*files)
+    records=[json.loads(file.read_text()) for file in files]
+    mutation(records[target],records[1-target])
+    files[target].write_text(json.dumps(records[target],indent=2)+'\n')
+    with pytest.raises(AssertionError):phase2_code_changes(*files)
+
+
 @pytest.fixture(scope='module')
 def real_paths():
     source=ROOT.parent/'mongolia-grid-poc'
@@ -263,15 +303,18 @@ def test_real_asset_checks_are_deterministic_and_keep_model_roles(real_paths):
     # original 87-role contract STRICT: it must reject their old byte pins,
     # while every data/model/helper identity continues to match. The separate
     # review record pins both old and new bytes; no data tolerance is relaxed.
-    audit=json.loads((ROOT/'docs/validation/mongolia-pipeline-stage3c-code-hashes.json').read_text())
+    audit=json.loads(STAGE3C_CODE_HASHES.read_text())
     assert audit['stage1_contract_sha256']==inventory.sha256(inventory.CONTRACT)
     expected={'ems_code.src/ai_ems/config.py','ems_code.src/ai_ems/grid_catalog.py','ems_code.web_app.py'}
     assert set(audit['files'])==expected
     failures=[c for c in first['checks'] if c['passed'] is False]
     assert not first['ready'] and {c['name'] for c in failures}=={'file:'+role for role in expected},failures
     assert len(first['files'])==87
+    # Phase 2 changed web_app.py again. Its Stage 3C 'after' stays the historical
+    # pin; only the chained Phase 2 record may pin the current bytes of that file.
+    later=phase2_code_changes(STAGE3C_CODE_HASHES,PHASE2_CODE_HASHES)
     for role,spec in audit['files'].items():
-        assert first['files'][role]['sha256']==spec['after']
+        assert first['files'][role]['sha256']==later.get(role,spec)['after']
         assert first['files'][role]['expected_sha256']==spec['before']
     assert first['facts']['map_counts']['Bus']==173
     assert first['facts']['xiidm_counts']['Bus']==166
