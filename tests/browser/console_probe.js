@@ -7,6 +7,10 @@
  *   fail500 | drop | badjson   initial GET /api/grids failure (forced by the test proxy)
  *   pf500 | map500 | mapdrop | geo404 | geobad | pfgrid | pfnonconv   per-endpoint failures (?scenario=)
  *   timeout   GET /api/grids that never answers (fetch stand-in honouring the abort signal)
+ *   analysis  N-1 Security Analysis and Sensitivity Analysis on the real EMS API (KPG, Mongolia, Korean OSM)
+ *   analysis-stale    held N-1/Sensitivity responses released after a grid or outage change
+ *   analysis-monitored   monitored-line changes: Sensitivity cleared/aborted, held answers never reach the new choice
+ *   analysis-errors   HTTP errors, network errors, invalid and simulated (labelled 모의) responses, flags off
  *   fonts     Google Fonts unreachable (Chrome resolver rule)
  *   perf      real-time map rendering, zoom/pan and grid-switch timings (run without virtual time)
  *   shot      end state for a screenshot (&shot=<state>)
@@ -21,7 +25,14 @@
   const visible = (el) => !!el && el.getClientRects().length > 0;
   const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-  const tick = () => fetch('/__probe__/tick', {cache: 'no-store'});
+  // Idempotent probe GETs retry a transient network failure (Windows Chrome reaches the WSL proxy through
+  // localhost forwarding); no timer in between: virtual time pauses while a held response is pending.
+  async function probeGet(path) {
+    for (let attempt = 1; ; attempt++) {
+      try { return await fetch(path, {cache: 'no-store'}); } catch (error) { if (attempt === 3) throw error; }
+    }
+  }
+  const tick = () => probeGet('/__probe__/tick');
   const norm = (value) => String(value == null ? '' : value).replace(/\s+/g, ' ')
     .replace(/\d+(\.\d+)?s\b/g, '#s').replace(/\d{1,2}:\d{2}(:\d{2})?/g, 'HH:MM').replace(/\d+\s*(초|분) 전/g, '# 전').trim();
   const kpis = () => ({load: text('kLoad'), gen: text('kGen'), max: text('kMax'), n1: text('kN1')});
@@ -224,7 +235,7 @@
   }
   const apiOptions = () => [...byId('model').querySelectorAll('optgroup')[0].children].map((o) => ({value: o.value, label: o.textContent, disabled: o.disabled}));
   const getJson = async (path) => (await fetch(`${path}?__probe=1`, {cache: 'no-store'})).json();
-  const hits = async () => (await (await fetch('/__probe__/hits', {cache: 'no-store'})).json()).hits.filter((h) => !h.includes('__probe='));
+  const hits = async () => (await (await probeGet('/__probe__/hits')).json()).hits.filter((h) => !h.includes('__probe='));
   const svg = () => document.querySelector('#kemsMapHost .kems-svg');
   const tile = (key) => document.querySelector(`#kemsKpis .kpi[data-kpi="${key}"]`);
   const tileValue = (key) => (tile(key) ? tile(key).querySelector('b').textContent : null);
@@ -313,7 +324,9 @@
     check(`${label}: click selects a line by hit test`, clickFeature('line', line, 4) && byId('kemsCard').dataset.id === String(line) && byId('kemsCard').dataset.kind === 'line', cardText().slice(0, 120));
     byId('zfit').click();
     check(`${label}: line card shows PF loading from the API`, close(numbers(cardValue('PF 부하율'))[0], pfLine.loading_percent, 1), [cardValue('PF 부하율'), pfLine.loading_percent]);
-    check(`${label}: line card does not claim analysis`, cardValue('선로 사고 해석') === 'Phase 3 연동 예정 (미연동)');
+    const run = byId('kemsCard').querySelector('.kems-an-run');
+    check(`${label}: line card offers N-1 for this line, nothing run on selection`, run && run.dataset.line === String(line) && !run.disabled
+      && run.textContent === 'N-1 분석 실행' && view().analysis.security.status === 'idle', cardText().slice(-160));
     check(`${label}: click selects a bus`, clickFeature('bus', bus) && byId('kemsCard').dataset.id === String(bus) && cardText().includes(busName), cardText().slice(0, 120));
     check(`${label}: bus card shows PF |V| from the API`, close(numbers(cardValue('PF |V|'))[0], pfBus.v_mag_pu, 3), [cardValue('PF |V|'), pfBus.v_mag_pu]);
     const q = byId('kemsQ');
@@ -606,6 +619,680 @@
       && byId('kemsKpis').children.length === 0 && byId('model').value === 'six' && text('kLoad') === '750 MW', kpis());
   }
 
+  /* ---------- Phase 3: N-1 Security Analysis and Sensitivity Analysis ---------- */
+  const an = () => view().analysis;
+  const n1Sec = () => document.querySelector('#kemsSide [data-sec="n1"]');
+  const sensSec = () => document.querySelector('#kemsSide [data-sec="sens"]');
+  const fact = (root, key) => {
+    const found = root && [...root.querySelectorAll('.kems-kv')].find((r) => r.querySelector('span').textContent === key);
+    return found ? found.querySelector('b').textContent : null;
+  };
+  // Every number shown, with its decimals: a value matches when it rounds to one of them.
+  const shownNumbers = (value) => (String(value).match(/-?\d[\d,]*(\.\d+)?/g) || []).map((t) => ({v: Number(t.replace(/,/g, '')), d: (t.split('.')[1] || '').length}));
+  const shows = (value, expected) => expected === null || expected === undefined || shownNumbers(value).some((n) => Math.abs(n.v - expected) <= 0.5 * 10 ** -n.d + 1e-9);
+  const apiCall = async (path, params) => {
+    const response = await fetch(`${path}?${new URLSearchParams({...params, __probe: '1'})}`, {cache: 'no-store'});
+    return {status: response.status, body: await response.json().catch(() => null)};
+  };
+  const analysisHits = async () => (await hits()).filter((h) => /security-analysis|sensitivity-analysis/.test(h));
+  const overlay = () => window.kemsConsole.map.overlay();
+  const cardRun = () => byId('kemsCard').querySelector('.kems-an-run');
+  const sensRun = () => sensSec().querySelector('[data-action="sensitivity"]');
+  const monitorSelect = () => sensSec().querySelector('select.kems-an-mon');
+  const pills = (root) => [...root.querySelectorAll('.kems-pill')].map((p) => p.textContent);
+  async function rule(spec) {
+    return (await (await fetch('/__probe__/rules', {method: 'POST', body: JSON.stringify(spec)})).json()).id;
+  }
+  const clearRules = () => fetch('/__probe__/rules/clear', {method: 'POST'});
+
+  // Through the search box, as an operator would: the exact line among the hits.
+  function selectLine(id) {
+    const q = byId('kemsQ');
+    q.value = id;
+    q.dispatchEvent(new Event('input'));
+    const hit = [...byId('kemsRes').querySelectorAll('.msr')].find((b) => b.querySelector('b').textContent === `선로 ${id}`);
+    if (hit) hit.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, cancelable: true}));
+    byId('zfit').click();
+    return !!hit && byId('kemsCard').dataset.id === id && byId('kemsCard').dataset.kind === 'line';
+  }
+  async function runN1(id) {
+    const selected = selectLine(id);
+    if (!selected) { check(`select line ${id}`, false, cardText().slice(0, 80)); return false; }
+    cardRun().click();
+    return until(() => an().line === id && an().security.status !== 'loading', `N-1 ${id}`);
+  }
+  async function runSensitivity(monitored) {
+    if (monitored !== undefined) {
+      monitorSelect().value = monitored;
+      monitorSelect().dispatchEvent(new Event('change'));
+    }
+    sensRun().click();
+    return until(() => !['idle', 'loading'].includes(an().sensitivity.status), `Sensitivity ${monitored || 'auto'}`);
+  }
+
+  const kpgTarget = (map) => {
+    const lines = new Set(map.lines.map((l) => String(l.line_id)));
+    const buses = new Set(map.buses.map((b) => String(b.bus_id)));
+    return (v) => {
+      if (lines.has(v.equipment_id)) return ['line', v.equipment_id];
+      const level = /^VL-(\d+)$/.exec(v.equipment_id);
+      return level && buses.has(level[1]) ? ['bus', level[1]] : [null, v.equipment_id];
+    };
+  };
+  const mnTarget = (v) => [{Line: 'line', Bus: 'bus', Transformer: 'transformer'}[v.equipment_type] || null, v.equipment_id];
+
+  function violationsMatch(label, list, target) {
+    const rows = [...n1Sec().querySelectorAll('[data-list="violations"] > *')];
+    const bad = list.filter((v, i) => {
+      const item = rows[i];
+      if (!item) return true;
+      const [kind, id] = target(v);
+      const values = item.querySelector('i').textContent;
+      return item.dataset.id !== id || (kind && item.dataset.kind !== kind) || (v.unit && !values.includes(v.unit))
+        || ![v.limit, v.value, v.loading_percent, v.violation_amount].every((x) => shows(values, x));
+    });
+    check(`${label}: every violation with its limit and post-contingency value`, rows.length === list.length && bad.length === 0,
+      {rows: rows.length, api: list.length, bad: bad.slice(0, 3)});
+  }
+
+  function candidatesMatch(label, list) {
+    const rows = [...sensSec().querySelectorAll('[data-list="candidates"] tr[data-generator]')];
+    const bad = list.filter((c, i) => {
+      const item = rows[i];
+      const value = item && item.querySelector('.kems-an-val b').textContent;
+      return !item || item.dataset.generator !== c.generator_id || item.dataset.rank !== String(i + 1) || !shows(value, c.sensitivity)
+        || Math.sign(Number(value)) !== Math.sign(c.sensitivity);
+    });
+    check(`${label}: candidates in the API order with their signed sensitivities`, rows.length === list.length && bad.length === 0,
+      {rows: rows.length, api: list.length, bad: bad.slice(0, 2)});
+  }
+
+  function meaningStated(label, unit) {
+    const items = [...sensSec().querySelectorAll('[data-list="meaning"] li')].map((li) => li.textContent);
+    check(`${label}: sign meaning, |rank| is not the effect, no control action`, items.some((t) => t.includes('+ 는') && t.includes('− 는') && t.includes(unit))
+      && items.some((t) => t.includes('순위는 |민감도| 크기 순이며 조치 효과·조정 가능량·비용을 뜻하지 않습니다'))
+      && items.some((t) => t.includes('재급전을 실행하거나 권고하지 않으며 실제 제어는 수행되지 않았습니다'))
+      && pills(sensSec()).includes('소신호 민감도 · 재급전 실행 아님'), items);
+  }
+
+  async function analysisScenario() {
+    await window.kemsConsole.ready;
+    countEngineCalls();
+
+    /* KPG-193: violations, a user-chosen monitored line, non-convergence and NO_OVERLOAD */
+    const kpgMap = await getJson('/api/grids/kr-kpg193/map');
+    const kTarget = kpgTarget(kpgMap);
+    const busName = (map, id) => { const bus = map.buses.find((b) => String(b.bus_id) === String(id)); return bus.name_korean && bus.name_korean !== String(id) ? `${bus.name_korean} (${id})` : String(id); };
+    await chooseApi('kr-kpg193');
+    engine.calls = 0;
+    check('KPG: analysis sections idle before any run', n1Sec().dataset.status === 'idle' && sensSec().dataset.status === 'idle' && sensRun().disabled && overlay() === null
+      && document.querySelector('#kemsMode button[data-mode="analysis"]').disabled);
+    check('KPG: line card shows the line, its buses and the N-1 button', selectLine('LINE-16-28') && !cardRun().disabled
+      && cardValue('구간') === `${busName(kpgMap, 16)} — ${busName(kpgMap, 28)}` && an().security.status === 'idle', cardText().slice(0, 200));
+    const before = (await analysisHits()).length;
+    check('KPG: selecting a line sends no analysis request', before === 0, before);
+
+    const kRef = (await apiCall('/api/security-analysis', {outage_line_id: 'LINE-16-28', grid_id: 'kr-kpg193'})).body;
+    await runN1('LINE-16-28');
+    const kRequests = await analysisHits();
+    check('KPG N-1: one request to the KPG endpoint with grid_id', kRequests.length === 1 && kRequests[0] === '/api/security-analysis?outage_line_id=LINE-16-28&grid_id=kr-kpg193', kRequests);
+    check('KPG N-1: response validated and kept', an().security.status === 'ready' && an().security.verdict === 'violations' && an().security.count === kRef.violated_equipment_count, an().security);
+    const k1 = n1Sec();
+    check('KPG N-1: statuses and count exactly as returned', fact(k1, '사후 PF') === kRef.post_status && fact(k1, '해석 상태') === kRef.analysis_status
+      && fact(k1, '위반 설비 수') === `${kRef.violated_equipment_count}건` && fact(k1, '사전 (기준) PF') === '수렴 (base_converged)'
+      && fact(k1, '사고 선로').startsWith(`LINE-16-28 · ${busName(kpgMap, 16)} — ${busName(kpgMap, 28)}`), [...k1.querySelectorAll('.kems-kv')].map((r) => r.textContent));
+    violationsMatch('KPG N-1', kRef.violations, kTarget);
+    check('KPG N-1: islanding and post-contingency extremes are not in the KPG response, none shown', fact(k1, '계통 분리') === 'KPG 응답에 없음'
+      && fact(k1, '사고 후 최대 선로 부하율') === null && !k1.querySelector('[data-list="flows"]') && !k1.querySelector('[data-list="island"]'));
+    let drawn = overlay();
+    check('KPG N-1: outage line and violated line highlighted', drawn && JSON.stringify(drawn.outage) === '["LINE-16-28"]'
+      && JSON.stringify(drawn.violationLines) === JSON.stringify(kRef.violations.map((v) => v.equipment_id)) && visible(svg().querySelector('.k-an-outage'))
+      && visible(svg().querySelector('.k-an-viol')) && svg().querySelector('.k-an-outtext').textContent === '사고', drawn);
+    check('KPG N-1: base PF colours never painted as post-contingency', view().mode === 'analysis' && !svg().querySelector('[class*="k-ld-"]') && !svg().querySelector('.k-alert')
+      && byId('kemsLegend').textContent.includes('다른 선로의 사고 후 상태는 응답에 없어 칠하지 않음') && byId('kemsLegend').textContent.includes('사고 후 위반 선로'), byId('kemsLegend').textContent);
+    check('KPG N-1: KPI tiles marked as the base PF', ['load', 'voltage', 'loading', 'violations'].every((key) => tile(key).querySelector('span').textContent.endsWith('· 사고 전')));
+    check('KPG N-1: card summarises the same result', byId('kemsCard').querySelector('.kems-an-stat').textContent.startsWith(`위반 ${kRef.violated_equipment_count}건 · 사후 ${kRef.post_status}`)
+      && cardRun().textContent === 'N-1 다시 실행');
+    k1.querySelector('[data-list="violations"] .kems-rank').click();
+    check('KPG N-1: a violation row selects that line, its card ties it to the result', byId('kemsCard').dataset.id === kRef.violations[0].equipment_id
+      && (cardValue('N-1 위반 (LINE-16-28 사고)') || '').includes(kRef.violations[0].limit_type), cardText().slice(0, 240));
+    byId('zfit').click();
+    document.querySelector('#kemsMode button[data-mode="loading"]').click();
+    check('KPG N-1: PF mode hides the N-1 overlay, colours are the PF preview again', overlay() === null && !svg().querySelector('.k-an') && !!svg().querySelector('[class*="k-ld-"]')
+      && byId('kemsLegend').textContent.includes('색: PF 미리보기'));
+    document.querySelector('#kemsMode button[data-mode="analysis"]').click();
+    check('KPG N-1: analysis mode restores the overlay without the PF colours', overlay() !== null && !svg().querySelector('[class*="k-ld-"]'));
+
+    const kSens = (await apiCall('/api/sensitivity-analysis', {outage_line_id: 'LINE-16-28', top_n: '5', grid_id: 'kr-kpg193'})).body;
+    const choices = [...monitorSelect().options].map((o) => o.value);
+    check('KPG sensitivity: offered after the N-1 result, EMS API selection first, violated lines selectable', sensSec().dataset.status === 'idle' && !sensRun().disabled
+      && JSON.stringify(choices) === JSON.stringify(['', ...new Set(kRef.violations.map((v) => v.equipment_id))]) && monitorSelect().value === '', choices);
+    await runSensitivity('');
+    const ks = sensSec();
+    check('KPG sensitivity: completed for the line the API selected', an().sensitivity.status === 'ready' && an().sensitivity.state === 'completed'
+      && an().sensitivity.monitored === kSens.monitored_line_id && an().sensitivity.requested === null && fact(ks, '선정') === 'EMS API 자동 선정', an().sensitivity);
+    check('KPG sensitivity: request without monitored_line_id, top_n 5', (await analysisHits()).pop() === '/api/sensitivity-analysis?outage_line_id=LINE-16-28&top_n=5&grid_id=kr-kpg193');
+    candidatesMatch('KPG sensitivity', kSens.candidates);
+    check('KPG sensitivity: unit MW/MW kept and its source stated (no unit field in the KPG response)',
+      fact(ks, '단위') === 'MW/MW (KPG 응답에 단위 필드 없음 · PyPowSyBl 유효전력 branch flow factor 정의)' && !('unit' in kSens), fact(ks, '단위'));
+    meaningStated('KPG sensitivity', 'MW/MW');
+    drawn = overlay();
+    const candidateBuses = [...new Set(kSens.candidates.map((c) => String(c.bus_id)))];
+    check('KPG sensitivity: monitored line and candidate buses on the map', JSON.stringify(drawn.monitored) === JSON.stringify([kSens.monitored_line_id])
+      && JSON.stringify([...drawn.candidates].sort()) === JSON.stringify([...candidateBuses].sort()) && visible(svg().querySelector('.k-an-cand'))
+      && svg().querySelectorAll('.k-an-rank').length === candidateBuses.length, drawn);
+    ks.querySelector('.kems-an-bus').click();
+    check('KPG sensitivity: a candidate selects its bus, the card lists it', byId('kemsCard').dataset.kind === 'bus' && byId('kemsCard').dataset.id === String(kSens.candidates[0].bus_id)
+      && (cardValue('민감도 후보') || '').startsWith(`1. ${kSens.candidates[0].generator_id}`), cardText().slice(0, 200));
+    byId('zfit').click();
+
+    const multi = (await apiCall('/api/security-analysis', {outage_line_id: 'LINE-80-82', grid_id: 'kr-kpg193'})).body;
+    await runN1('LINE-80-82');
+    check('KPG N-1 (LINE-80-82): the new outage dropped the earlier N-1 and Sensitivity', an().line === 'LINE-80-82' && an().sensitivity.status === 'idle'
+      && overlay().monitored.length === 0 && overlay().candidates.length === 0 && !sensSec().querySelector('[data-list="candidates"]'));
+    violationsMatch('KPG N-1 (LINE-80-82)', multi.violations, kTarget);
+    const lineViolations = multi.violations.filter((v) => kTarget(v)[0] === 'line').map((v) => v.equipment_id);
+    const busViolations = multi.violations.filter((v) => kTarget(v)[0] === 'bus').map((v) => kTarget(v)[1]);
+    drawn = overlay();
+    check('KPG N-1 (LINE-80-82): violated lines and voltage-level buses highlighted', lineViolations.length > 1 && busViolations.length > 1
+      && JSON.stringify(drawn.violationLines) === JSON.stringify(lineViolations) && JSON.stringify(drawn.violationBuses) === JSON.stringify(busViolations)
+      && visible(svg().querySelector('.k-an-violdot')), {drawn, lineViolations, busViolations});
+    const chosen = lineViolations[1];
+    const kUser = (await apiCall('/api/sensitivity-analysis', {outage_line_id: 'LINE-80-82', monitored_line_id: chosen, top_n: '5', grid_id: 'kr-kpg193'})).body;
+    document.querySelector('#kemsMode button[data-mode="loading"]').click();
+    await runSensitivity(chosen);
+    check('KPG sensitivity (user): the chosen monitored line was requested and returned', an().sensitivity.requested === chosen && an().sensitivity.monitored === chosen
+      && fact(sensSec(), '선정') === '사용자 선택' && (await analysisHits()).pop() === `/api/sensitivity-analysis?outage_line_id=LINE-80-82&monitored_line_id=${chosen}&top_n=5&grid_id=kr-kpg193`, an().sensitivity);
+    check('KPG sensitivity (user): its result is drawn even when run from the PF view', view().mode === 'analysis' && overlay().monitored[0] === chosen
+      && !svg().querySelector('[class*="k-ld-"]'), {mode: view().mode, drawn: overlay()});
+    candidatesMatch('KPG sensitivity (user)', kUser.candidates);
+
+    const nonconv = (await apiCall('/api/security-analysis', {outage_line_id: 'LINE-28-80', grid_id: 'kr-kpg193'})).body;
+    await runN1('LINE-28-80');
+    const k2 = n1Sec();
+    check('KPG N-1 (LINE-28-80): a non-converged contingency is 평가 불가, never 0건', nonconv.post_status !== 'CONVERGED' && an().security.verdict === 'not_assessed'
+      && an().security.count === null && fact(k2, '위반 설비 수').startsWith('평가 불가') && fact(k2, '사후 PF') === nonconv.post_status
+      && pills(k2)[0] === `평가 불가 · 사고 후 PF ${nonconv.post_status}` && !/위반 0건|위반 없음/.test(k2.textContent), [...k2.querySelectorAll('.kems-kv')].map((r) => r.textContent));
+    check('KPG N-1 (LINE-28-80): only the outage line on the map', JSON.stringify(overlay().outage) === '["LINE-28-80"]' && overlay().violationLines.length === 0 && !svg().querySelector('.k-an-viol'));
+    check('KPG N-1 (LINE-28-80): card does not claim a result', byId('kemsCard').querySelector('.kems-an-stat').textContent.startsWith('평가 불가'));
+    await runSensitivity('');
+    check('KPG sensitivity (LINE-28-80): SECURITY_NOT_CONVERGED kept apart from a completed ranking', an().sensitivity.analysisStatus === 'SECURITY_NOT_CONVERGED'
+      && an().sensitivity.state === 'not_converged' && !sensSec().querySelector('[data-list="candidates"]') && pills(sensSec())[0] === '미평가 · 사고 후 PF 비수렴'
+      && sensSec().textContent.includes('후보 순위를 표시하지 않습니다') && overlay().candidates.length === 0);
+
+    await runN1('LINE-1-2');
+    check('KPG N-1 (LINE-1-2): converged without violations', an().security.verdict === 'secure' && fact(n1Sec(), '위반 설비 수') === '0건' && pills(n1Sec())[0] === '위반 없음');
+    await runSensitivity('');
+    check('KPG sensitivity (LINE-1-2): NO_OVERLOAD is not a completed ranking', an().sensitivity.analysisStatus === 'NO_OVERLOAD' && an().sensitivity.state === 'no_target'
+      && !sensSec().querySelector('[data-list="candidates"]') && pills(sensSec())[0] === '감시 대상 없음 · 사고 후 과부하 선로 없음' && !pills(sensSec()).includes('계산 완료'));
+    check('KPG: DC engine idle through every analysis', engine.calls === 0, engine.calls);
+
+    /* Mongolia: islanding, flow changes, the API's own monitored-line rule and unit */
+    const mnMap = await getJson('/api/grids/mn-osm-35k/map');
+    await chooseApi('mn-osm-35k');
+    check('grid switch: the KPG result is gone', an().line === null && an().security.status === 'idle' && overlay() === null && n1Sec().dataset.status === 'idle'
+      && !byId('kemsSide').textContent.includes('LINE-1-2') && !byId('kemsSide').textContent.includes('NO_OVERLOAD'));
+    const island = '222087807-1_0';
+    const mRef = (await apiCall('/api/grids/mn-osm-35k/security-analysis', {outage_line_id: island})).body;
+    await runN1(island);
+    const m1 = n1Sec();
+    check('몽골 N-1: request to the Mongolia endpoint', (await analysisHits()).pop() === `/api/grids/mn-osm-35k/security-analysis?outage_line_id=${island}`);
+    check('몽골 N-1: islanding from the response', mRef.island_detected && an().security.island.detected && an().security.island.buses === mRef.isolated_bus_count
+      && fact(m1, '계통 분리').startsWith(`있음 · 분리 모선 ${mRef.isolated_bus_count}`) && shows(fact(m1, '계통 분리'), mRef.isolated_load_mw), fact(m1, '계통 분리'));
+    const islandFacts = m1.querySelector('[data-list="island"]');
+    check('몽골 N-1: isolated buses listed, island PF not computed', fact(islandFacts, '분리 모선') === mRef.isolated_buses.join(' ')
+      && fact(islandFacts, '분리 섬 PF') === '미실행 (전압·조류 결과 없음)' && fact(islandFacts, '분리 합성 발전기') === (mRef.isolated_generator_ids.join(' ') || '없음'));
+    check('몽골 N-1: post-contingency max loading and flow changes from the response', shows(fact(m1, '사고 후 최대 선로 부하율'), mRef.post_max_line_loading_percent)
+      && fact(m1, '사고 후 최대 선로 부하율').includes(mRef.post_max_line_loading_id) && shows(fact(m1, '최대 선로 P 변화'), mRef.max_line_p_change_mw)
+      && fact(m1, '최대 선로 P 변화').includes(mRef.max_line_p_change_id) && shows(fact(m1, '최대 선로 Q 변화'), mRef.max_line_q_change_mvar)
+      && shows(fact(m1, '사고 후 전압 범위'), mRef.post_voltage_min_pu) && shows(fact(m1, '사고 후 전압 범위'), mRef.post_voltage_max_pu));
+    const flowRows = [...m1.querySelectorAll('[data-list="flows"] .kems-rank')];
+    check('몽골 N-1: flow-change list is the API top list', flowRows.length === mRef.top_line_flow_changes.length && mRef.top_line_flow_changes.every((c, i) => flowRows[i].dataset.id === c.line_id
+      && shows(flowRows[i].textContent, c.dp_mw) && shows(flowRows[i].textContent, c.post_loading_percent)), flowRows.map((r) => r.dataset.id));
+    check('몽골 N-1: violation count is the main component only, synthetic scenario labelled', fact(m1, '위반 설비 수') === `${mRef.violated_equipment_count}건 (주 계통 기준)`
+      && pills(m1).includes('합성 시나리오') && pills(m1).includes('실운영 데이터 아님') && m1.textContent.includes('실제 몽골 운영 데이터가 아닙니다'));
+    drawn = overlay();
+    check('몽골 N-1: outage, isolated buses and island lines highlighted', JSON.stringify(drawn.outage) === `["${island}"]`
+      && JSON.stringify(drawn.isolatedBuses) === JSON.stringify(mRef.isolated_buses) && JSON.stringify(drawn.isolatedLines) === JSON.stringify(mRef.isolated_line_ids)
+      && visible(svg().querySelector('.k-an-isobus')) && byId('kemsLegend').textContent.includes('분리 모선 (섬 PF 미계산)'), drawn);
+    check('몽골 N-1: an island line card says so', selectLine(mRef.isolated_line_ids[0]) && cardValue('N-1 계통 분리') === `${island} 사고 시 분리 섬 내부 선로`, cardText().slice(0, 200));
+    await runSensitivity('');
+    check('몽골 sensitivity (islanding): NOT_EVALUATED_ISLANDING, no ranking', an().sensitivity.analysisStatus === 'NOT_EVALUATED_ISLANDING' && an().sensitivity.state === 'not_evaluated'
+      && !sensSec().querySelector('[data-list="candidates"]') && pills(sensSec())[0] === '미평가 · 계통 분리 사고' && fact(sensSec(), '분리 모선') === mRef.isolated_buses.join(' ')
+      && overlay().candidates.length === 0, an().sensitivity);
+
+    const mesh = '751261406-1_0';
+    const m2 = (await apiCall('/api/grids/mn-osm-35k/security-analysis', {outage_line_id: mesh})).body;
+    await runN1(mesh);
+    check('몽골 N-1 (meshed): no islanding, no violation', !an().security.island.detected && fact(n1Sec(), '계통 분리') === '없음' && an().security.verdict === 'secure'
+      && overlay().isolatedBuses.length === 0);
+    const mOptions = [...monitorSelect().options].map((o) => o.value);
+    check('몽골 sensitivity: selectable monitored lines are the API top flow changes', JSON.stringify(mOptions) === JSON.stringify(['', ...m2.top_line_flow_changes.map((c) => c.line_id)]), mOptions);
+    const mS = (await apiCall('/api/grids/mn-osm-35k/sensitivity-analysis', {outage_line_id: mesh, top_n: '5'})).body;
+    await runSensitivity('');
+    const s1 = sensSec();
+    check('몽골 sensitivity: monitored line chosen by the API rule', an().sensitivity.monitored === mS.monitored_line_id
+      && fact(s1, '선정') === `EMS API 자동 선정 · ${mS.monitored_line_selection.rule}`, fact(s1, '선정'));
+    candidatesMatch('몽골 sensitivity', mS.candidates);
+    check('몽골 sensitivity: unit from the response', mS.unit === 'MW/MW' && fact(s1, '단위') === 'MW/MW (EMS API 응답 unit)');
+    meaningStated('몽골 sensitivity', 'MW/MW');
+    check('몽골 sensitivity: definition, verification and synthetic generators stated', fact(s1, '함수') === mS.function && fact(s1, '유한차분 검증').startsWith('통과')
+      && fact(s1, '유효전력 균형') === mS.slack_balance && s1.textContent.includes('합성 발전기 · 실제 몽골 발전소·재급전 후보가 아닙니다'));
+    const mBuses = new Set(mnMap.buses.map((b) => String(b.bus_id)));
+    check('몽골 sensitivity: candidates linked only through buses on the map', mS.candidates.every((c) => mBuses.has(c.bus_id))
+      && JSON.stringify([...overlay().candidates].sort()) === JSON.stringify([...new Set(mS.candidates.map((c) => c.bus_id))].sort()));
+    const alt = mS.monitored_line_selection.alternatives[0].line_id;
+    const sentBefore = (await analysisHits()).length;
+    s1.querySelector(`[data-list="alternatives"] [data-line="${alt}"]`).click();
+    check('몽골 sensitivity: an alternative becomes the next monitored line and clears the earlier result', an().monitored === alt && monitorSelect().value === alt
+      && an().sensitivity.status === 'idle' && sensSec().dataset.status === 'idle' && !sensSec().querySelector('[data-list="candidates"]')
+      && !sensSec().querySelector('[data-list="alternatives"]') && overlay().monitored.length === 0 && overlay().candidates.length === 0
+      && !svg().querySelector('.k-an-mon') && !svg().querySelector('.k-an-cand'), {analysis: an(), drawn: overlay()});
+    check('몽골 sensitivity: the N-1 result and outage highlight stay, the choice runs nothing', an().security.status === 'ready' && an().line === mesh
+      && JSON.stringify(overlay().outage) === JSON.stringify([mesh]) && visible(svg().querySelector('.k-an-outage')) && (await analysisHits()).length === sentBefore);
+    const mU = (await apiCall('/api/grids/mn-osm-35k/sensitivity-analysis', {outage_line_id: mesh, monitored_line_id: alt, top_n: '5'})).body;
+    await runSensitivity();
+    check('몽골 sensitivity (user): the chosen line, user selection and radial note', an().sensitivity.monitored === alt && fact(sensSec(), '선정') === '사용자 선택'
+      && fact(sensSec(), '사고 후 방사형').startsWith(mU.monitored_line_radial_after_contingency ? '예' : '아니오') && overlay().monitored[0] === alt);
+    candidatesMatch('몽골 sensitivity (user)', mU.candidates);
+    const excluded = (await getJson('/api/grids/mn-osm-35k/pf-preview')).metadata.excluded_line_ids[0];
+    check('몽골: a PF-excluded line cannot be run (pf-preview excluded_line_ids)', selectLine(String(excluded)) && cardRun().disabled
+      && cardText().includes('PF 해석 제외 선로 · EMS API N-1 대상이 아닙니다'), cardText().slice(-160));
+
+    /* Korean OSM: map only, never an analysis request */
+    const sent = (await analysisHits()).length;
+    const krMap = await getJson('/api/grids/kr-osm-transmission/map');
+    await chooseApi('kr-osm-transmission');
+    check('한국 OSM: both sections say unsupported, from the catalog flags', n1Sec().dataset.status === 'unsupported' && sensSec().dataset.status === 'unsupported'
+      && n1Sec().textContent.includes('security_analysis_available = false') && sensSec().textContent.includes('sensitivity_analysis_available = false'));
+    check('한국 OSM: the line card button is disabled with the reason', selectLine(String(krMap.lines[0].line_id)) && cardRun().disabled
+      && cardText().includes('미지원 · EMS API security_analysis_available = false'), cardText().slice(-160));
+    cardRun().click();
+    for (let i = 0; i < 20; i++) await tick();
+    const after = await analysisHits();
+    check('한국 OSM: no analysis request, no result', after.length === sent && !after.some((h) => h.includes('kr-osm')) && an().security.status === 'idle', after.slice(sent));
+    check('한국 OSM: no analysis mode, header says unsupported', document.querySelector('#kemsMode button[data-mode="analysis"]').disabled
+      && byId('ctxInfo').textContent.includes('해석 미지원'));
+    check('Korean/Mongolian/KPG analyses never ran the DC engine', engine.calls === 0, engine.calls);
+
+    /* back to the demo */
+    choose('kpg193');
+    await wait(2500);
+    check('demo after the analyses: Artifact values, no analysis left', state().source === 'demo' && JSON.stringify(kpis()) === JSON.stringify(DEMO_KPG)
+      && byId('kemsSide').children.length === 0 && window.kemsConsole.map.counts() === null, kpis());
+  }
+
+  // The abort signal of every analysis request the console sends (the requests themselves still go to the app).
+  function trackAnalysisRequests() {
+    const sent = [];
+    const realFetch = window.fetch;
+    window.fetch = (url, options = {}) => {
+      if (/security-analysis|sensitivity-analysis/.test(String(url)) && !String(url).includes('__probe=')) sent.push({url: String(url), signal: options.signal});
+      return realFetch(url, options);
+    };
+    const last = (fragment) => [...sent].reverse().find((item) => item.url.includes(fragment));
+    return {
+      aborted: (fragment) => { const item = last(fragment); return !!item && !!item.signal && item.signal.aborted; },  // the latest such request
+      urls: () => sent.map((item) => item.url),
+      restore: () => { window.fetch = realFetch; },
+    };
+  }
+
+  async function analysisStaleScenario() {
+    await window.kemsConsole.ready;
+    countEngineCalls();
+    const tracked = trackAnalysisRequests();
+    const aborted = tracked.aborted;
+    await chooseApi('kr-kpg193');
+    engine.calls = 0;
+    // An N-1 answer that arrives after the switch to Mongolia.
+    const kpg = await gate('/api/security-analysis?outage_line_id=LINE-16-28');
+    check('select LINE-16-28', selectLine('LINE-16-28'));
+    cardRun().click();
+    await requested(kpg);
+    check('pending N-1: loading shown, no result or overlay, button locked', an().security.status === 'loading' && n1Sec().textContent.includes('LINE-16-28 사고 분석 중')
+      && cardText().includes('LINE-16-28 사고 분석 중') && cardRun().disabled && overlay() === null && sensRun().disabled);
+    await chooseApi('mn-osm-35k');
+    check('grid switch aborted the pending KPG N-1 request', aborted('/api/security-analysis?outage_line_id=LINE-16-28'), tracked.urls());
+    await release(kpg);
+    for (let i = 0; i < 30; i++) await tick();
+    check('late KPG N-1 dropped after switching to Mongolia', view().gridId === 'mn-osm-35k' && an().security.status === 'idle' && overlay() === null
+      && !byId('kemsSide').textContent.includes('LINE-16-28'), an());
+
+    // Two outages: the earlier one answers after the later one was run.
+    const first = '751261406-1_0', second = '222087807-1_0';
+    const held = await gate(`/api/grids/mn-osm-35k/security-analysis?outage_line_id=${first}`);
+    check(`select ${first}`, selectLine(first));
+    cardRun().click();
+    await requested(held);
+    await runN1(second);
+    check('running another outage aborted the earlier N-1 request', aborted(`security-analysis?outage_line_id=${first}`) && !aborted(`security-analysis?outage_line_id=${second}`));
+    await release(held);
+    for (let i = 0; i < 30; i++) await tick();
+    check('late N-1 of the earlier outage dropped', an().line === second && an().security.status === 'ready' && overlay().outage[0] === second
+      && fact(n1Sec(), '사고 선로').startsWith(second) && byId('kemsCard').dataset.id === second, an());
+
+    // A Sensitivity answer that arrives after a new N-1.
+    await runN1(first);
+    const sens = await gate(`/api/grids/mn-osm-35k/sensitivity-analysis?outage_line_id=${first}`);
+    sensRun().click();
+    await requested(sens);
+    check('pending Sensitivity: loading shown, N-1 result kept', an().sensitivity.status === 'loading' && sensSec().textContent.includes('Sensitivity 계산 중')
+      && an().security.status === 'ready' && sensRun().disabled);
+    await runN1(second);
+    check('a new N-1 aborted the pending Sensitivity request', aborted(`sensitivity-analysis?outage_line_id=${first}`));
+    await release(sens);
+    for (let i = 0; i < 30; i++) await tick();
+    check('late Sensitivity dropped after the outage changed', an().line === second && an().sensitivity.status === 'idle' && overlay().candidates.length === 0
+      && overlay().monitored.length === 0 && !sensSec().querySelector('[data-list="candidates"]'), an().sensitivity);
+
+    // Re-running the same outage drops the Sensitivity of the previous run.
+    await runN1(first);
+    await runSensitivity('');
+    check('Sensitivity shown for the first outage', an().sensitivity.state === 'completed');
+    const again = await gate(`/api/grids/mn-osm-35k/security-analysis?outage_line_id=${first}`);
+    cardRun().click();
+    await requested(again);
+    check('re-run: earlier Sensitivity removed while the new N-1 runs', an().security.status === 'loading' && an().sensitivity.status === 'idle'
+      && overlay() === null && !sensSec().querySelector('[data-list="candidates"]'));
+    await release(again);
+    await until(() => an().security.status === 'ready', 're-run ready');
+    check('DC engine idle while analysis responses were pending', engine.calls === 0, engine.calls);
+
+    // A failing N-1 held until after the return to a demo grid (whose own DC engine then runs).
+    const late = await gate(`/api/grids/mn-osm-35k/security-analysis?outage_line_id=${second}`, true);
+    check(`select ${second}`, selectLine(second));
+    cardRun().click();
+    await requested(late);
+    choose('six');  // no timers while a response is held: Chrome virtual time pauses on pending fetches
+    await until(() => state().source === 'demo' && text('kLoad') === '750 MW', 'six loaded');
+    await release(late);
+    for (let i = 0; i < 30; i++) await tick();
+    check('late failed N-1 after leaving the API grid changes nothing', state().source === 'demo' && byId('kemsSide').children.length === 0
+      && window.kemsConsole.map.counts() === null && text('kLoad') === '750 MW', kpis());
+    check('leaving for the demo aborted the pending N-1 request', aborted(`security-analysis?outage_line_id=${second}`));
+    tracked.restore();
+  }
+
+  /* A changed monitored line voids the Sensitivity shown or pending; the N-1 result stays. Held answers
+   * (test proxy gates) for an earlier choice are released afterwards and must never reach the current one. */
+  async function analysisMonitoredScenario() {
+    await window.kemsConsole.ready;
+    countEngineCalls();
+    const tracked = trackAnalysisRequests();
+    const pick = (value) => { monitorSelect().value = value; monitorSelect().dispatchEvent(new Event('change')); };
+    const drain = async () => { for (let i = 0; i < 30; i++) await tick(); };
+    // Starts a run whose answer the proxy holds and returns its gate, or null after a failed check when no
+    // request for `fragment` went out. A 'loading' state is no proof (an aborted run can leave one behind),
+    // and waiting on an unclaimed gate would only end at the proxy's timeout: virtual time is paused meanwhile.
+    const gates = [];
+    const runHeld = async (fragment, label, fail = false) => {
+      const id = await gate(fragment, fail);
+      gates.push(id);
+      const before = tracked.urls().length;
+      sensRun().click();
+      const sent = tracked.urls().slice(before).some((url) => url.includes(fragment));
+      check(`${label}: request sent and held`, sent, tracked.urls().slice(before));
+      if (!sent) return null;
+      await requested(id);
+      return id;
+    };
+    const n1Part = (drawn) => JSON.stringify(drawn && {...drawn, monitored: undefined, candidates: undefined});
+    const noSensitivity = () => an().sensitivity.status === 'idle' && sensSec().dataset.status === 'idle' && !sensSec().querySelector('[data-list="candidates"]')
+      && overlay().monitored.length === 0 && overlay().candidates.length === 0 && !svg().querySelector('.k-an-mon') && !svg().querySelector('.k-an-cand');
+
+    try {
+      /* KPG-193 LINE-80-82: violated lines and voltage-level buses stay highlighted while the monitored line changes */
+      await chooseApi('kr-kpg193');
+      engine.calls = 0;
+      const outage = 'LINE-80-82';
+      await runN1(outage);
+      const n1Overlay = overlay();
+      const n1Text = n1Sec().textContent;
+      const keptN1 = (label) => check(`${label}: N-1 result and its outage/violation highlights unchanged`, an().security.status === 'ready' && an().line === outage
+        && n1Sec().textContent === n1Text && n1Part(overlay()) === n1Part(n1Overlay) && view().mode === 'analysis'
+        && visible(svg().querySelector('.k-an-outage')) && visible(svg().querySelector('.k-an-viol')) && visible(svg().querySelector('.k-an-violdot')), overlay());
+      const lines = [...monitorSelect().options].map((o) => o.value).filter(Boolean);
+      const [first, second, third] = lines;
+      const ref = {};
+      for (const line of [first, second, third]) {
+        ref[line] = (await apiCall('/api/sensitivity-analysis', {outage_line_id: outage, monitored_line_id: line, top_n: '5', grid_id: 'kr-kpg193'})).body;
+      }
+      check('KPG: three monitored lines with distinct rankings, so a mixed-up answer is visible', lines.length >= 3
+        && new Set([first, second, third].map((line) => JSON.stringify(ref[line].candidates.map((c) => [c.generator_id, c.sensitivity])))).size === 3, lines);
+
+      // 1. A result on screen, then another line chosen: cleared at once, nothing requested by the change.
+      await runSensitivity(first);
+      check('result for the first monitored line', an().sensitivity.state === 'completed' && an().sensitivity.monitored === first && overlay().monitored[0] === first
+        && overlay().candidates.length > 0 && visible(svg().querySelector('.k-an-cand')));
+      candidatesMatch('first monitored line', ref[first].candidates);
+      sensSec().querySelector('.kems-an-bus').click();
+      const candidateBus = byId('kemsCard').dataset.id;
+      check('a candidate bus card lists the result', byId('kemsCard').dataset.kind === 'bus' && (cardValue('민감도 후보') || '').startsWith(`1. ${ref[first].candidates[0].generator_id}`));
+      byId('zfit').click();
+      let requests = (await analysisHits()).length;
+      pick(second);
+      check('change after a result: Sensitivity result cleared at once', noSensitivity() && an().monitored === second && an().sensitivity.requested === null
+        && !sensRun().disabled && sensRun().textContent === 'Sensitivity 실행', {analysis: an(), drawn: overlay()});
+      check('change after a result: legend no longer shows the monitored line or candidates', !svg().querySelector('.k-an-rank')
+        && !byId('kemsLegend').textContent.includes('감시 선로 (Sensitivity)') && !byId('kemsLegend').textContent.includes('민감도 후보 모선'), byId('kemsLegend').textContent);
+      check('change after a result: the open candidate card drops the cleared result', byId('kemsCard').dataset.id === candidateBus && cardValue('민감도 후보') === null, cardText().slice(-160));
+      keptN1('change after a result');
+      check('change after a result: the select keeps the choice and the keyboard focus, nothing is requested', monitorSelect().value === second
+        && document.activeElement === monitorSelect() && (await analysisHits()).length === requests);
+
+      // 2. A pending request, then another line chosen: aborted at once, its late answer never shown.
+      const held = await runHeld(`monitored_line_id=${second}&`, 'second line');
+      if (held === null) return;
+      check('pending for the second line: loading shown', an().sensitivity.status === 'loading' && an().sensitivity.requested === second
+        && sensSec().textContent.includes(`Sensitivity 계산 중… (감시 선로 ${second})`) && sensRun().disabled);
+      pick(third);
+      check('change while pending: request aborted and loading cleared', tracked.aborted(`monitored_line_id=${second}&`) && noSensitivity() && an().monitored === third
+        && !sensSec().textContent.includes('Sensitivity 계산 중') && !sensRun().disabled, an().sensitivity);
+      await release(held);
+      await drain();
+      check('late answer for the abandoned line never shown', noSensitivity() && an().monitored === third && an().sensitivity.error === null, {analysis: an(), drawn: overlay()});
+      keptN1('late answer after a change');
+
+      // 3. Older request held, newer line answered first, older answer released afterwards.
+      const older = await runHeld(`monitored_line_id=${third}&`, 'older third line');
+      if (older === null) return;
+      pick(first);
+      await runSensitivity();
+      check('newer choice answered for itself', an().sensitivity.state === 'completed' && an().sensitivity.requested === first && an().sensitivity.monitored === first
+        && tracked.aborted(`monitored_line_id=${third}&`));
+      await release(older);
+      await drain();
+      check('older answer released after the newer result: the newer result stays', an().sensitivity.monitored === first && overlay().monitored[0] === first
+        && JSON.stringify(an().sensitivity.candidates.map((c) => c.generator)) === JSON.stringify(ref[first].candidates.map((c) => c.generator_id)), an().sensitivity);
+      candidatesMatch('newer result after the older answer', ref[first].candidates);
+      keptN1('older answer after a newer result');
+
+      // 4. Two pending requests: the older answer arrives while the newer one is still pending.
+      pick(second);
+      const g2 = await runHeld(`monitored_line_id=${second}&`, 'two pending, second line');
+      if (g2 === null) return;
+      pick(third);
+      const g3 = await runHeld(`monitored_line_id=${third}&`, 'two pending, third line');
+      if (g3 === null) return;
+      await release(g2);
+      await drain();
+      check('older answer while the newer is pending: ignored, the newer line still loading', an().sensitivity.status === 'loading' && an().sensitivity.requested === third
+        && !sensSec().querySelector('[data-list="candidates"]') && overlay().candidates.length === 0 && tracked.aborted(`monitored_line_id=${second}&`)
+        && !tracked.aborted(`monitored_line_id=${third}&`), an().sensitivity);
+      await release(g3);
+      await until(() => an().sensitivity.status === 'ready', 'newer answer');
+      check('then the newer answer is shown for its own line', an().sensitivity.monitored === third && overlay().monitored[0] === third);
+      candidatesMatch('newer answer', ref[third].candidates);
+      keptN1('two pending answers');
+      pick(third);
+      check('re-selecting the same monitored line is not a change: its result stays', an().sensitivity.state === 'completed' && an().sensitivity.monitored === third
+        && overlay().monitored[0] === third && !!sensSec().querySelector('[data-list="candidates"]'));
+
+      // 5. A failing answer held for an abandoned line shows no error on the current choice.
+      pick(first);
+      const failing = await runHeld(`monitored_line_id=${first}&`, 'failing first line', true);
+      if (failing === null) return;
+      pick(second);
+      await release(failing);
+      await drain();
+      check('late failure for the abandoned line shows no error', noSensitivity() && an().sensitivity.error === null && an().monitored === second
+        && !sensSec().textContent.includes('Sensitivity 실패'), an().sensitivity);
+
+      // 6. EMS API selection, then that same line chosen explicitly: the request differs, so the result is cleared.
+      pick('');
+      await runSensitivity();
+      const autoLine = an().sensitivity.monitored;
+      check('EMS API selection answered', an().sensitivity.state === 'completed' && an().sensitivity.requested === null && lines.includes(autoLine), autoLine);
+      pick(autoLine);
+      check('explicit choice of the line the API selected clears the auto result', noSensitivity() && an().monitored === autoLine, an().sensitivity);
+      keptN1('auto to explicit');
+
+      /* Mongolia: an API-selected run pending, then another line chosen */
+      await chooseApi('mn-osm-35k');
+      const mesh = '751261406-1_0';
+      await runN1(mesh);
+      const mnOverlay = overlay();
+      const mnLine = [...monitorSelect().options].map((o) => o.value).filter(Boolean)[1];
+      const mnRef = (await apiCall('/api/grids/mn-osm-35k/sensitivity-analysis', {outage_line_id: mesh, monitored_line_id: mnLine, top_n: '5'})).body;
+      const auto = await runHeld(`sensitivity-analysis?outage_line_id=${mesh}&top_n=5`, '몽골 API-selected run');
+      if (auto === null) return;
+      pick(mnLine);
+      check('몽골: change while the API-selected run is pending aborts it', tracked.aborted(`sensitivity-analysis?outage_line_id=${mesh}&top_n=5`) && noSensitivity()
+        && an().monitored === mnLine);
+      await release(auto);
+      await drain();
+      check('몽골: the late API-selected answer is not shown', noSensitivity() && an().sensitivity.error === null);
+      await runSensitivity();
+      check('몽골: the chosen line answered for itself', an().sensitivity.monitored === mnLine && an().sensitivity.requested === mnLine
+        && fact(sensSec(), '선정') === '사용자 선택' && overlay().monitored[0] === mnLine);
+      candidatesMatch('몽골 chosen line', mnRef.candidates);
+      check('몽골: outage highlight and N-1 result kept throughout', an().security.status === 'ready' && an().line === mesh && n1Part(overlay()) === n1Part(mnOverlay));
+      check('DC engine idle through every change', engine.calls === 0, engine.calls);
+    } finally {
+      for (const id of gates) await release(id);  // a held answer never outlives the scenario
+      tracked.restore();
+    }
+  }
+
+  async function analysisErrorScenario() {
+    await window.kemsConsole.ready;
+    countEngineCalls();
+    const line = '751261406-1_0';
+    await chooseApi('mn-osm-35k');
+    engine.calls = 0;
+    const noDemo = () => DEMO_FIGURES.every((figure) => !document.body.innerText.includes(figure)) && demoHidden();
+    for (const status of [404, 422, 500, 503]) {
+      await rule({match: '/api/grids/mn-osm-35k/security-analysis', status, detail: `test proxy ${status}`, once: true});
+      await runN1(line);
+      check(`N-1 HTTP ${status}: error shown, no result, no demo values`, an().security.status === 'error' && an().security.error === `HTTP ${status} · test proxy ${status}`
+        && n1Sec().textContent.includes(`HTTP ${status} · test proxy ${status} · 데모 결과로 대체하지 않습니다`) && cardText().includes(`N-1 실패 · HTTP ${status}`)
+        && overlay() === null && view().mode !== 'analysis' && sensRun().disabled && noDemo(), an().security);
+    }
+    await chooseApi('kr-kpg193');
+    await rule({match: '/api/security-analysis', status: 500, text: 'Internal Server Error', once: true});
+    await runN1('LINE-16-28');
+    check('N-1 HTTP 500 with a non-JSON body (as FastAPI answers an unhandled error)', an().security.status === 'error' && an().security.error === 'HTTP 500', an().security);
+    await rule({match: '/api/security-analysis', drop: true, once: true});
+    await runN1('LINE-16-28');
+    check('N-1 network error', an().security.status === 'error' && an().security.error === 'EMS API 서버에 연결할 수 없습니다' && overlay() === null, an().security);
+
+    await runN1('LINE-16-28');
+    check('real N-1 after the failures', an().security.status === 'ready' && an().security.verdict === 'violations');
+    for (const status of [404, 422, 500, 503]) {
+      await rule({match: '/api/sensitivity-analysis', status, detail: `test proxy ${status}`, once: true});
+      await runSensitivity('');
+      check(`Sensitivity HTTP ${status}: error shown, N-1 result kept, no ranking`, an().sensitivity.status === 'error' && an().sensitivity.error === `HTTP ${status} · test proxy ${status}`
+        && an().security.status === 'ready' && sensSec().textContent.includes('데모 결과로 대체하지 않습니다') && !sensSec().querySelector('[data-list="candidates"]')
+        && overlay().candidates.length === 0, an().sensitivity);
+    }
+    await rule({match: '/api/sensitivity-analysis', drop: true, once: true});
+    await runSensitivity('');
+    check('Sensitivity network error', an().sensitivity.error === 'EMS API 서버에 연결할 수 없습니다');
+
+    // Responses that do not belong to the request (fields overwritten by the test proxy).
+    const invalid = async (label, match, merge, run, expected) => {
+      await rule({match, merge, once: true});
+      await run();
+      const status = match.includes('sensitivity') ? an().sensitivity : an().security;
+      const section = match.includes('sensitivity') ? sensSec() : n1Sec();
+      check(`${label}: rejected, nothing shown from it`, status.status === 'invalid' && status.error.includes(expected) && section.textContent.includes('결과를 표시하지 않습니다')
+        && (match.includes('sensitivity') ? !section.querySelector('[data-list="candidates"]') : overlay() === null), status);
+    };
+    await invalid('N-1 answer for another outage line', '/api/security-analysis', {outage_line_id: 'LINE-1-2'}, () => runN1('LINE-16-28'), '요청한 선로(LINE-16-28)와 다릅니다');
+    await invalid('N-1 assessed without a converged state', '/api/security-analysis', {post_status: 'MAX_ITERATION_REACHED'}, () => runN1('LINE-16-28'), '위반 판정 가능 여부가 맞지 않습니다');
+    await invalid('N-1 count without the list', '/api/security-analysis', {violated_equipment_count: 0}, () => runN1('LINE-16-28'), '위반 설비 수(0)와 위반 목록(1건)이 맞지 않습니다');
+    await runN1('LINE-16-28');
+    await invalid('Sensitivity candidate_count mismatch', '/api/sensitivity-analysis', {candidate_count: 9}, () => runSensitivity(''), 'candidate_count(9)와 후보 목록(5건)이 맞지 않습니다');
+    await invalid('Sensitivity with candidates but not completed', '/api/sensitivity-analysis', {analysis_status: 'NO_OVERLOAD'}, () => runSensitivity(''), 'NO_OVERLOAD 응답에 후보가 있습니다');
+
+    await chooseApi('mn-osm-35k');
+    await invalid('몽골 N-1 answer of another grid', '/api/grids/mn-osm-35k/security-analysis', {grid_id: 'kr-kpg193'}, () => runN1(line), '응답의 계통 ID(kr-kpg193)');
+    await invalid('몽골 N-1 outage ends unlike the map', '/api/grids/mn-osm-35k/security-analysis', {outage_line: {bus0: '1', bus1: '2', voltage_kv: 110}}, () => runN1(line), '지도');
+    // 모의 응답: the backend's non-converged shape (no real Mongolia contingency diverges).
+    await rule({match: '/api/grids/mn-osm-35k/security-analysis', once: true, merge: {post_status: 'MAX_ITERATION_REACHED', analysis_status: 'SECURITY_NOT_CONVERGED',
+      violation_assessment_available: false, main_component_converged: false, violated_equipment_count: null, violations: [], post_voltage_min_pu: null,
+      post_voltage_max_pu: null, max_voltage_change_pu: null, max_line_p_change_mw: null, max_line_q_change_mvar: null, post_max_line_loading_percent: null,
+      top_voltage_changes: null, top_line_flow_changes: null, generator_q_screening: null}});
+    await runN1(line);
+    check('몽골 N-1 non-converged (모의 응답): 평가 불가, no post-contingency values', an().security.verdict === 'not_assessed' && fact(n1Sec(), '위반 설비 수').startsWith('평가 불가')
+      && fact(n1Sec(), '사고 후 최대 선로 부하율') === null && !n1Sec().querySelector('[data-list="flows"]') && pills(n1Sec())[0] === '평가 불가 · 사고 후 PF MAX_ITERATION_REACHED'
+      && overlay().violationLines.length === 0, an().security);
+    // 모의 응답: violations on a real line and a real bus of the Mongolia map (no real contingency violates).
+    const violations = [
+      {equipment_id: '723574237-1_0', equipment_type: 'Line', iidm_id: 'L_723574237-1_0', limit_type: 'APPARENT_POWER', limit_name: 'permanent', unit: 'MVA',
+        sides: ['ONE'], record_count: 1, limit: 122.9, value: 130.1, violation_amount: 7.2, violation_direction: 'above_maximum', loading_percent: 105.858},
+      {equipment_id: '3', equipment_type: 'Bus', iidm_id: 'VL_3', limit_type: 'LOW_VOLTAGE', limit_name: '', unit: 'kV', sides: [], record_count: 1,
+        limit: 99, value: 97.46, violation_amount: 1.54, violation_direction: 'below_minimum'}];
+    await rule({match: '/api/grids/mn-osm-35k/security-analysis', once: true, merge: {violated_equipment_count: 2, violations}});
+    await runN1(line);
+    violationsMatch('몽골 N-1 violations (모의 응답)', violations, mnTarget);
+    check('몽골 N-1 violations (모의 응답): violated line and bus highlighted', JSON.stringify(overlay().violationLines) === '["723574237-1_0"]'
+      && JSON.stringify(overlay().violationBuses) === '["3"]' && pills(n1Sec())[0] === '위반 2건' && n1Sec().textContent.includes('하한 99.00 kV · 계산 97.46 kV'), overlay());
+
+    // Catalog flags off (모의 카탈로그): no request is sent, the API note is shown.
+    await rule({match: '=/api/grids', grid: 'mn-osm-35k', merge: {security_analysis_available: false, security_analysis_note: '모의: 몽골 모델 검증 실패',
+      sensitivity_analysis_available: false, sensitivity_analysis_note: '모의: 몽골 모델 검증 실패'}});
+    await chooseApi('mn-osm-35k');
+    let sent = (await analysisHits()).length;
+    check('security flag false: N-1 disabled with the API note', selectLine(line) && cardRun().disabled && cardText().includes('모의: 몽골 모델 검증 실패')
+      && n1Sec().dataset.status === 'unsupported' && sensSec().dataset.status === 'unsupported', cardText().slice(-160));
+    cardRun().click();
+    for (let i = 0; i < 20; i++) await tick();
+    check('security flag false: no request, not sent to another grid', (await analysisHits()).length === sent && an().security.status === 'idle');
+    await clearRules();
+    await rule({match: '=/api/grids', grid: 'mn-osm-35k', merge: {sensitivity_analysis_available: false, sensitivity_analysis_note: '모의: 민감도 자체 검증 실패'}});
+    await chooseApi('mn-osm-35k');
+    await runN1(line);
+    sent = (await analysisHits()).length;
+    check('sensitivity flag false: N-1 runs, Sensitivity disabled with the note', an().security.status === 'ready' && sensSec().dataset.status === 'unsupported'
+      && sensSec().textContent.includes('모의: 민감도 자체 검증 실패') && !sensRun() && byId('ctxInfo').textContent.includes('N-1 연동'));
+    for (let i = 0; i < 20; i++) await tick();
+    check('sensitivity flag false: no Sensitivity request', (await analysisHits()).length === sent);
+    await clearRules();
+
+    // Without the PF preview the console cannot know a line is excluded: the real EMS API refuses it (real HTTP 422).
+    const excluded = String((await getJson('/api/grids/mn-osm-35k/pf-preview')).metadata.excluded_line_ids[0]);
+    await rule({match: '=/api/grids/mn-osm-35k/pf-preview', status: 500, once: true});
+    await chooseApi('mn-osm-35k');
+    await runN1(excluded);
+    check('real HTTP 422 from the EMS API for a PF-excluded line', view().pf.status === 'error' && an().security.status === 'error'
+      && an().security.error.startsWith('HTTP 422 · ') && an().security.error.includes('제외된 선로'), an().security);
+
+    // An N-1 that never answers times out.
+    await chooseApi('mn-osm-35k');
+    const realFetch = window.fetch;
+    window.fetch = (url, options = {}) => (String(url).includes('/security-analysis')
+      ? new Promise((resolve, reject) => options.signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))
+      : realFetch(url, options));
+    check(`select ${line}`, selectLine(line));
+    cardRun().click();
+    await wait(61000);
+    window.fetch = realFetch;
+    check('N-1 timeout', an().security.status === 'error' && an().security.error === '응답 시간 초과 (60초)' && overlay() === null, an().security);
+    check('DC engine idle through every failure', engine.calls === 0, engine.calls);
+  }
+
   /* ---------- failures ---------- */
   async function initialFailure(expected) {
     await window.kemsConsole.ready;
@@ -742,8 +1429,28 @@
     document.head.append(still);
     await window.kemsConsole.ready;
     const grid = {'api-kpg': 'kr-kpg193', 'api-kpg-pf': 'kr-kpg193', 'api-mn': 'mn-osm-35k', 'api-mn-pf': 'mn-osm-35k', 'api-kr': 'kr-osm-transmission',
-      'api-gate': 'kr-kpg193', 'api-error': 'kr-kpg193', 'api-pf-error': 'kr-kpg193', 'api-gis-fallback': 'mn-osm-35k'}[name];
+      'api-gate': 'kr-kpg193', 'api-error': 'kr-kpg193', 'api-pf-error': 'kr-kpg193', 'api-gis-fallback': 'mn-osm-35k',
+      'api-kpg-n1': 'kr-kpg193', 'api-kpg-n1-multi': 'kr-kpg193', 'api-kpg-sens': 'kr-kpg193', 'api-kpg-n1-nonconv': 'kr-kpg193',
+      'api-mn-n1-island': 'mn-osm-35k', 'api-mn-sens': 'mn-osm-35k', 'api-kr-analysis': 'kr-osm-transmission', 'api-n1-error': 'mn-osm-35k'}[name];
     if (grid) await chooseApi(grid);
+    const sideTo = (section) => { const side = byId('kemsSide'); side.scrollTop += section.getBoundingClientRect().top - side.getBoundingClientRect().top - 4; };
+    if (name === 'api-kpg-n1') await runN1('LINE-16-28');
+    if (name === 'api-kpg-n1-multi') await runN1('LINE-80-82');
+    if (name === 'api-kpg-n1-nonconv') await runN1('LINE-28-80');
+    if (name === 'api-mn-n1-island') await runN1('222087807-1_0');
+    if (name === 'api-kpg-sens' || name === 'api-mn-sens') {
+      await runN1(name === 'api-kpg-sens' ? 'LINE-16-28' : '751261406-1_0');
+      await runSensitivity('');
+      const bus = sensSec().querySelector('.kems-an-bus');
+      if (bus) bus.click();  // the first candidate's bus card, then the whole grid again
+      byId('zfit').click();
+      sideTo(sensSec());
+    }
+    if (name === 'api-kr-analysis') selectLine(String((await getJson('/api/grids/kr-osm-transmission/map')).lines[0].line_id));
+    if (name === 'api-n1-error') {
+      await rule({match: '/api/grids/mn-osm-35k/security-analysis', status: 503, detail: '몽골 Security Analysis를 사용할 수 없습니다: test proxy 503'});
+      await runN1('751261406-1_0');
+    }
     if (['api-kpg', 'api-mn'].includes(name)) document.querySelector('#kemsMode button[data-mode="voltage"]').click();
     if (['api-kpg-pf', 'api-mn-pf'].includes(name)) {
       const first = document.querySelector('#kemsSide [data-sec="top"] .kems-rank');
@@ -770,6 +1477,10 @@
     if (mode === 'badjson') await initialFailure('응답 형식 오류');
     if (['pf500', 'map500', 'mapdrop', 'geo404', 'geobad', 'pfgrid', 'pfnonconv'].includes(mode)) await endpointFailure(mode);
     if (mode === 'timeout') await timeoutScenario();
+    if (mode === 'analysis') await analysisScenario();
+    if (mode === 'analysis-stale') await analysisStaleScenario();
+    if (mode === 'analysis-monitored') await analysisMonitoredScenario();
+    if (mode === 'analysis-errors') await analysisErrorScenario();
     if (mode === 'fonts') await fontsScenario();
     if (mode === 'shot') await shotScenario(params.get('shot'));
   } catch (error) {

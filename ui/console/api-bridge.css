@@ -158,3 +158,51 @@ body[data-kems-src="api"] #kemsSide{display:block!important}
 .kems-pill-loading{background:var(--bg);color:var(--ink-2)}
 .kems-pill-ok{background:var(--ok-bg);color:var(--ok)}
 .kems-pill-err{background:var(--alarm-bg);color:var(--alarm)}
+
+/* Phase 3: N-1 Security Analysis and Sensitivity Analysis (api-analysis.js) */
+.kems-card{max-height:calc(100% - 24px);overflow:auto}
+.kems-pill-warn{background:var(--warn-bg);color:var(--warn)}
+.kems-an-stat.kems-warnt,.kems-msg.kems-warnt{color:var(--warn)}
+.kems-an-block{margin-top:8px;padding-top:8px;border-top:1px solid var(--rule)}
+.kems-an-head{font-size:11.5px;font-weight:600;color:var(--ink-2);margin-bottom:6px}
+.kems-an-run{width:100%}
+.kems-an-stat{margin:6px 0 0;font-size:11.5px;color:var(--ink-3)}
+.kems-an-spin{display:inline-block;width:10px;height:10px;margin-right:6px;border:1.5px solid var(--sel);border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-1px}
+.kems-an-loading{color:var(--sel)}
+.kems-an-h4{margin:10px 0 4px;font-size:12px;font-weight:600;color:var(--ink-2)}
+.kems-an-list{display:grid}
+.kems-an-list .kems-rank i{max-width:58%;text-align:right;white-space:normal;font-size:11.5px}
+.kems-an-nomap{cursor:default}
+.kems-an-nomap:hover{background:transparent}
+.kems-an-actions{display:flex;justify-content:flex-end;margin-top:6px}
+.kems-an-controls{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:2px}
+.kems-an-field{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-3);flex:1;min-width:180px}
+.kems-an-field select{width:100%}
+.kems-an-cand{min-width:0;font-size:12px;margin:6px 0}
+.kems-an-cand td,.kems-an-cand th{padding:5px 6px}
+.kems-an-val b{font-family:var(--mono);font-weight:600}
+.kems-an-bus{border:0;background:transparent;color:var(--sel);padding:0;text-align:left;font-size:12px;cursor:pointer}
+.kems-an-bus:hover{text-decoration:underline}
+.kems-an-ul{margin:6px 0;padding-left:18px;font-size:11.5px;color:var(--ink-2)}
+.kems-an-ul li{margin:2px 0}
+.kems-an-more{margin-top:8px;font-size:12px}
+.kems-an-more summary{cursor:pointer;color:var(--ink-2)}
+
+/* Map overlay: only the features named in the analysis response */
+.kems-svg .k-an-isoline{stroke:var(--warn);stroke-width:2.4;stroke-dasharray:1 4;opacity:.95}
+.kems-svg .k-an-isobus{stroke:var(--warn);stroke-width:12;opacity:.45}
+.kems-svg .k-an-mon{stroke:var(--sel);stroke-width:9;opacity:.35}
+.kems-svg .k-an-viol{stroke:var(--alarm);stroke-width:4.2;opacity:.95}
+.kems-svg .k-an-violdot{stroke:var(--alarm);stroke-width:13;opacity:.6}
+.kems-svg .k-an-outhalo{stroke:var(--panel);stroke-width:9;opacity:.9}
+.kems-svg .k-an-outage{stroke:var(--ink);stroke-width:3.6;stroke-dasharray:7 5}
+.kems-svg .k-an-cand{stroke:var(--ok);stroke-width:12;stroke-linecap:square;opacity:.85}
+.kems-svg .k-an-text{fill:var(--ink);font-family:var(--sans);font-weight:700;paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round;pointer-events:none}
+.kems-svg .k-an-rank{fill:var(--ok)}
+.kems-lgline.an-outage{border-top:2.6px dashed var(--ink)}
+.kems-lgline.an-viol{border-top:3px solid var(--alarm)}
+.kems-lgline.an-iso{border-top:2.4px dotted var(--warn)}
+.kems-lgline.an-mon{border-top:5px solid color-mix(in srgb,var(--sel) 45%,transparent)}
+.kems-lgdot.an-viol{background:color-mix(in srgb,var(--alarm) 60%,transparent);border-color:var(--alarm)}
+.kems-lgdot.an-iso{background:color-mix(in srgb,var(--warn) 45%,transparent);border-color:var(--warn)}
+.kems-lgsq.an-cand{background:var(--ok)}

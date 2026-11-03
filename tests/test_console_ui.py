@@ -60,7 +60,7 @@ def test_classic_scripts_keep_the_original_order():
     # One global scope as in the single inline script: ES modules would reject app.js's 20 duplicate
     # function declarations and change hoisting.
     assert re.findall(r"<script[^>]*>", html) == ['<script src="models.js">', '<script src="app.js">', '<script src="api-map.js">',
-                                                  '<script src="api-bridge.js">']
+                                                  '<script src="api-analysis.js">', '<script src="api-bridge.js">']
     assert re.findall(r'<link rel="stylesheet" href="([^"]+)">', html) == ["app.css", "api-bridge.css"]
 
 
@@ -81,6 +81,26 @@ def test_bridge_is_isolated_and_writes_text_only():
     # The Artifact DC engine and demo state are never read for an EMS API grid (comments may name them).
     statements = re.sub(r"/\*.*?\*/|//[^\n]*", "", code, flags=re.S)
     assert not re.search(r"\b(dcpf|n1fast|n1full|redispatch|twin|BASE|lastScen)\b", statements)
+    # Analysis requests are built only by the per-grid adapters of api-analysis.js.
+    assert not re.search(r"security-analysis|sensitivity-analysis", code)
+
+
+ANALYSIS_ENDPOINTS = {"/api/security-analysis", "/api/sensitivity-analysis",
+                      "/api/grids/mn-osm-35k/security-analysis", "/api/grids/mn-osm-35k/sensitivity-analysis"}
+
+
+def test_api_analysis_module_is_isolated():
+    source = (CONSOLE / "api-analysis.js").read_text(encoding="utf-8")
+    code = source[source.index("*/") + 2:].strip()
+    # One global name only, absent from app.js; text nodes only; requests are sent by the bridge, never here.
+    assert code.startswith("const KemsApiAnalysis = (() => {\n  'use strict';") and code.endswith("})();")
+    assert "KemsApiAnalysis" not in (CONSOLE / "app.js").read_text(encoding="utf-8")
+    assert not re.search(r"\.(innerHTML|outerHTML)\b|insertAdjacentHTML\(|document\.write|\bfetch\(", code)
+    statements = re.sub(r"/\*.*?\*/|//[^\n]*", "", code, flags=re.S)
+    assert not re.search(r"\b(dcpf|n1fast|n1full|redispatch|twin|BASE|lastScen|MODELS)\b|M\.buses", statements)
+    # Exactly the two backends that run the analyses; the map-only Korean OSM grid has no adapter.
+    assert set(re.findall(r"'(/api/[\w/.-]+)'", code)) == ANALYSIS_ENDPOINTS
+    assert "kr-osm-transmission" not in code
 
 
 def test_api_map_renderer_is_isolated():

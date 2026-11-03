@@ -10,6 +10,10 @@
  * vector-effect: non-scaling-stroke (a bus is a zero-length subpath with a round cap). Selection
  * is a hit test in script against the projected coordinates; listeners are attached once when the
  * map is created, never per grid or per element.
+ *
+ * Phase 3: overlay(spec) draws an analysis result above the lines (outage line, violated equipment,
+ * islands, monitored line, ranked candidate buses) from IDs the bridge got from the analysis
+ * response. It only highlights those features; the line colours underneath stay as painted.
  */
 const KemsApiMap = (() => {
   'use strict';
@@ -74,7 +78,7 @@ const KemsApiMap = (() => {
   function create(host, {onSelect} = {}) {
     const svg = el('svg', {class: 'kems-svg', role: 'img', 'aria-label': '계통 지도', preserveAspectRatio: 'xMidYMid meet'});
     const layers = {};
-    for (const name of ['geo', 'lines', 'trafos', 'buses', 'plants', 'alerts', 'labels', 'sel']) {
+    for (const name of ['geo', 'lines', 'trafos', 'buses', 'plants', 'alerts', 'analysis', 'labels', 'sel']) {
       layers[name] = el('g', {class: `k-${name}`});
       svg.append(layers[name]);
     }
@@ -86,6 +90,8 @@ const KemsApiMap = (() => {
     let selected = null;
     let lineClass = () => 'k-v-unk';
     let busAlert = () => false;
+    let overlaySpec = null;  // analysis overlay requested by the bridge
+    let drawn = null;        // the IDs of that overlay actually present on this map
 
     const setViewBox = () => svg.setAttribute('viewBox', `${vb.x} ${vb.y} ${vb.w} ${vb.h}`);
     const scale = () => { const m = svg.getScreenCTM(); return m ? m.a : 1; };
@@ -110,6 +116,7 @@ const KemsApiMap = (() => {
     function updateLabels() {
       const size = 11 / scale();
       for (const text of layers.labels.children) text.setAttribute('font-size', size.toFixed(3));
+      for (const text of layers.analysis.querySelectorAll('text')) text.setAttribute('font-size', (size * 1.15).toFixed(3));
     }
 
     /* ---------- pointer: wheel zoom, drag pan, click select (attached once) ---------- */
@@ -181,6 +188,7 @@ const KemsApiMap = (() => {
       selected = null;
       lineClass = () => 'k-v-unk';
       busAlert = () => false;
+      overlaySpec = drawn = null;
       host.dataset.kemsMap = '';
     }
 
@@ -277,6 +285,67 @@ const KemsApiMap = (() => {
       paintLines();
     }
 
+    /* ---------- analysis overlay (IDs from the analysis response; features absent here are skipped) ---------- */
+    function midpoint(line) {
+      const part = line.parts[0];
+      const a = part[Math.floor((part.length - 1) / 2)], b = part[Math.floor((part.length - 1) / 2) + 1] || a;
+      return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    }
+
+    function drawOverlay() {
+      layers.analysis.replaceChildren();
+      drawn = null;
+      if (!model || !overlaySpec) return;
+      const found = (table, ids) => [...new Set((ids || []).map(String))].map((id) => table.get(id)).filter(Boolean);
+      const out = {};
+      const add = (key, cls, items, d) => {
+        out[key] = items.map((item) => item.id);
+        if (items.length) layers.analysis.append(el('path', {class: `k-an ${cls}`, d: items.map(d).join('')}));
+      };
+      // Bottom to top: islands, monitored line, violations, then the outage line and the candidate ranks.
+      add('isolatedLines', 'k-an-isoline', found(model.lineById, overlaySpec.isolatedLines), (line) => line.d);
+      add('isolatedBuses', 'k-an-isobus', found(model.busById, overlaySpec.isolatedBuses), (bus) => dot(bus.xy));
+      add('monitored', 'k-an-mon', found(model.lineById, overlaySpec.monitored), (line) => line.d);
+      add('violationLines', 'k-an-viol', found(model.lineById, overlaySpec.violationLines), (line) => line.d);
+      add('violationTransformers', 'k-an-violdot', found(model.trafoById, overlaySpec.violationTransformers), (trafo) => dot(trafo.mid));
+      add('violationBuses', 'k-an-violdot', found(model.busById, overlaySpec.violationBuses), (bus) => dot(bus.xy));
+      const outage = found(model.lineById, overlaySpec.outage);
+      out.outage = outage.map((line) => line.id);
+      if (outage.length) {
+        const d = outage.map((line) => line.d).join('');
+        layers.analysis.append(el('path', {class: 'k-an k-an-outhalo', d}), el('path', {class: 'k-an k-an-outage', d}));
+        for (const line of outage) {
+          const [x, y] = midpoint(line);
+          const label = el('text', {x: r1(x), y: r1(y), dy: '-0.7em', class: 'k-an-text k-an-outtext', 'text-anchor': 'middle'});
+          label.textContent = '사고';
+          layers.analysis.append(label);
+        }
+      }
+      const ranks = new Map();
+      for (const item of overlaySpec.candidates || []) {
+        const bus = model.busById.get(String(item.bus));
+        if (bus) ranks.set(bus, [...(ranks.get(bus) || []), item.rank]);
+      }
+      out.candidates = [...ranks.keys()].map((bus) => bus.id);
+      if (ranks.size) {
+        layers.analysis.append(el('path', {class: 'k-an k-an-cand', d: [...ranks.keys()].map((bus) => dot(bus.xy)).join('')}));
+        for (const [bus, list] of ranks) {
+          const label = el('text', {x: r1(bus.xy[0]), y: r1(bus.xy[1]), dx: '0.75em', dy: '-0.55em', class: 'k-an-text k-an-rank'});
+          label.textContent = list.join('·');
+          layers.analysis.append(label);
+        }
+      }
+      drawn = out;
+      updateLabels();
+    }
+
+    /** spec: {outage, violationLines, violationTransformers, violationBuses, isolatedBuses, isolatedLines, monitored: [ids], candidates: [{bus, rank}]} or null. */
+    function overlay(spec) {
+      overlaySpec = spec || null;
+      drawOverlay();
+      return drawn ? JSON.parse(JSON.stringify(drawn)) : null;
+    }
+
     function drawSelection() {
       layers.sel.replaceChildren();
       if (!selected) return;
@@ -317,12 +386,7 @@ const KemsApiMap = (() => {
       const hit = find(kind, id);
       const m = svg.getScreenCTM();
       if (!hit || !m) return null;
-      let p;
-      if (kind === 'line') {
-        const part = hit.item.parts[0];
-        const a = part[Math.floor((part.length - 1) / 2)], b = part[Math.floor((part.length - 1) / 2) + 1] || a;
-        p = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
-      } else p = kind === 'transformer' ? hit.item.mid : hit.item.xy;
+      const p = kind === 'line' ? midpoint(hit.item) : kind === 'transformer' ? hit.item.mid : hit.item.xy;
       const q = new DOMPoint(p[0], p[1]).matrixTransform(m);
       return {x: q.x, y: q.y};
     }
@@ -347,6 +411,8 @@ const KemsApiMap = (() => {
       show,
       clear,
       paint,
+      overlay,
+      overlayDrawn: () => (drawn ? JSON.parse(JSON.stringify(drawn)) : null),
       select: (kind, id, zoomTo = true) => select(find(kind, id), zoomTo),
       clearSelection: () => select(null, false),
       zoomBy: (factor) => zoomAt(factor),

@@ -1,0 +1,15 @@
+{
+  "schema": "kems-phase3-code-change-audit-1",
+  "basis": "K-EMS Console Phase 3 (N-1 Security Analysis and Sensitivity Analysis in /console/). Extends docs/validation/kems-console-phase2-code-hashes.json without modifying it, the Stage 3C record or the original Stage 1 contract: 'before' is the Phase 2 'after' pin and 'after' is the Phase 3 tree, whose only web_app.py change is the CONSOLE_ASSETS allowlist entry for api-analysis.js. This record was written before that change was committed, so 'base_commit' names the commit holding the 'before' bytes. This is review evidence, not replacement model approval.",
+  "stage1_contract_sha256": "bde2dbd9f55fc6eef6efdfee1cb5ff1a84dd05500b7deda28c96ff910456ff73",
+  "phase2_record_sha256": "5731d6119b5e1955a03bc3eb60f95d8f46ecf9b9630cd73808fb664fa15d8fb8",
+  "files": {
+    "ems_code.web_app.py": {
+      "path": "web_app.py",
+      "before": "392b7afcc0c24f90b73430007776b4128544a8d4f04f493730e327a81b20a5d9",
+      "after": "78f7f9466f757270f25e0a79efa29defc95a4a8e105384bfbd387ee5a216a7c9",
+      "base_commit": "d542ba35317947cd44bb5c57311172a39a9ccf48",
+      "change": "CONSOLE_ASSETS allows api-analysis.js (Phase 3 console analysis module); no route or analysis code changed"
+    }
+  }
+}

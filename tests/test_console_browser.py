@@ -7,7 +7,9 @@ Opt-in because it needs a real Chrome and starts the full web app:
 A local proxy serves the real ``/console/`` from the app with ``tests/browser/console_hook.js``
 (errors, seeded Math.random, fixed Date, optional listener log) and ``tests/browser/console_probe.js``
 injected, forwards every other request and records it, and can fail, drop, rewrite or hold the catalog,
-map, display-geometry and PF responses (``?scenario=`` / probe gates). The performance test runs
+map, display-geometry and PF responses (``?scenario=`` / probe gates). For the N-1 and Sensitivity
+tests the probe also sets response rules (``/__probe__/rules``): an HTTP status, a dropped connection or
+fields overwritten in the real response, each labelled as such in the check names. The performance test runs
 without virtual time: the proxy holds one image so the DOM is dumped only after the probe finished.
 The parity test runs the same probe on the original Artifact HTML kept in ``local-reference/``
 (skipped when that untracked file is absent) and compares the demo fingerprints value by value.
@@ -64,6 +66,15 @@ SCREENSHOTS = [
     ("api_gis_fallback", "probe=shot&shot=api-gis-fallback&scenario=geo404", ()),
     ("api_catalog_unavailable", "probe=shot&shot=demo&scenario=drop", ()),
     ("demo_fonts_blocked", "probe=shot&shot=demo", (BLOCK_FONTS,)),
+    # Phase 3: N-1 Security Analysis and Sensitivity Analysis on the real EMS API (the error shot uses a proxy rule).
+    ("api_kpg193_n1", "probe=shot&shot=api-kpg-n1", ()),
+    ("api_kpg193_n1_lines_and_buses", "probe=shot&shot=api-kpg-n1-multi", ()),
+    ("api_kpg193_n1_nonconverged", "probe=shot&shot=api-kpg-n1-nonconv", ()),
+    ("api_kpg193_sensitivity", "probe=shot&shot=api-kpg-sens", ()),
+    ("api_mongolia_n1_islanding", "probe=shot&shot=api-mn-n1-island", ()),
+    ("api_mongolia_sensitivity", "probe=shot&shot=api-mn-sens", ()),
+    ("api_korea_osm_analysis_disabled", "probe=shot&shot=api-kr-analysis", ()),
+    ("api_n1_http_error", "probe=shot&shot=api-n1-error", ()),
 ]
 # Response changes the proxy applies per ?scenario= (path -> status / drop / JSON rewrite).
 KPG_MAP, KPG_PF = "/api/grids/kr-kpg193/map", "/api/grids/kr-kpg193/pf-preview"
@@ -82,21 +93,63 @@ REWRITES = {
 GIF = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b")
 
 
+def matches(match: str, path: str) -> bool:
+    """An exact path for "=/api/grids", otherwise a substring of path and query."""
+    return urlsplit(path).path == match[1:] if match.startswith("=") else match in path
+
+
 class PathGates(Gates):
     """Gates whose match may be an exact path ("=/api/grids"); the probe's own fetches never claim one."""
 
     def claim(self, path: str):
         if "__probe=" in path:
             return None
-        bare = urlsplit(path).path
         with self.lock:
             for item in self.items.values():
-                match = item["match"]
-                if not item["used"] and (bare == match[1:] if match.startswith("=") else match in path):
+                if not item["used"] and matches(item["match"], path):
                     item["used"] = True
                     item["requested"].set()
                     return item
         return None
+
+
+class Rules:
+    """Probe-set answers for matching API requests, kept until the next page load (or once).
+
+    A rule has "match" and one of: "status" (with a JSON "detail" or a plain "text" body), "drop"
+    (no response: a network error) or "merge" (fields overwritten in the real JSON response, in the
+    catalog entry "grid" when given). The probe's own fetches (``__probe=``) never match.
+    """
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.items: list[dict] = []
+
+    def reset(self):
+        with self.lock:
+            self.items.clear()
+
+    def add(self, spec: dict) -> int:
+        with self.lock:
+            self.items.append({**spec, "hits": 0})
+            return len(self.items) - 1
+
+    def claim(self, path: str):
+        if "__probe=" in path:
+            return None
+        with self.lock:
+            for item in self.items:
+                if matches(item["match"], path) and not (item.get("once") and item["hits"]):
+                    item["hits"] += 1
+                    return item
+        return None
+
+
+def merged(rule: dict, data: dict) -> dict:
+    target = next((g for g in data.get("grids", []) if g.get("id") == rule["grid"]), None) if rule.get("grid") else data
+    if target is not None:
+        target.update(rule["merge"])
+    return data
 
 
 def run_page(chrome, url: str, label: str, *, extra=(), screenshot: Path | None = None,
@@ -128,6 +181,7 @@ def report_of(dom: str) -> dict:
 def make_proxy(upstream: str, gates: Gates, scenario: dict):
     hook = f"<script>{HOOK.read_text(encoding='utf-8')}</script>"
     probe = f"<script>{PROBE.read_text(encoding='utf-8')}</script>"
+    rules = Rules()
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def log_message(self, *args):
@@ -163,9 +217,17 @@ def make_proxy(upstream: str, gates: Gates, scenario: dict):
             else:
                 self._json(404, {"detail": "unknown probe control"})
 
+        def _rules(self):
+            if self.path.split("?", 1)[0].rstrip("/") == "/__probe__/rules/clear":
+                rules.reset()
+                return self._json(200, {"cleared": True})
+            spec = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+            self._json(200, {"id": rules.add(spec)})
+
         def _page(self, original: bool):
             query = parse_qs(urlsplit(self.path).query)
             gates.reset()
+            rules.reset()
             probe_mode = query.get("probe", ["parity"])[0]
             scenario.update(name=query.get("scenario", [probe_mode])[0], hits=[], loaded=threading.Event())
             if original:
@@ -203,15 +265,28 @@ def make_proxy(upstream: str, gates: Gates, scenario: dict):
                     return  # no response at all: the browser sees a network error
                 if name == "badjson":
                     return self._json(200, {"grids": "x"})
+            rule = rules.claim(self.path) if path.startswith("/api/") else None
+            if rule is not None and rule.get("drop"):
+                self.close_connection = True
+                return
+            if rule is not None and rule.get("status"):
+                if "text" in rule:
+                    return self._send(int(rule["status"]), "text/plain; charset=utf-8", str(rule["text"]).encode("utf-8"))
+                return self._json(int(rule["status"]), {"detail": rule.get("detail") or f"forced {rule['status']} (test proxy)"})
             fault = FAULTS[name](path) if name in FAULTS else None
             if fault == "drop":
                 self.close_connection = True
                 return
             if fault:
                 return self._json(fault, {"detail": f"forced {fault} (test proxy)"})
-            self._forward(rewrite=REWRITES[name](path) if name in REWRITES else None)
+            rewrite = REWRITES[name](path) if name in REWRITES else None
+            if rule is not None and rule.get("merge") is not None:
+                rewrite = lambda data, rule=rule: merged(rule, data)  # noqa: E731
+            self._forward(rewrite=rewrite)
 
         def do_POST(self):
+            if self.path.startswith("/__probe__/rules"):
+                return self._rules()
             if self.path.startswith("/__probe__/gates"):
                 return self._gates("POST")
             if self.path.startswith("/__probe__/release-load"):
@@ -326,6 +401,24 @@ def test_console_endpoint_failures_are_shown_not_replaced(console, scenario):
 
 def test_console_drops_stale_and_late_responses(console):
     assert_passed(run_probe(console, "probe=stale", "stale"))
+
+
+def test_console_n1_and_sensitivity_on_the_real_api(console):
+    # KPG and Mongolia results compared field by field with the same API calls; Korean OSM never called.
+    assert_passed(run_probe(console, "probe=analysis", "analysis"))
+
+
+def test_console_analysis_drops_stale_results(console):
+    assert_passed(run_probe(console, "probe=analysis-stale", "analysis_stale"))
+
+
+def test_console_monitored_line_change_drops_sensitivity(console):
+    # Held answers for an earlier monitored line are released after the change and must not reach the new one.
+    assert_passed(run_probe(console, "probe=analysis-monitored", "analysis_monitored"))
+
+
+def test_console_analysis_failures_are_shown_not_replaced(console):
+    assert_passed(run_probe(console, "probe=analysis-errors", "analysis_errors"))
 
 
 def test_console_map_performance_in_real_time(console):

@@ -11,7 +11,13 @@
  * responses are shown; anything else is "N/A"/"미지원". Every grid switch aborts the previous
  * requests and late responses are dropped. While an API grid is selected the Artifact DC engine,
  * the demo map, KPIs, chat and screens stay idle and hidden, and an API failure never falls back to
- * demo numbers. Analysis (N-1, sensitivity) and the assistant are not wired yet (Phase 3-4).
+ * demo numbers.
+ *
+ * Phase 3: line N-1 Security Analysis and Sensitivity Analysis run on the EMS backend for the
+ * grids whose catalog flags allow them. This file owns when a request is sent, its cancellation
+ * (grid switch, re-run on another outage line) and the per-view analysis state; api-analysis.js
+ * owns the per-grid API contracts, response validation, the result display and the map overlay.
+ * The assistant is not wired yet (Phase 4).
  * Everything lives in this IIFE so no app.js global lexical name can collide.
  */
 (() => {
@@ -29,12 +35,14 @@
   const CAPABILITIES = [
     ['map_available', '지도', '연동'],
     ['pf_preview_available', 'PF 미리보기', '연동 (조회 전용)'],
-    ['security_analysis_available', '선로 N-1 Security Analysis', '미연동'],
-    ['sensitivity_analysis_available', 'Sensitivity Analysis', '미연동'],
+    ['security_analysis_available', '선로 N-1 Security Analysis', '연동'],
+    ['sensitivity_analysis_available', 'Sensitivity Analysis', '연동'],
     ['generator_contingency_available', '발전기 탈락 해석', '미연동'],
     ['chat_available', 'AI 채팅', '미연동'],
-    ['analysis_available', 'KPG 해석 묶음 (호환 플래그)', '미연동'],
+    ['analysis_available', 'KPG 해석 묶음 (호환 플래그)', '일부 연동 (선로 N-1·Sensitivity)'],
   ];
+  // Wired in this console only for a grid whose analysis API contract api-analysis.js knows.
+  const ANALYSIS_FLAGS = new Set(['security_analysis_available', 'sensitivity_analysis_available', 'analysis_available']);
   const CAPABILITY_NOTES = {security_analysis_available: 'security_analysis_note', sensitivity_analysis_available: 'sensitivity_analysis_note'};
   // Demo screen renders app.js calls by name (journal, live feed, lake); idle while an API grid is shown.
   const DEMO_RENDERS = ['renderReport', 'dashRender', 'bmRender', 'kpiRender', 'snRender', 'lakeRender', 'liveSrcRender', 'gwRender', 'kbRender'];
@@ -225,6 +233,7 @@
   /** A new view for the grid: aborts the previous view's requests and clears its map and values. */
   function openView(gridId) {
     if (loadController) loadController.abort();
+    if (state.view) abortAnalysis(state.view.analysis);
     loadController = new AbortController();
     const view = {
       gridId,
@@ -235,7 +244,17 @@
       geometry: {status: 'none'},   // none | loading | ready | error | invalid
       pf: {status: 'idle'},         // idle | loading | ready | nonconverged | invalid | error | blocked | unsupported | unknown
       selection: null,
-      mode: 'voltage',
+      mode: 'voltage',              // voltage | loading (PF) | analysis (N-1 overlay)
+      analysis: {
+        seq: 0,                     // bumped on every N-1 run or reset; an older response is dropped
+        sensSeq: 0,                 // the same for Sensitivity runs
+        controller: null,           // aborts this view's N-1 and Sensitivity requests
+        sensController: null,       // aborts the Sensitivity request only
+        line: null,                 // outage line of the result (or request) on screen
+        security: {status: 'idle'}, // idle | loading | ready | error | invalid
+        sensitivity: {status: 'idle'},
+        monitored: '',              // monitored line for the next Sensitivity run ('' = EMS API selects)
+      },
     };
     state.view = view;
     apiMap.clear();
@@ -246,6 +265,7 @@
 
   function leaveApi() {
     if (loadController) loadController.abort();
+    if (state.view) abortAnalysis(state.view.analysis);
     loadController = null;
     state.source = 'demo';
     state.gridId = null;
@@ -463,6 +483,7 @@
     }
     return {
       buses, lines, transformers, plants, busById, kvs, missingEnds,
+      lineById: new Map(lines.map((line) => [line.id, line])), trafoById: new Map(transformers.map((trafo) => [trafo.id, trafo])),
       country: Array.isArray(map.country_polygons) ? map.country_polygons : [],
       regions: Array.isArray(map.admin_regions) ? map.admin_regions.filter((region) => region && Array.isArray(region.polygons)) : [],
       gis: lines.filter((line) => line.source === 'gis').length,
@@ -538,7 +559,7 @@
         view.pf = {status: 'invalid', error: error.message};
       }
     }
-    if (view.pf.status === 'ready') view.mode = 'loading';
+    if (view.pf.status === 'ready' && view.mode === 'voltage') view.mode = 'loading';  // an N-1 result already shown keeps its overlay
     paintMap();
     render();
     if (view.selection) apiMap.select(view.selection.kind, view.selection.id, false);  // refresh an open card with PF values
@@ -563,7 +584,166 @@
       (line) => [line.cls, line.source === 'straight-fallback' ? 'k-straight' : '', loading ? lineBucket(line, pf) : ''].filter(Boolean).join(' '),
       (bus) => Boolean(loading && pf.buses.get(bus.id) && pf.buses.get(bus.id).voltage_violation === true),
     );
+    // No analysis API returns the post-contingency state of every line, so in the analysis mode the
+    // lines keep their voltage class and only the features named in the response are highlighted.
+    const a = view.analysis;
+    apiMap.overlay(view.mode === 'analysis' && a.security.status === 'ready'
+      ? KemsApiAnalysis.overlay(a.security.vm, a.sensitivity.status === 'ready' ? a.sensitivity.vm : null) : null);
   }
+
+  /* ---------- N-1 Security Analysis and Sensitivity Analysis requests ---------- */
+  const textOf = (value) => (typeof value === 'string' && value ? value : null);
+  const defaultMode = (view) => (view.pf.status === 'ready' ? 'loading' : 'voltage');
+
+  function analysisSupport(view) {
+    const entry = view.status === 'ready' ? view.entry : null;
+    return KemsApiAnalysis.support(view.gridId, entry && {
+      security: entryFlag(entry, 'security_analysis_available'), securityNote: textOf(entry.security_analysis_note),
+      sensitivity: entryFlag(entry, 'sensitivity_analysis_available'), sensitivityNote: textOf(entry.sensitivity_analysis_note),
+    });
+  }
+
+  // Lookups of the map on screen, used to check a response and to label it.
+  function analysisCtx(view) {
+    const model = view.map.model;
+    return {
+      hasLine: (id) => model.lineById.has(id), hasBus: (id) => model.busById.has(id), hasTransformer: (id) => model.trafoById.has(id),
+      lineEnds: (id) => { const line = model.lineById.get(id); return line ? {a: line.from.id, b: line.to.id, kv: line.kv} : null; },
+      busLabel: (id) => { const bus = model.busById.get(id); return bus ? busLabel(bus) : id; },
+    };
+  }
+
+  function analysisInfo(view) {
+    const pf = view.pf.status === 'ready' || view.pf.status === 'nonconverged' ? view.pf : null;
+    return {gridId: view.gridId, support: analysisSupport(view), analysis: view.analysis, ctx: analysisCtx(view), clock,
+      excluded: pf ? pf.excluded.lines : null};
+  }
+
+  function abortAnalysis(a) {
+    for (const key of ['controller', 'sensController']) {
+      if (a[key]) a[key].abort();
+      a[key] = null;
+    }
+  }
+
+  // Re-renders the open card (its analysis block follows the state) without moving the map.
+  function refreshCard() {
+    const view = state.view;
+    if (view && view.selection) apiMap.select(view.selection.kind, view.selection.id, false);
+  }
+
+  function analysisChanged() {
+    paintMap();
+    render();
+    refreshCard();
+  }
+
+  /** N-1 with `line` as the outage: drops every earlier result and request of this view first. */
+  async function runSecurity(line) {
+    const view = state.view;
+    if (state.source !== 'api' || !view || view.map.status !== 'ready' || !view.map.model.lineById.has(line)) return;
+    if (!analysisSupport(view).security.ok) return;  // a false or missing flag is never forced, nor sent to another grid's API
+    const a = view.analysis;
+    abortAnalysis(a);
+    const seq = ++a.seq;
+    const controller = new AbortController();
+    Object.assign(a, {controller, line, security: {status: 'loading'}, sensitivity: {status: 'idle'}, monitored: ''});
+    if (view.mode === 'analysis') view.mode = defaultMode(view);
+    analysisChanged();
+    side.scrollTop = 0;  // the result appears at the top of 의사결정지원
+    const current = () => state.source === 'api' && state.view === view && a.seq === seq && !controller.signal.aborted;
+    let payload;
+    try {
+      payload = await fetchJson(KemsApiAnalysis.adapter(view.gridId).securityUrl(line), KemsApiAnalysis.TIMEOUT_MS.security, controller.signal);
+    } catch (error) {
+      if (error instanceof Aborted || !current()) return;
+      a.security = {status: 'error', error: error.message};
+      analysisChanged();
+      return;
+    }
+    if (!current()) return;
+    try {
+      a.security = {status: 'ready', vm: KemsApiAnalysis.security(view.gridId, payload, {line}, analysisCtx(view)), at: new Date()};
+      view.mode = 'analysis';
+    } catch (error) {
+      if (!(error instanceof KemsApiAnalysis.Invalid)) throw error;
+      a.security = {status: 'invalid', error: error.message};
+    }
+    analysisChanged();
+  }
+
+  /** Sensitivity for the outage line of the N-1 result on screen; a newer N-1 or grid drops it. */
+  async function runSensitivity() {
+    const view = state.view;
+    if (state.source !== 'api' || !view) return;
+    const a = view.analysis;
+    if (a.security.status !== 'ready' || !analysisSupport(view).sensitivity.ok) return;
+    if (a.sensController) a.sensController.abort();
+    const controller = new AbortController();
+    a.sensController = controller;
+    const seq = a.seq;
+    const sensSeq = ++a.sensSeq;
+    const line = a.line;
+    const monitored = a.monitored || null;
+    a.sensitivity = {status: 'loading', requested: monitored};
+    analysisChanged();
+    const current = () => state.source === 'api' && state.view === view && a.seq === seq && a.sensSeq === sensSeq && !controller.signal.aborted;
+    let payload;
+    try {
+      payload = await fetchJson(KemsApiAnalysis.adapter(view.gridId).sensitivityUrl(line, monitored), KemsApiAnalysis.TIMEOUT_MS.sensitivity, controller.signal);
+    } catch (error) {
+      if (error instanceof Aborted || !current()) return;
+      a.sensitivity = {status: 'error', error: error.message, requested: monitored};
+      analysisChanged();
+      return;
+    }
+    if (!current()) return;
+    try {
+      a.sensitivity = {status: 'ready', vm: KemsApiAnalysis.sensitivity(view.gridId, payload, {line, monitored}, analysisCtx(view)), requested: monitored, at: new Date()};
+      view.mode = 'analysis';  // the monitored line and candidates are drawn with the N-1 result
+    } catch (error) {
+      if (!(error instanceof KemsApiAnalysis.Invalid)) throw error;
+      a.sensitivity = {status: 'invalid', error: error.message, requested: monitored};
+    }
+    analysisChanged();
+  }
+
+  function clearAnalysis() {
+    const view = state.view;
+    if (!view) return;
+    const a = view.analysis;
+    abortAnalysis(a);
+    a.seq += 1;
+    a.sensSeq += 1;
+    Object.assign(a, {line: null, security: {status: 'idle'}, sensitivity: {status: 'idle'}, monitored: ''});
+    if (view.mode === 'analysis') view.mode = defaultMode(view);
+    analysisChanged();
+  }
+
+  /** Another monitored line voids the Sensitivity shown or still running: it is cleared and its request
+   *  aborted. The N-1 result and its overlay (outage line, violations, islands) stay. */
+  function setMonitored(value) {
+    const view = state.view;
+    if (state.source !== 'api' || !view) return;
+    const a = view.analysis;
+    if (value === a.monitored) return;  // re-selecting the same line is not a change
+    if (a.sensController) a.sensController.abort();
+    a.sensController = null;
+    a.sensSeq += 1;  // a response already under way fails its sequence check
+    Object.assign(a, {monitored: value, sensitivity: {status: 'idle'}});
+    analysisChanged();
+    // render() rebuilt the panel: keep the keyboard on the new monitored-line select.
+    const select = side.querySelector('select.kems-an-mon');
+    if (select) select.focus();
+  }
+
+  const analysisActions = {
+    runSecurity,
+    runSensitivity,
+    clear: clearAnalysis,
+    setMonitored,
+    select: (kind, id) => apiMap.select(kind, id, true),
+  };
 
   /* ---------- DOM inside the Artifact 관제 layout ---------- */
   const ops = document.getElementById('v-ops');
@@ -576,7 +756,8 @@
 
   const modeToggle = h('span', {class: 'lvtog kems-only', id: 'kemsMode', role: 'group', 'aria-label': '지도 표시'},
     h('button', {type: 'button', 'data-mode': 'voltage', onclick: () => setMode('voltage')}, '전압 등급'),
-    h('button', {type: 'button', 'data-mode': 'loading', onclick: () => setMode('loading')}, 'PF 부하율'));
+    h('button', {type: 'button', 'data-mode': 'loading', onclick: () => setMode('loading')}, 'PF 부하율'),
+    h('button', {type: 'button', 'data-mode': 'analysis', onclick: () => setMode('analysis')}, '사고 해석'));
   mapPanel.querySelector('.ph .zoom').before(modeToggle);
 
   const mapHost = h('div', {class: 'kems-only kems-maphost', id: 'kemsMapHost'});
@@ -614,7 +795,7 @@
 
   function setMode(mode) {
     const view = state.view;
-    if (!view || (mode === 'loading' && view.pf.status !== 'ready')) return;
+    if (!view || (mode === 'loading' && view.pf.status !== 'ready') || (mode === 'analysis' && view.analysis.security.status !== 'ready')) return;
     view.mode = mode;
     paintMap();
     render();
@@ -681,7 +862,6 @@
           row('P (모선1→2)', finite(result.p0_mw) ? `${num(result.p0_mw, 2)} MW` : null), row('Q (모선1)', finite(result.q0_mvar) ? `${num(result.q0_mvar, 2)} Mvar` : null),
           row('열적 위반', result.thermal_violation === true ? '있음' : result.thermal_violation === false ? '없음' : 'N/A'), row('해석 상태', result.analysis_status));
       } else if (pf) rows.push(row('PF', pf.excluded.lines.has(item.id) ? 'PF 해석 제외 선로' : 'PF 결과 없음'));
-      rows.push(row('선로 사고 해석', 'Phase 3 연동 예정 (미연동)'));
     } else if (hit.kind === 'plant') {
       title = `${KIND_LABEL.plant} ${item.name || item.id}`;
       rows.push(row('레코드', item.id), row('연료', item.raw.fueltype), row('설비 용량', finite(item.raw.capacity_mw) ? fmtMW(item.raw.capacity_mw) : null),
@@ -691,6 +871,9 @@
       const result = pf && pf.transformers.get(item.id);
       if (result) rows.push(row('PF 부하율', finite(result.loading_percent) ? fmtPct(result.loading_percent) : 'N/A'), row('정격', finite(result.rating_mva) ? `${num(result.rating_mva, 1)} MVA` : 'N/A'));
     }
+    const info = hit.kind === 'plant' ? null : analysisInfo(view);
+    if (info) rows.push(...KemsApiAnalysis.featureRows(info, hit.kind, item.id));
+    if (hit.kind === 'line') rows.push(KemsApiAnalysis.lineBlock(info, item.id, analysisActions));
     card.replaceChildren(
       h('div', {class: 'kems-cardhead'}, h('b', {}, title), h('button', {type: 'button', class: 'btn', onclick: () => { apiMap.clearSelection(); }}, '닫기')),
       h('div', {class: 'kems-cardsrc'}, `EMS API · ${view.gridId}${pf ? ' · PF 미리보기 (조회 전용)' : ''}`),
@@ -752,15 +935,16 @@
     const violations = sv ? [counted('bus_voltage', '전압'), counted('line_thermal', '선로'), counted('transformer_thermal', '변압기')].filter(Boolean) : [];
     const generator = sv ? [counted('generator_p', 'P'), counted('generator_q', 'Q'), counted('generator_s', 'S')].filter(Boolean) : [];
     const anyViolation = sv && Object.values(sv).some((value) => finite(value) && value > 0);
+    const when = view.mode === 'analysis' ? ' · 사고 전' : '';  // the tiles stay the base PF preview beside an N-1 result
     kpis.replaceChildren(
-      kpiTile('load', '총 부하', finite(meta.load_mw) ? fmtMW(meta.load_mw) : 'N/A',
+      kpiTile('load', `총 부하${when}`, finite(meta.load_mw) ? fmtMW(meta.load_mw) : 'N/A',
         `발전 합계: 응답에 없음${finite(meta.load_mvar) ? ` · 무효 ${num(meta.load_mvar, Math.abs(meta.load_mvar) >= 100 ? 0 : 2)} Mvar` : ''}`),
-      kpiTile('voltage', '전압 범위 (pu)', finite(summary.voltage_min_pu) && finite(summary.voltage_max_pu) ? `${fmtPu(summary.voltage_min_pu)} – ${fmtPu(summary.voltage_max_pu)}` : 'N/A',
+      kpiTile('voltage', `전압 범위 (pu)${when}`, finite(summary.voltage_min_pu) && finite(summary.voltage_max_pu) ? `${fmtPu(summary.voltage_min_pu)} – ${fmtPu(summary.voltage_max_pu)}` : 'N/A',
         `PF 해석 모선 ${pf.buses.size}개`),
-      kpiTile('loading', '최대 선로 부하율', finite(summary.line_max_loading_percent) ? fmtPct(summary.line_max_loading_percent) : 'N/A',
+      kpiTile('loading', `최대 선로 부하율${when}`, finite(summary.line_max_loading_percent) ? fmtPct(summary.line_max_loading_percent) : 'N/A',
         finite(summary.transformer_max_loading_percent) ? `변압기 최대 ${fmtPct(summary.transformer_max_loading_percent)}` : '변압기 결과 없음',
         finite(summary.line_max_loading_percent) && summary.line_max_loading_percent >= 100 ? 'err' : finite(summary.line_max_loading_percent) && summary.line_max_loading_percent >= 80 ? 'warn' : null),
-      kpiTile('violations', 'PF 기준 위반', violations.length ? violations.join(' · ') : 'N/A',
+      kpiTile('violations', `PF 기준 위반${when}`, violations.length ? violations.join(' · ') : 'N/A',
         generator.length ? `발전기 ${generator.join(' · ')}` : (typeof meta.screening_status === 'string' ? meta.screening_status : '스크리닝 기준 응답에 없음'),
         anyViolation ? 'err' : null),
     );
@@ -776,6 +960,10 @@
     if (m.plants.length) items.push(h('span', {}, h('i', {class: 'kems-lgsq plant'}), '발전소'));
     if (m.transformers.length) items.push(h('span', {}, h('i', {class: 'kems-lgsq trafo'}), '변압기'));
     if (m.straightFallback) items.push(h('span', {}, h('i', {class: 'kems-lgline dashed'}), '직선 (GIS 경로 미적용)'));
+    if (view.mode === 'analysis' && view.analysis.security.status === 'ready') {
+      legend.replaceChildren(...items, ...KemsApiAnalysis.legend(apiMap.overlayDrawn()).filter(Boolean));
+      return;
+    }
     if (view.pf.status === 'ready' && view.mode === 'loading') {
       items.push(h('span', {}, h('i', {class: 'kems-lgline ld-ok'}), '부하율 < 80%'), h('span', {}, h('i', {class: 'kems-lgline ld-high'}), '80–100%'),
         h('span', {}, h('i', {class: 'kems-lgline ld-over'}), '≥ 100% 또는 위반'), h('span', {}, h('i', {class: 'kems-lgline ld-none'}), 'PF 결과 없음·해석 제외'),
@@ -806,10 +994,11 @@
       rows.map(([flag, label, wired]) => {
         const value = entryFlag(entry, flag);
         const note = CAPABILITY_NOTES[flag] && typeof entry[CAPABILITY_NOTES[flag]] === 'string' ? entry[CAPABILITY_NOTES[flag]] : null;
+        const shown = ANALYSIS_FLAGS.has(flag) && !KemsApiAnalysis.adapter(entry.id) ? '미연동 (해석 API 연동 없음)' : wired;
         return h('tr', {'data-flag': flag},
           h('td', {}, label, h('div', {class: 'd'}, h('code', {}, flag)), note ? h('div', {class: 'd kems-capnote'}, note) : null),
           h('td', {}, value === true ? h('span', {class: 'kems-y'}, '제공') : value === false ? h('span', {class: 'kems-n'}, '미제공') : h('span', {class: 'kems-u'}, '응답에 없음')),
-          h('td', {}, value === true ? h('span', {class: wired === '미연동' ? 'kems-w' : 'kems-y'}, wired) : h('span', {class: 'kems-u'}, '—')));
+          h('td', {}, value === true ? h('span', {class: shown.startsWith('연동') ? 'kems-y' : 'kems-w'}, shown) : h('span', {class: 'kems-u'}, '—')));
       }));
   }
 
@@ -885,12 +1074,14 @@
     const sections = [
       h('div', {class: 'kems-sidehead'}, h('span', {class: 'kems-src kems-src-api'}, 'EMS API 계통'), h('b', {}, apiName(entry, view.gridId)), h('code', {}, view.gridId),
         h('button', {type: 'button', class: 'btn', onclick: () => openView(view.gridId)}, '다시 불러오기')),
+      // N-1 and Sensitivity first: they follow the line the operator selected on the map.
+      view.status === 'ready' && view.map.status === 'ready' ? KemsApiAnalysis.panel(analysisInfo(view), analysisActions) : null,
       view.status === 'ready' ? pfSection(view) : null,
       view.status === 'ready' ? topLinesSection(view) : null,
       h('section', {class: 'kems-sec', 'data-sec': 'capability'}, h('h3', {}, 'EMS API 기능 상태'), capability),
-      h('section', {class: 'kems-sec kems-notwired', 'data-sec': 'notwired'}, h('h3', {}, '사고 해석 · AI 채팅'),
-        h('p', {class: 'kems-msg'}, 'N-1·Sensitivity 해석(Phase 3)과 AI 채팅(Phase 4)은 아직 이 콘솔에 연동되지 않았습니다. Artifact의 데모 규칙 엔진·사고 주입은 EMS API 계통에 실행하지 않습니다.'),
-        h('a', {href: '/'}, '기존 화면에서 해석 열기')),
+      h('section', {class: 'kems-sec kems-notwired', 'data-sec': 'notwired'}, h('h3', {}, 'AI 채팅'),
+        h('p', {class: 'kems-msg'}, 'AI 채팅(Phase 4)은 아직 이 콘솔에 연동되지 않았습니다. Artifact의 데모 규칙 엔진·사고 주입은 EMS API 계통에 실행하지 않습니다.'),
+        h('a', {href: '/'}, '기존 화면에서 채팅 열기')),
       entry && typeof entry.note === 'string' ? h('p', {class: 'note kems-note'}, entry.note) : null,
     ];
     side.replaceChildren(...sections.flat().filter(Boolean));  // replaceChildren() does not flatten arrays
@@ -915,8 +1106,11 @@
       const tw = document.getElementById('twMode');
       tw.textContent = 'EMS API';
       tw.className = 'twm tw-api';
-      tw.title = 'EMS API 계통 · 지도와 PF 미리보기(조회 전용) 연동 · 해석·채팅 미연동';
+      tw.title = 'EMS API 계통 · 지도와 PF 미리보기(조회 전용) · 기능 플래그가 허용한 선로 N-1·Sensitivity · 채팅 미연동';
       const mapText = !view ? '' : {ready: '지도 연동', loading: '지도 불러오는 중', error: '지도 오류', unavailable: '지도 미제공'}[view.map.status] || '확인 중';
+      const support = view && view.status === 'ready' ? analysisSupport(view) : null;
+      const analysisText = !support ? '해석 확인 중' : support.security.ok
+        ? `N-1${support.sensitivity.ok ? '·Sensitivity' : ''} 연동 · 채팅 미연동` : '해석 미지원 · 채팅 미연동';
       const pfText = !view ? '' : {ready: 'PF 미리보기 · 조회 전용', nonconverged: 'PF 비수렴', unsupported: 'PF 미지원', loading: 'PF 불러오는 중',
         error: 'PF 조회 실패', invalid: 'PF 검증 실패', blocked: 'PF 표시 안 함'}[view.pf.status] || 'PF 확인 중';
       info.replaceChildren(
@@ -924,7 +1118,7 @@
         h('b', {}, apiName(view && view.entry, state.gridId)),
         h('span', {class: 'ctxs'}, state.gridId),
         h('span', {class: 'ctxm'}, mapText),
-        h('span', {class: 'ctxm'}, '해석·채팅 미연동'),
+        h('span', {class: 'ctxm'}, analysisText),
         h('span', {class: 'ctxm'}, pfText),  // fitCtx() hides the other items first when space runs out
       );
       fitCtx();
@@ -970,11 +1164,13 @@
       renderLegend(view);
       renderSide(view);
       const pfReady = view.pf.status === 'ready';
+      const analysisReady = view.analysis.security.status === 'ready';
       for (const button of modeToggle.querySelectorAll('button')) {
         button.setAttribute('aria-pressed', String(button.dataset.mode === view.mode));
-        button.disabled = button.dataset.mode === 'loading' && !pfReady;
+        button.disabled = (button.dataset.mode === 'loading' && !pfReady) || (button.dataset.mode === 'analysis' && !analysisReady);
       }
-      modeToggle.title = pfReady ? '선로 색: 전압 등급 또는 PF 미리보기 부하율' : 'PF 미리보기가 없거나 확인되지 않아 전압 등급만 표시합니다';
+      modeToggle.title = `${pfReady ? '선로 색: 전압 등급 또는 PF 미리보기 부하율' : 'PF 미리보기가 없거나 확인되지 않아 전압 등급만 표시합니다'}`
+        + (analysisReady ? ' · 사고 해석: N-1 응답에 있는 설비만 강조' : '');
       mapHost.dataset.status = view.map.status;
     } else {
       for (const node of [descBox, kpis, legend, side]) node.replaceChildren();
@@ -1004,10 +1200,26 @@
           geometry: {status: view.geometry.status, parts: view.geometry.parts ?? null, invalid: view.geometry.invalid ?? null, error: view.geometry.error || null},
           pf: {status: view.pf.status, error: view.pf.error || null, counts: view.pf.buses ? {buses: view.pf.buses.size, lines: view.pf.lines.size,
             transformers: view.pf.transformers.size} : null},
+          analysis: analysisState(view.analysis),
         } : null,
       };
     },
-    map: Object.freeze({counts: () => apiMap.counts(), viewBox: () => apiMap.viewBox(), screenPoint: (kind, id) => apiMap.screenPoint(kind, id)}),
+    map: Object.freeze({counts: () => apiMap.counts(), viewBox: () => apiMap.viewBox(), screenPoint: (kind, id) => apiMap.screenPoint(kind, id),
+      overlay: () => apiMap.overlayDrawn()}),
   });
+
+  function analysisState(a) {
+    const sec = a.security;
+    const sens = a.sensitivity;
+    return {
+      line: a.line, seq: a.seq, monitored: a.monitored,
+      security: {status: sec.status, error: sec.error || null, verdict: sec.vm ? sec.vm.verdict : null, count: sec.vm ? sec.vm.count : null,
+        violations: sec.vm ? sec.vm.violations.map((v) => ({id: v.equipmentId, type: v.type, mapKind: v.mapKind, mapId: v.mapId})) : null,
+        island: sec.vm && sec.vm.island ? {detected: sec.vm.island.detected, buses: sec.vm.island.buses.length} : null},
+      sensitivity: {status: sens.status, error: sens.error || null, requested: sens.requested ?? null,
+        state: sens.vm ? sens.vm.state : null, analysisStatus: sens.vm ? sens.vm.analysisStatus : null, monitored: sens.vm ? sens.vm.monitored : null,
+        candidates: sens.vm ? sens.vm.candidates.map((c) => ({rank: c.rank, generator: c.generator, value: c.value, mapBus: c.mapBus})) : null},
+    };
+  }
   render();
 })();
