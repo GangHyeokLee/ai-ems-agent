@@ -60,7 +60,8 @@ reference는 registry 조건 불일치로 거부되고, 실제 계산 경로(B3-
 | `MODEL_IDENTITY_UNAVAILABLE` | 실제 로드 모델을 식별할 수 없음(legacy loader 등) |
 | `RESULT_NOT_REGISTERED` | strict canonical JSON 등 등록 형식 검증 실패 |
 
-도메인 예외는 기존 오류 계약(예: 미지 선로 500)을 그대로 따르며 등록하지 않는다. 미평가(`SECURITY_NOT_CONVERGED`, `NO_OVERLOAD`)는
+도메인 예외는 기존 오류 계약(예: 미지 선로 500)을 그대로 따르며 등록하지 않는다. 공유 network guard가 헤더 검사보다 먼저 실행되므로
+opt-in 요청도 엔진 경합 시 기존 문자열 오류 `409 {"detail": "ANALYSIS_BUSY"}`를 받는다(v1 형식 아님, 콘솔은 두 형식을 모두 처리). 미평가(`SECURITY_NOT_CONVERGED`, `NO_OVERLOAD`)는
 `assessment=not_evaluated`와 `reason_code`로 등록되며 후보·성공 판정이 없다.
 
 `AnalysisReceipt`: `result_id`(서버 UUID v4), `grid_id`, `kind`, `outage_line_id`, 실제 `monitored_line_id`,
