@@ -1,10 +1,11 @@
+import dataclasses
 import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Response
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from langchain_core.messages import (
     AIMessage,
@@ -26,9 +27,18 @@ from ai_ems.kpg_pf_preview import (
     get_kpg_pf_preview,
     validate_kpg_pf_preview,
 )
-from ai_ems.analysis_context import VerifiedResult
+from ai_ems.analysis_context import (
+    SENSITIVITY_TOP_N,
+    AnalysisApiError,
+    VerifiedResult,
+    is_uuid4,
+    parse_analysis_request,
+    parse_receipt_opt_in,
+)
+from ai_ems.analysis_registry import RequestTracker, ResultRegistry, SessionGates
+from ai_ems.agent.formatters.analysis_reference import format_reference_answer
 from ai_ems.network import load_identified_network
-from ai_ems.network_access import NetworkBusy, guarded
+from ai_ems.network_access import ModelIdentityUnavailable, NetworkBusy, access_for, guarded
 from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph
 from ai_ems.agent.mongolia_graph import (
     MONGOLIA_SYSTEM_PROMPT,
@@ -98,6 +108,11 @@ def _load_validated_mongolia_pf() -> dict[str, Any]:
 
 
 mongolia_agent_sessions: dict[str, list[Any]] = {}
+
+# PH4-02B3-1 v1 state: one process, memory only (lost on restart; single worker assumed).
+analysis_results = ResultRegistry()
+analysis_requests = RequestTracker()
+analysis_sessions = SessionGates()
 
 # Mongolia PyPowSyBl Security Analysis: separate model, never the KPG `network`.
 _mongolia_security_services: dict[tuple, MongoliaSecurityService] = {}
@@ -171,6 +186,10 @@ class ChatRequest(BaseModel):
     session_id: str
     message: str
     grid_id: str = KPG_GRID_ID
+    # PH4-02B3-1 v1 opt-in, validated by parse_analysis_request. Both absent/null
+    # keeps the legacy request and response contract unchanged.
+    request_id: Any = None
+    analysis_context: Any = None
 
 
 class GeneratorContingencyRequest(BaseModel):
@@ -305,7 +324,14 @@ def mongolia_security_status():
 
 
 @app.get("/api/grids/mn-osm-35k/security-analysis")
-def mongolia_security_analysis(outage_line_id: str):
+def mongolia_security_analysis(
+    outage_line_id: str,
+    *,
+    x_ems_analysis_context_version: str | None = Header(default=None),
+    x_ems_session_id: str | None = Header(default=None),
+    x_ems_request_id: str | None = Header(default=None),
+):
+    _reject_receipt_opt_in(x_ems_analysis_context_version, x_ems_session_id, x_ems_request_id)
     try:
         return _mongolia_security().run_line_contingency(outage_line_id)
     except MongoliaModelUnavailable as exc:
@@ -323,7 +349,12 @@ def mongolia_sensitivity_analysis(
     outage_line_id: str,
     monitored_line_id: str | None = None,
     top_n: int = 10,
+    *,
+    x_ems_analysis_context_version: str | None = Header(default=None),
+    x_ems_session_id: str | None = Header(default=None),
+    x_ems_request_id: str | None = Header(default=None),
 ):
+    _reject_receipt_opt_in(x_ems_analysis_context_version, x_ems_session_id, x_ems_request_id)
     try:
         return _mongolia_security().run_line_sensitivity(
             outage_line_id,
@@ -473,9 +504,16 @@ def security_analysis(
     outage_line_id: str,
     monitored_line_id: str | None = None,
     grid_id: str = KPG_GRID_ID,
+    *,
+    response: Response,
+    x_ems_analysis_context_version: str | None = Header(default=None),
+    x_ems_session_id: str | None = Header(default=None),
+    x_ems_request_id: str | None = Header(default=None),
 ):
     _require_kpg_grid(grid_id)
+    opt_in = _receipt_opt_in(x_ems_analysis_context_version, x_ems_session_id, x_ems_request_id)
     monitored_line_ids = [monitored_line_id] if monitored_line_id is not None else None
+    before = _identified_revision() if opt_in is not None else None
 
     result = run_line_contingency(
         network,
@@ -483,7 +521,10 @@ def security_analysis(
         monitored_line_ids=monitored_line_ids,
     )
 
-    return _security_result_for_ui(result)
+    payload = _security_result_for_ui(result)
+    if opt_in is None:
+        return payload
+    return _with_manual_receipt(response, opt_in, "security", payload, None, before)
 
 
 @app.get("/api/sensitivity-analysis")
@@ -493,8 +534,29 @@ def sensitivity_analysis(
     monitored_line_id: str | None = None,
     top_n: int = 5,
     grid_id: str = KPG_GRID_ID,
+    *,
+    response: Response,
+    x_ems_analysis_context_version: str | None = Header(default=None),
+    x_ems_session_id: str | None = Header(default=None),
+    x_ems_request_id: str | None = Header(default=None),
 ):
     _require_kpg_grid(grid_id)
+    opt_in = _receipt_opt_in(x_ems_analysis_context_version, x_ems_session_id, x_ems_request_id)
+    if opt_in is None:
+        return _kpg_sensitivity_payload(outage_line_id, monitored_line_id, top_n)
+    if top_n != SENSITIVITY_TOP_N:
+        raise _v1_http_error(AnalysisApiError(
+            422, "ANALYSIS_CONTEXT_INVALID", "분석 결과 등록은 top_n=5만 지원합니다."), opt_in.request_id)
+    before = _identified_revision()
+    payload = _kpg_sensitivity_payload(outage_line_id, monitored_line_id, top_n)
+    return _with_manual_receipt(response, opt_in, "sensitivity", payload, monitored_line_id, before)
+
+
+def _kpg_sensitivity_payload(
+    outage_line_id: str,
+    monitored_line_id: str | None,
+    top_n: int,
+) -> dict[str, Any]:
     if monitored_line_id is None:
         security_result = run_line_contingency(
             network,
@@ -560,6 +622,8 @@ def generator_contingency_analysis(request: GeneratorContingencyRequest, grid_id
 
 @app.post("/api/chat")
 def chat(request: ChatRequest, grid_id: str = KPG_GRID_ID):
+    if _analysis_opt_in(request):
+        return _analysis_chat(grid_id, request, kpg_endpoint=True)
     _require_kpg_grid(grid_id)
     _require_kpg_grid(request.grid_id)
     session_id = request.session_id.strip()
@@ -619,6 +683,8 @@ def chat(request: ChatRequest, grid_id: str = KPG_GRID_ID):
 
 @app.post("/api/grids/{grid_id}/chat")
 def grid_chat(grid_id: str, request: ChatRequest):
+    if _analysis_opt_in(request):
+        return _analysis_chat(grid_id, request)
     if "grid_id" in request.model_fields_set and request.grid_id != grid_id:
         raise HTTPException(status_code=409, detail="URL과 요청의 계통 ID가 일치하지 않습니다.")
     if grid_id == KPG_GRID_ID:
@@ -943,6 +1009,176 @@ def _kpg_line_analysis_payload(result: VerifiedResult) -> dict[str, Any]:
     voltage_level_ids = {generator_id: metadata["voltage_level_id"]
                          for generator_id, metadata in raw["generator_metadata"].items()}
     return _sensitivity_payload_for_ui(raw["ranking"], voltage_level_ids)
+
+
+# --- PH4-02B3-1: v1 reference chat and manual receipts (no run, nothing advertised) ---
+
+def _v1_http_error(error: AnalysisApiError, request_id: Any) -> HTTPException:
+    """v1 detail is {code, message, request_id}; legacy string details stay unchanged."""
+    return HTTPException(status_code=error.status, detail={
+        "code": error.code,
+        "message": error.message,
+        "request_id": request_id if is_uuid4(request_id) else None,
+    })
+
+
+def _receipt_opt_in(version: str | None, session_id: str | None, request_id: str | None):
+    try:
+        return parse_receipt_opt_in(version, session_id, request_id)
+    except AnalysisApiError as error:
+        raise _v1_http_error(error, request_id) from None
+
+
+def _reject_receipt_opt_in(version: str | None, session_id: str | None, request_id: str | None) -> None:
+    """Mongolia has no model identity yet: refuse, never silently ignore, an opt-in."""
+    if _receipt_opt_in(version, session_id, request_id) is not None:
+        raise _v1_http_error(AnalysisApiError(
+            409, "ANALYSIS_CONTEXT_UNSUPPORTED", "이 계통은 분석 결과 등록(v1)을 아직 지원하지 않습니다."),
+            request_id)
+
+
+def _identified_revision():
+    """Bound KPG model revision; the caller already holds the shared network guard."""
+    try:
+        return access_for(network).capture_revision()
+    except (ModelIdentityUnavailable, TypeError):
+        return None
+
+
+def _with_manual_receipt(
+    response: Response,
+    opt_in,
+    kind: str,
+    payload: dict[str, Any],
+    requested_monitored: str | None,
+    before,
+) -> dict[str, Any]:
+    """Register THIS calculation's canonical payload only if the model stayed identical."""
+    after = _identified_revision()
+    response.headers["Cache-Control"] = "no-store"
+    if before is None or after is None:
+        return {**payload, "analysis_receipt_error": {
+            "code": "MODEL_IDENTITY_UNAVAILABLE",
+            "message": "실제 로드 모델을 식별할 수 없어 결과를 등록하지 않았습니다.",
+        }}
+    if before.revision != after.revision:
+        # e.g. the first AC wrote the working state: no receipt and no hidden rerun.
+        return {**payload, "analysis_receipt_error": {
+            "code": "MODEL_REVISION_CHANGED",
+            "message": "계산 중 모델 상태가 바뀌어(예: 최초 AC) 결과를 근거로 등록하지 않았습니다. "
+                       "다시 실행하면 그 시점의 모델 상태로 등록됩니다.",
+        }}
+    sensitivity = kind == "sensitivity"
+    completed = payload.get("analysis_status") == "COMPLETED"
+    try:
+        receipt = analysis_results.register(
+            grid_id=KPG_GRID_ID,
+            session_id=opt_in.session_id,
+            kind=kind,
+            outage_line_id=payload["outage_line_id"],
+            monitored_line_id=payload.get("monitored_line_id") if sensitivity else None,
+            monitored_selection=(("auto" if requested_monitored is None else "explicit")
+                                 if sensitivity else None),
+            top_n=SENSITIVITY_TOP_N if sensitivity else None,
+            model_revision=after.revision,
+            producer="manual",
+            producer_request_id=opt_in.request_id,
+            tool_call_id=None,
+            assessment="completed" if completed else "not_evaluated",
+            reason_code=None if completed else payload.get("analysis_status"),
+            payload=payload,
+            evidence={
+                "model_revision_before": dataclasses.asdict(before),
+                "model_revision_after": dataclasses.asdict(after),
+                "request": {"monitored_line_id": requested_monitored,
+                            "top_n": SENSITIVITY_TOP_N if sensitivity else None},
+            },
+        )
+    except ValueError:
+        return {**payload, "analysis_receipt_error": {
+            "code": "RESULT_NOT_REGISTERED",
+            "message": "검증 가능한 형식이 아니어서 결과를 등록하지 않았습니다.",
+        }}
+    return {**payload, "analysis_receipt": receipt.as_dict()}
+
+
+def _analysis_opt_in(request: ChatRequest) -> bool:
+    return request.request_id is not None or request.analysis_context is not None
+
+
+def _analysis_chat(url_grid_id: str, request: ChatRequest, kpg_endpoint: bool = False) -> dict[str, Any]:
+    """v1 chat opt-in: explains registered server results only; never the legacy Agent."""
+    try:
+        parsed = parse_analysis_request(
+            request.request_id, request.analysis_context, request.session_id, request.message)
+        body_grid_id = request.grid_id if "grid_id" in request.model_fields_set else url_grid_id
+        if body_grid_id != url_grid_id or (kpg_endpoint and url_grid_id != KPG_GRID_ID):
+            raise AnalysisApiError(409, "GRID_MISMATCH", "요청 경로와 본문의 계통 ID가 일치하지 않습니다.")
+        if url_grid_id not in (KPG_GRID_ID, MONGOLIA_GRID_ID, KOREA_OSM_GRID_ID):
+            raise AnalysisApiError(404, "UNKNOWN_GRID", "알 수 없는 계통 ID입니다.")
+        if url_grid_id == KOREA_OSM_GRID_ID:
+            raise AnalysisApiError(409, "ANALYSIS_CONTEXT_UNSUPPORTED", KOREA_OSM_NOTE)
+        if url_grid_id != KPG_GRID_ID:
+            raise AnalysisApiError(409, "ANALYSIS_CONTEXT_UNSUPPORTED",
+                                   "이 계통은 분석 문맥 v1을 아직 지원하지 않습니다.")
+        if parsed.context.mode == "run":
+            raise AnalysisApiError(409, "ANALYSIS_RUN_NOT_READY",
+                                   "새 분석 실행(run)은 아직 준비되지 않았습니다. "
+                                   "기존 결과 설명(reference)이나 수동 분석을 사용하세요.")
+        return _reference_envelope(url_grid_id, parsed)
+    except AnalysisApiError as error:
+        raise _v1_http_error(error, request.request_id) from None
+
+
+def _current_model_revision() -> str:
+    try:
+        return access_for(network).capture_revision().revision
+    except NetworkBusy as exc:
+        raise AnalysisApiError(409, "ANALYSIS_BUSY", "모델에서 다른 계산이 진행 중입니다.") from exc
+    except (ModelIdentityUnavailable, TypeError) as exc:
+        raise AnalysisApiError(503, "MODEL_IDENTITY_UNAVAILABLE",
+                               "실제 로드 모델을 식별할 수 없어 저장된 결과를 확인할 수 없습니다.") from exc
+
+
+def _reference_envelope(grid_id: str, parsed) -> dict[str, Any]:
+    """No LLM, Tool or physics: registry lookup, current-revision check, fixed text."""
+    key = (grid_id, parsed.session_id, parsed.request_id)
+    fingerprint = parsed.fingerprint(grid_id)
+    cached = analysis_requests.begin(key, fingerprint)
+    if cached is not None:
+        return cached
+    try:
+        # Lock order: v1 session gate -> short registry lock (released) -> network guard.
+        with analysis_sessions.hold(grid_id, parsed.session_id):
+            entries = analysis_results.resolve(
+                grid_id=grid_id, session_id=parsed.session_id, context=parsed.context)
+            current = _current_model_revision()
+            if any(entry.receipt.model_revision != current for entry in entries):
+                raise AnalysisApiError(409, "ANALYSIS_REFERENCE_STALE",
+                                       "참조한 결과를 계산한 뒤 모델 상태가 바뀌었습니다. 자동으로 다시 계산하지 않았습니다.")
+            receipts = [entry.receipt.as_dict() for entry in entries]
+            unevaluated = [receipt for receipt in receipts if receipt["assessment"] != "completed"]
+            envelope = {
+                "session_id": parsed.session_id,
+                "grid_id": grid_id,
+                "request_id": parsed.request_id,
+                "analysis_context": parsed.context.echo(),
+                "answer": format_reference_answer(
+                    [(receipt, entry.payload()) for receipt, entry in zip(receipts, entries)]),
+                "ui_updates": [],
+                "analysis": {
+                    "status": "referenced",
+                    "source": "server_reference",
+                    "results": receipts,
+                    "reason_code": unevaluated[0]["reason_code"] if unevaluated else None,
+                    "message": "저장된 서버 결과를 설명합니다. 새 계산은 수행하지 않았습니다.",
+                },
+            }
+    except BaseException:
+        analysis_requests.abandon(key, fingerprint)
+        raise
+    analysis_requests.complete(key, fingerprint, envelope)
+    return envelope
 
 
 def _generator_contingency_result_for_ui(

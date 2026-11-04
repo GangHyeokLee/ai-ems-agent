@@ -10,6 +10,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import re
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -517,3 +518,141 @@ def _verified(job: AnalysisJob, record: ExecutionRecord) -> VerifiedResult:
         model_revision=record.revision_after, assessment=record.assessment,
         reason_code=record.reason_code, artifact_sha256=record.artifact_sha256,
         artifact_json=record.artifact_json)
+
+
+# --- PH4-02B3-1: v1 opt-in request validation (pure; no engine, registry or LLM) ---
+
+UUID4 = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}")
+SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
+MAX_MESSAGE_CHARS = 8000
+MAX_CONTEXT_REVISION = 2 ** 53 - 1
+_CONTEXT_KEYS = frozenset({"version", "view_id", "revision", "mode", "operation",
+                           "outage_line_id", "monitored_line_id", "references"})
+_REFERENCE_KINDS = ("security", "sensitivity")
+
+
+class AnalysisApiError(ValueError):
+    """A v1 request refused with a fixed {code, message}; never a raw input echo."""
+
+    def __init__(self, status: int, code: str, message: str):
+        super().__init__(code)
+        self.status, self.code, self.message = status, code, message
+
+
+def is_uuid4(value: Any) -> bool:
+    return isinstance(value, str) and UUID4.fullmatch(value) is not None
+
+
+def is_session_id(value: Any) -> bool:
+    return isinstance(value, str) and SESSION_ID.fullmatch(value) is not None
+
+
+def _invalid(field: str) -> AnalysisApiError:
+    return AnalysisApiError(422, "ANALYSIS_CONTEXT_INVALID", f"분석 문맥 요청 형식이 올바르지 않습니다: {field}")
+
+
+@dataclass(frozen=True)
+class AnalysisContextV1:
+    """The validated v1 analysis context; echoed exactly, never auto-filled."""
+
+    view_id: str
+    revision: int
+    mode: str
+    operation: str
+    outage_line_id: str
+    monitored_line_id: str | None
+    references: tuple[tuple[str, str | None], ...]
+
+    def reference(self, kind: str) -> str | None:
+        return dict(self.references)[kind]
+
+    def echo(self) -> dict[str, Any]:
+        return {"version": 1, "view_id": self.view_id, "revision": self.revision,
+                "mode": self.mode, "operation": self.operation,
+                "outage_line_id": self.outage_line_id, "monitored_line_id": self.monitored_line_id,
+                "references": dict(self.references)}
+
+
+@dataclass(frozen=True)
+class AnalysisRequestV1:
+    request_id: str
+    session_id: str
+    message: str
+    context: AnalysisContextV1
+
+    def fingerprint(self, grid_id: str) -> str:
+        """Normalized input identity for the per-request de-duplication window."""
+        return hashlib.sha256(canonical_json({
+            "grid_id": grid_id, "session_id": self.session_id, "message": self.message,
+            "analysis_context": self.context.echo()}).encode("utf-8")).hexdigest()
+
+
+def parse_analysis_request(request_id: Any, analysis_context: Any, session_id: Any,
+                           message: Any) -> AnalysisRequestV1:
+    """Validate a v1 chat opt-in before any LLM, engine or registry access (PH4-02A §3)."""
+    if request_id is None or analysis_context is None:
+        raise AnalysisApiError(422, "ANALYSIS_OPT_IN_INCOMPLETE",
+                               "request_id와 analysis_context는 함께 보내야 합니다.")
+    if not is_uuid4(request_id):
+        raise _invalid("request_id")
+    if not is_session_id(session_id):
+        raise _invalid("session_id")
+    if not isinstance(message, str) or not message.strip() or len(message) > MAX_MESSAGE_CHARS:
+        raise _invalid("message")
+    context = analysis_context
+    if not isinstance(context, dict) or set(context) != _CONTEXT_KEYS:
+        raise _invalid("analysis_context")
+    if type(context["version"]) is not int or context["version"] != 1:
+        raise _invalid("analysis_context.version")
+    if not is_uuid4(context["view_id"]):
+        raise _invalid("analysis_context.view_id")
+    revision = context["revision"]
+    if type(revision) is not int or not 0 <= revision <= MAX_CONTEXT_REVISION:
+        raise _invalid("analysis_context.revision")
+    mode, operation = context["mode"], context["operation"]
+    if not isinstance(mode, str) or mode not in ("reference", "run"):
+        raise _invalid("analysis_context.mode")
+    if not isinstance(operation, str) or operation not in OPERATION_PLANS:
+        raise _invalid("analysis_context.operation")
+    outage, monitored = context["outage_line_id"], context["monitored_line_id"]
+    if not _is_line_id(outage):
+        raise _invalid("analysis_context.outage_line_id")
+    # null monitored is domain auto-selection; Security receipts carry no monitored line.
+    if monitored is not None and (not _is_line_id(monitored) or monitored == outage
+                                  or "sensitivity" not in OPERATION_PLANS[operation]):
+        raise _invalid("analysis_context.monitored_line_id")
+    references = context["references"]
+    if not isinstance(references, dict) or set(references) != set(_REFERENCE_KINDS):
+        raise _invalid("analysis_context.references")
+    if any(value is not None and not is_uuid4(value) for value in references.values()):
+        raise _invalid("analysis_context.references")
+    required = set(OPERATION_PLANS[operation]) if mode == "reference" else set()
+    if {kind for kind, value in references.items() if value is not None} != required:
+        raise _invalid("analysis_context.references")
+    return AnalysisRequestV1(request_id, session_id, message, AnalysisContextV1(
+        context["view_id"], revision, mode, operation, outage, monitored,
+        tuple((kind, references[kind]) for kind in _REFERENCE_KINDS)))
+
+
+@dataclass(frozen=True)
+class ReceiptOptIn:
+    session_id: str
+    request_id: str
+
+
+def parse_receipt_opt_in(version: str | None, session_id: str | None,
+                         request_id: str | None) -> ReceiptOptIn | None:
+    """Manual receipt opt-in needs all three X-EMS headers; none keeps the legacy call."""
+    values = (version, session_id, request_id)
+    if all(value is None for value in values):
+        return None
+    if any(value is None for value in values):
+        raise AnalysisApiError(422, "ANALYSIS_OPT_IN_INCOMPLETE",
+                               "분석 결과 등록에는 X-EMS 헤더 세 개가 모두 필요합니다.")
+    if version != "1":
+        raise _invalid("X-EMS-Analysis-Context-Version")
+    if not is_session_id(session_id):
+        raise _invalid("X-EMS-Session-ID")
+    if not is_uuid4(request_id):
+        raise _invalid("X-EMS-Request-ID")
+    return ReceiptOptIn(session_id, request_id)
