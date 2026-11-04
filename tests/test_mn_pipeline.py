@@ -539,7 +539,7 @@ def ph402b31_versions(change,after_bytes):
 def ph402_after_bytes():
     """PH4-02 'after' web_app.py bytes, recovered from HEAD through every newer record."""
     change=ph402b31_code_changes(PH402_CODE_HASHES,PH402B31_CODE_HASHES)[WEB_APP]
-    return ph402b31_versions(change,(ROOT/'web_app.py').read_bytes())[0]
+    return ph402b31_versions(change,ph402b31_after_bytes())[0]
 
 
 def full_web_app_chain(phase4,ph402,b31,head_bytes):
@@ -552,9 +552,11 @@ def full_web_app_chain(phase4,ph402,b31,head_bytes):
 
 def test_ph402b31_code_record_chains_head_back_to_ph401():
     change=ph402b31_code_changes(PH402_CODE_HASHES,PH402B31_CODE_HASHES)[WEB_APP]
-    # Only the newest record pins the current bytes; PH4-01 and PH4-02 'after' stay historical pins.
-    assert inventory.sha256(ROOT/change['path'])==change['after']
-    versions=full_web_app_chain(PHASE4_CODE_HASHES,PH402_CODE_HASHES,PH402B31_CODE_HASHES,(ROOT/'web_app.py').read_bytes())
+    # PH4-02B3-1 'after' is a historical pin now: the newer PH4-02B3-2 record recovers its
+    # bytes. PH4-01 and PH4-02 'after' stay historical pins as before.
+    b31_bytes=ph402b31_after_bytes()
+    assert hashlib.sha256(b31_bytes).hexdigest()==change['after']
+    versions=full_web_app_chain(PHASE4_CODE_HASHES,PH402_CODE_HASHES,PH402B31_CODE_HASHES,b31_bytes)
     pins=[step['sha256'] for step in json.loads(PH402_CODE_HASHES.read_text())['files'][WEB_APP]['commits']]
     assert [hashlib.sha256(version).hexdigest() for version in versions]==[*pins,change['after']]
     assert pins[0]==phase4_code_changes(PHASE3_CODE_HASHES,PHASE4_CODE_HASHES)[WEB_APP]['after']
@@ -563,7 +565,7 @@ def test_ph402b31_code_record_chains_head_back_to_ph401():
 def test_ph402b31_versions_verify_their_own_before_pin():
     # Used alone (ph402_after_bytes), the record must reject a wrong reconstruction itself.
     change=copy.deepcopy(ph402b31_code_changes(PH402_CODE_HASHES,PH402B31_CODE_HASHES)[WEB_APP])
-    head=(ROOT/'web_app.py').read_bytes()
+    head=ph402b31_after_bytes()
     assert ph402b31_versions(change,head)[0]==ph402_after_bytes()
     change['edits'].pop()
     with pytest.raises(AssertionError):ph402b31_versions(change,head)
@@ -575,7 +577,7 @@ def test_ph402b31_versions_verify_their_own_before_pin():
     lambda source:source.replace(b'"api-chat.js", ',b'',1)],
     ids=['appended-change','reverted-b31-dispatch','reverted-ph401-asset'])
 def test_ph402b31_chain_rejects_unrecorded_web_app_bytes(edit):
-    source=(ROOT/'web_app.py').read_bytes()
+    source=ph402b31_after_bytes()
     changed=edit(source)
     assert changed!=source
     with pytest.raises(AssertionError):
@@ -608,12 +610,133 @@ def test_ph402b31_code_record_cannot_rewrite_or_bypass_ph402(tmp_path,target,mut
     # Mutate isolated JSON copies only; never the working tree or original evidence.
     files=[tmp_path/'ph402.json',tmp_path/'ph402b31.json']
     for file,source in zip(files,(PH402_CODE_HASHES,PH402B31_CODE_HASHES)):file.write_bytes(source.read_bytes())
-    head=(ROOT/'web_app.py').read_bytes()
+    head=ph402b31_after_bytes()
     assert full_web_app_chain(PHASE4_CODE_HASHES,*files,head)
     records=[json.loads(file.read_text()) for file in files]
     mutation(records[target],records[1-target])
     files[target].write_text(json.dumps(records[target],indent=2)+'\n')
     with pytest.raises(AssertionError):full_web_app_chain(PHASE4_CODE_HASHES,*files,head)
+
+
+PH402B32_CODE_HASHES=ROOT/'docs/validation/kems-console-ph402b32-code-hashes.json'
+
+
+def ph402b32_code_changes(b31,b32):
+    """PH4-02B3-2 extends the exact PH4-02B3-1 record bytes; all older evidence stays immutable."""
+    previous,later=(json.loads(path.read_text()) for path in (b31,b32))
+    assert previous['schema']=='kems-ph402b31-code-change-audit-1'
+    assert later['schema']=='kems-ph402b32-code-change-audit-1'
+    assert later['stage1_contract_sha256']==inventory.sha256(inventory.CONTRACT)
+    assert later['ph402b31_record_sha256']==inventory.sha256(b31)
+    assert set(later['files'])=={WEB_APP}
+    for role,change in later['files'].items():
+        assert change['path']==previous['files'][role]['path']=='web_app.py'
+        assert change['before']==previous['files'][role]['after']!=change['after']
+        assert change['before_blob']==previous['files'][role]['after_blob']!=change['after_blob']
+        assert re.fullmatch('[0-9a-f]{40}',change['base_commit']) and re.fullmatch('[0-9a-f]{40}',change['after_blob'])
+        assert re.fullmatch('[0-9a-f]{64}',change['after']) and change['change'] and change['edits']
+    return later['files']
+
+
+def ph402b31_after_bytes():
+    """PH4-02B3-1 'after' web_app.py bytes, recovered from HEAD through the PH4-02B3-2 record."""
+    change=ph402b32_code_changes(PH402B31_CODE_HASHES,PH402B32_CODE_HASHES)[WEB_APP]
+    # Same pin/edit format as the PH4-02B3-1 record: verifies both pins and every edit.
+    return ph402b31_versions(change,(ROOT/'web_app.py').read_bytes())[0]
+
+
+def full_web_app_chain_b32(phase4,ph402,b31,b32,head_bytes):
+    """HEAD -> PH4-02B3-2 -> PH4-02B3-1 -> PH4-02 -> PH4-01 bytes; every version hash- and blob-pinned."""
+    newest=ph402b32_code_changes(b31,b32)[WEB_APP]
+    b31_bytes,head=ph402b31_versions(newest,head_bytes)
+    return [*full_web_app_chain(phase4,ph402,b31,b31_bytes),head]
+
+
+def test_ph402b32_code_record_chains_head_back_to_ph401():
+    change=ph402b32_code_changes(PH402B31_CODE_HASHES,PH402B32_CODE_HASHES)[WEB_APP]
+    # Only the newest record pins the current bytes; PH4-01, PH4-02 and PH4-02B3-1 'after' stay historical pins.
+    assert inventory.sha256(ROOT/change['path'])==change['after']
+    versions=full_web_app_chain_b32(PHASE4_CODE_HASHES,PH402_CODE_HASHES,PH402B31_CODE_HASHES,PH402B32_CODE_HASHES,
+                                    (ROOT/'web_app.py').read_bytes())
+    pins=[step['sha256'] for step in json.loads(PH402_CODE_HASHES.read_text())['files'][WEB_APP]['commits']]
+    b31=json.loads(PH402B31_CODE_HASHES.read_text())['files'][WEB_APP]
+    assert [hashlib.sha256(version).hexdigest() for version in versions]==[*pins,b31['after'],change['after']]
+    assert change['before']==b31['after'] and b31['before']==pins[-1]
+    assert pins[0]==phase4_code_changes(PHASE3_CODE_HASHES,PHASE4_CODE_HASHES)[WEB_APP]['after']
+
+
+def test_ph402b32_versions_verify_their_own_before_pin():
+    # Used alone (ph402b31_after_bytes), the record must reject a wrong reconstruction itself.
+    change=copy.deepcopy(ph402b32_code_changes(PH402B31_CODE_HASHES,PH402B32_CODE_HASHES)[WEB_APP])
+    head=(ROOT/'web_app.py').read_bytes()
+    assert ph402b31_versions(change,head)[0]==ph402b31_after_bytes()
+    change['edits'].pop()
+    with pytest.raises(AssertionError):ph402b31_versions(change,head)
+
+
+@pytest.mark.parametrize('mutation',[
+    lambda r,o:r['files'][WEB_APP].update(before=o['files'][WEB_APP]['before']),
+    lambda r,o:r['files'][WEB_APP].update(before_blob=o['files'][WEB_APP]['before_blob'])],
+    ids=['before-not-b31-after','before-blob-not-b31-after-blob'])
+def test_ph402b32_record_check_links_the_b31_pins_by_itself(tmp_path,mutation):
+    # The downstream chain also catches these; the record check must not depend on it.
+    files=[tmp_path/'ph402b31.json',tmp_path/'ph402b32.json']
+    for file,source in zip(files,(PH402B31_CODE_HASHES,PH402B32_CODE_HASHES)):file.write_bytes(source.read_bytes())
+    assert ph402b32_code_changes(*files)
+    records=[json.loads(file.read_text()) for file in files]
+    mutation(records[1],records[0])
+    files[1].write_text(json.dumps(records[1],indent=2)+'\n')
+    with pytest.raises(AssertionError):ph402b32_code_changes(*files)
+
+
+@pytest.mark.parametrize('edit',[
+    lambda source:source+b'\n# unrecorded later change\n',
+    lambda source:source.replace(b'            return _run_envelope(url_grid_id, parsed)\n',
+                                 b'            raise AnalysisApiError(409, "ANALYSIS_RUN_NOT_READY", "")\n',1),
+    lambda source:source.replace(b'    if _analysis_opt_in(request):\n        return _analysis_chat(grid_id, request)\n',b'',1),
+    lambda source:source.replace(b'"api-chat.js", ',b'',1)],
+    ids=['appended-change','reverted-b32-run','reverted-b31-dispatch','reverted-ph401-asset'])
+def test_ph402b32_chain_rejects_unrecorded_web_app_bytes(edit):
+    source=(ROOT/'web_app.py').read_bytes()
+    changed=edit(source)
+    assert changed!=source
+    with pytest.raises(AssertionError):
+        full_web_app_chain_b32(PHASE4_CODE_HASHES,PH402_CODE_HASHES,PH402B31_CODE_HASHES,PH402B32_CODE_HASHES,changed)
+
+
+@pytest.mark.parametrize('target,mutation',[
+    (0,lambda r,o:r['files'][WEB_APP].update(after=o['files'][WEB_APP]['after'])),
+    (1,lambda r,o:r['files'][WEB_APP].update(before=o['files'][WEB_APP]['before'])),
+    (1,lambda r,o:r['files'][WEB_APP].update(after=r['files'][WEB_APP]['before'])),
+    (1,lambda r,o:r['files'][WEB_APP].update(after='0'*64)),
+    (1,lambda r,o:r['files'][WEB_APP].update(after_blob='0'*40)),
+    (1,lambda r,o:r['files'][WEB_APP].update(before_blob='0'*40)),
+    (1,lambda r,o:r['files'][WEB_APP].update(before_blob=o['files'][WEB_APP]['before_blob'])),
+    (1,lambda r,o:r['files'][WEB_APP].update(base_commit='00f6edc')),
+    (1,lambda r,o:r['files'][WEB_APP]['edits'].pop()),
+    (1,lambda r,o:r['files'][WEB_APP]['edits'][0].insert(1,'+# unrecorded')),
+    (1,lambda r,o:r['files'][WEB_APP]['edits'].append(['- )','+ )'])),
+    (1,lambda r,o:r['files'][WEB_APP].update(edits=[])),
+    (1,lambda r,o:r['files'][WEB_APP].update(path='ui/console/api-chat.js')),
+    (1,lambda r,o:r.update(ph402b31_record_sha256='0'*64)),
+    (1,lambda r,o:r.update(ph402b31_record_sha256=inventory.sha256(PH402_CODE_HASHES))),
+    (1,lambda r,o:r.update(stage1_contract_sha256='0'*64)),
+    (1,lambda r,o:r.update(schema='kems-ph402b31-code-change-audit-1')),
+    (1,lambda r,o:r['files'].update({'ems_code.src/ai_ems/config.py':{**r['files'][WEB_APP],'path':'src/ai_ems/config.py'}}))],
+    ids=['b31-after-rewritten','b32-skips-b31','b32-no-change','b32-after-hash','b32-after-blob',
+         'b32-before-blob','b32-before-blob-from-b31','b32-short-base-commit','b32-edit-omitted','b32-edit-altered',
+         'b32-ambiguous-edit','b32-no-edits','b32-other-path','b32-other-b31-record','b32-older-ph402-record',
+         'b32-other-contract','b32-wrong-schema','b32-extra-role'])
+def test_ph402b32_code_record_cannot_rewrite_or_bypass_ph402b31(tmp_path,target,mutation):
+    # Mutate isolated JSON copies only; never the working tree or original evidence.
+    files=[tmp_path/'ph402b31.json',tmp_path/'ph402b32.json']
+    for file,source in zip(files,(PH402B31_CODE_HASHES,PH402B32_CODE_HASHES)):file.write_bytes(source.read_bytes())
+    head=(ROOT/'web_app.py').read_bytes()
+    assert full_web_app_chain_b32(PHASE4_CODE_HASHES,PH402_CODE_HASHES,*files,head)
+    records=[json.loads(file.read_text()) for file in files]
+    mutation(records[target],records[1-target])
+    files[target].write_text(json.dumps(records[target],indent=2)+'\n')
+    with pytest.raises(AssertionError):full_web_app_chain_b32(PHASE4_CODE_HASHES,PH402_CODE_HASHES,*files,head)
 
 @pytest.fixture(scope='module')
 def real_paths():
@@ -639,15 +762,16 @@ def test_real_asset_checks_are_deterministic_and_keep_model_roles(real_paths):
     failures=[c for c in first['checks'] if c['passed'] is False]
     assert not first['ready'] and {c['name'] for c in failures}=={'file:'+role for role in expected},failures
     assert len(first['files'])==87
-    # Phases 2, 3, 4, PH4-02 and PH4-02B3-1 changed web_app.py again. Each record
-    # chains onto the exact bytes of the one before it, Stage 3C, Phase 2/3/4 and
-    # PH4-02 'after' stay the historical pins, and only the newest record may pin
-    # the current bytes.
+    # Phases 2, 3, 4, PH4-02, PH4-02B3-1 and PH4-02B3-2 changed web_app.py again. Each
+    # record chains onto the exact bytes of the one before it, Stage 3C, Phase 2/3/4,
+    # PH4-02 and PH4-02B3-1 'after' stay the historical pins, and only the newest
+    # record may pin the current bytes.
     later=phase2_code_changes(STAGE3C_CODE_HASHES,PHASE2_CODE_HASHES)
     latest=phase3_code_changes(PHASE2_CODE_HASHES,PHASE3_CODE_HASHES)
     latest={**latest,**phase4_code_changes(PHASE3_CODE_HASHES,PHASE4_CODE_HASHES)}
     latest={**latest,**ph402_code_changes(PHASE4_CODE_HASHES,PH402_CODE_HASHES)}
     latest={**latest,**ph402b31_code_changes(PH402_CODE_HASHES,PH402B31_CODE_HASHES)}
+    latest={**latest,**ph402b32_code_changes(PH402B31_CODE_HASHES,PH402B32_CODE_HASHES)}
     for role,spec in audit['files'].items():
         assert first['files'][role]['sha256']==latest.get(role,later.get(role,spec))['after']
         assert first['files'][role]['expected_sha256']==spec['before']

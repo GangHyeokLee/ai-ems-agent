@@ -209,13 +209,22 @@ def run_app(root: Path = ROOT, command: list[str] | None = None) -> int:
     if enabled.strip().lower() == "true" and not script:
         notice("자동 시작 설정 오류로 앱 실행을 중단합니다. 수동 실행 시 AUTOSTART=false를 사용하세요.")
         return 2
+    child_env = None
     if command is None:
         port = os.environ.get("AI_EMS_WEB_PORT", values.get("AI_EMS_WEB_PORT") or "8000")
         if not port.isascii() or not port.isdecimal() or not 1 <= int(port) <= 65535:
             print("[Agent] AI_EMS_WEB_PORT는 1~65535 정수여야 합니다.", file=sys.stderr)
             return 2
+        workers = os.environ.get("WEB_CONCURRENCY", values.get("WEB_CONCURRENCY"))
+        if workers is not None and workers.strip() != "1":
+            # Receipts, request IDs, session gates and chat history are process-local.
+            print("[Agent] 단일 Uvicorn worker만 지원합니다. WEB_CONCURRENCY를 제거하거나 1로 설정하세요.",
+                  file=sys.stderr)
+            return 2
         command = [sys.executable, "-m", "uvicorn", "web_app:app", "--host", "127.0.0.1",
-                   "--port", str(int(port)), "--log-level", "info"]
+                   "--port", str(int(port)), "--workers", "1", "--log-level", "info"]
+        # Asserts the single worker to the app (ai_ems.analysis_run.SINGLE_WORKER_ENV).
+        child_env = {**os.environ, "AI_EMS_SINGLE_WORKER": "1"}
     session = CaddySession(script, root) if script else None
     child = None
     previous = {}
@@ -242,7 +251,7 @@ def run_app(root: Path = ROOT, command: list[str] | None = None) -> int:
                        "수동 실행하려면 AUTOSTART=false를 사용하세요.")
                 return 3
             report_llm(probe_llm(values))
-        child = subprocess.Popen(command, cwd=root, start_new_session=True)
+        child = subprocess.Popen(command, cwd=root, start_new_session=True, env=child_env)
         while True:
             try:
                 return child.wait(timeout=0.2)

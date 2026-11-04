@@ -97,11 +97,25 @@ class ResultRegistry:
         self._lock = threading.Lock()
         self._entries: dict[str, RegisteredResult] = {}
 
-    def register(self, *, grid_id: str, session_id: str, kind: str, outage_line_id: str,
+    def register(self, **spec: Any) -> AnalysisReceipt:
+        return self.register_all([spec])[0]
+
+    def register_all(self, specs: list[dict[str, Any]]) -> list[AnalysisReceipt]:
+        """All-or-nothing: every spec is validated and serialized before any is stored."""
+        prepared = [self._prepare(**spec) for spec in specs]
+        with self._lock:
+            self._purge_locked()
+            for receipt, entry in prepared:
+                while len(self._entries) >= self.capacity:
+                    self._entries.pop(next(iter(self._entries)))  # insertion order = oldest first
+                self._entries[receipt.result_id] = entry
+        return [receipt for receipt, _ in prepared]
+
+    def _prepare(self, *, grid_id: str, session_id: str, kind: str, outage_line_id: str,
                  monitored_line_id: str | None, monitored_selection: str | None, top_n: int | None,
                  model_revision: str, producer: str, producer_request_id: str,
                  tool_call_id: str | None, assessment: str, reason_code: str | None,
-                 payload: dict[str, Any], evidence: dict[str, Any]) -> AnalysisReceipt:
+                 payload: dict[str, Any], evidence: dict[str, Any]) -> tuple[AnalysisReceipt, RegisteredResult]:
         if (not isinstance(grid_id, str) or not is_session_id(session_id) or not _is_line_id(outage_line_id)
                 or not isinstance(model_revision, str) or not _REVISION.fullmatch(model_revision)
                 or producer not in PRODUCERS or not is_uuid4(producer_request_id)
@@ -120,12 +134,7 @@ class ResultRegistry:
             reason_code, _rfc3339(created), _rfc3339(created + timedelta(seconds=self.ttl_seconds)))
         entry = RegisteredResult(receipt, session_id, payload_json, evidence_json,
                                  self._monotonic() + self.ttl_seconds)
-        with self._lock:
-            self._purge_locked()
-            while len(self._entries) >= self.capacity:
-                self._entries.pop(next(iter(self._entries)))  # insertion order = oldest first
-            self._entries[receipt.result_id] = entry
-        return receipt
+        return receipt, entry
 
     def _purge_locked(self) -> None:
         now = self._monotonic()

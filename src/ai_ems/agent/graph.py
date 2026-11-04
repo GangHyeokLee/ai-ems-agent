@@ -1,4 +1,5 @@
 import json
+import time
 
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langchain_ollama import ChatOllama
@@ -321,11 +322,14 @@ Line Corrective Action / Redispatch Workflow:
 """
 
 
-def _chat_model(model_name: str | None, base_url: str | None):
+def _chat_model(model_name: str | None, base_url: str | None, timeout=None):
     resolved_model_name = model_name or MODEL_NAME
     resolved_base_url = base_url or LLM_BASE_URL
 
     client_kwargs = get_llm_client_kwargs(resolved_base_url)
+    if timeout is not None:
+        # PH4-02B3-2 runs only; the legacy graph passes none and keeps httpx's default.
+        client_kwargs = {**client_kwargs, "timeout": timeout}
     return ChatOllama(
         model=resolved_model_name,
         base_url=resolved_base_url,
@@ -433,7 +437,12 @@ def line_analysis_instruction(job, next_kind: str | None) -> str:
     return "\n".join(lines)
 
 
-def create_line_analysis_graph(network, ledger, model=None, model_name=None, base_url=None):
+class RunDeadlineExceeded(RuntimeError):
+    """The request's run budget expired before another model turn could start."""
+
+
+def create_line_analysis_graph(network, ledger, model=None, model_name=None, base_url=None,
+                               deadline: float | None = None, clock=time.monotonic):
     """PH4-02B2 per-request KPG line-analysis graph for one validated job.
 
     The job's Tools and ledger are request closures; the global graph, Tools and
@@ -441,7 +450,8 @@ def create_line_analysis_graph(network, ledger, model=None, model_name=None, bas
     and a rejection ends the run without execution. The server, not the model,
     decides whether a chain continues after an actual N-1 result. The run ends
     after the last planned execution or any failure, so results are explained
-    from verified evidence only. No API uses this factory in B2.
+    from verified evidence only. No API used this factory in B2; the PH4-02B3-2
+    v1 run is its only API caller.
     """
     ledger.claim()
     job = ledger.job
@@ -451,6 +461,9 @@ def create_line_analysis_graph(network, ledger, model=None, model_name=None, bas
     model_with_tools = model.bind_tools(tools)
 
     def agent_node(state: MessagesState):
+        if deadline is not None and clock() >= deadline:
+            # No new model turn; an engine call already running is never interrupted.
+            raise RunDeadlineExceeded("RUN_DEADLINE_EXCEEDED")
         context = SystemMessage(content=line_analysis_instruction(job, ledger.next_kind()))
         # The frozen job context reaches this model call only; graph state never stores it.
         return {"messages": [model_with_tools.invoke([*state["messages"], context])]}
