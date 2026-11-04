@@ -6,7 +6,7 @@
 
 - Phase 3 완료. Phase 4의 PH4-01 AI 채팅 통합 구현·로컬 검증 완료.
 - DOC-01: 개발 규칙과 출처·해시를 갖춘 개발팀 키트/Artifact 참고 자료를 정리하여 통합 브랜치에 반영했다.
-- PH4-02A·B0·B1은 PR #17·#18·#19로 통합됐다. B2 KPG full artifact·요청별 실행 ledger·서버 검증 구현과 로컬 검증 완료(Draft PR 검토 대상).
+- PH4-02A·B0·B1은 PR #17·#18·#19로 통합됐다. B2 KPG full artifact·요청별 실행 ledger·서버 검증 구현과 로컬 검증 완료([Draft PR #20](https://github.com/GangHyeokLee/ai-ems-agent/pull/20) 검토 대상).
 - B2 진입점은 API에 연결하지 않았다. ChatRequest 확장·receipt registry·분석 문맥 API·콘솔 연동은 미구현이며 v1 capability는 계속 비활성이다.
 - 통합 기준 `6a4df5e`에서 이미 `tests/test_mn_pipeline.py` 2개가 실패한다. B1의 `web_app.py` 변경이 PH4-01 해시 고정과 맞지 않기 때문이며
   (B0 트리 사본에서는 통과) B2는 해시 기록·테스트를 바꾸지 않았다. 별도 승인 작업이 필요하다.
@@ -132,7 +132,7 @@
   provider timeout·graph 예산·단일 worker 명시, MN model identity와 MN job 연결. 실제 LLM smoke로 guard 엄격성(1회 호출·정확한 인자)을 확인한다.
 - PH4-01 해시 고정 실패는 새 PH4-02 코드 변경 기록(PH4-01 `after`→현재 bytes)과 체인 테스트 확장으로 해결해야 하며 별도 승인 후 수행한다.
 - 서버 계약·분석 문맥/receipt·세션 동시성과 단일 worker/timeout 전제를 연결·검증한 뒤에만 v1을 광고한다. 그 후 PH4-02C에서 UI commit과 Chrome 회귀를 연결한다.
-- B2는 base=`feature/kems-multi-grid`인 별도 작업 브랜치·Draft PR로 검토한다. 상위 #14는 완료 처리하지 않으며 B3/C는 자동 착수하지 않는다.
+- B2는 base=`feature/kems-multi-grid`인 `feature/ph4-02b2-agent-artifact-ledger`·Draft PR #20으로 검토한다. 상위 #14는 완료 처리하지 않으며 B3/C는 자동 착수하지 않는다.
 - 통합된 작업 브랜치(DOC-01, PH4-02A·B0·B1)는 이력 보존상 삭제 후보이며 실제 삭제와 PR/main 병합은 별도 승인 후 판단한다.
 - 다음 담당자는 `AGENTS.md`와 이 문서를 읽고 실시간 Git 상태와 기존 변경을 확인·보존한 뒤 지정된 범위만 수행한다.
 - 시작: `python3 scripts/dev_handoff.py`
