@@ -1,6 +1,7 @@
 import dataclasses
 import json
-from contextlib import asynccontextmanager
+import time
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any, Literal
 
@@ -30,16 +31,21 @@ from ai_ems.kpg_pf_preview import (
 from ai_ems.analysis_context import (
     SENSITIVITY_TOP_N,
     AnalysisApiError,
+    AnalysisJob,
+    ExecutionLedger,
+    Verification,
     VerifiedResult,
     is_uuid4,
     parse_analysis_request,
     parse_receipt_opt_in,
+    verify_evidence,
 )
 from ai_ems.analysis_registry import RequestTracker, ResultRegistry, SessionGates
-from ai_ems.agent.formatters.analysis_reference import format_reference_answer
+from ai_ems.analysis_run import agent_failure, run_budget, run_chat_model, single_worker_confirmed
+from ai_ems.agent.formatters.analysis_reference import format_reference_answer, format_run_answer
 from ai_ems.network import load_identified_network
-from ai_ems.network_access import ModelIdentityUnavailable, NetworkBusy, access_for, guarded
-from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph
+from ai_ems.network_access import ModelIdentityUnavailable, NetworkBusy, access_for, guarded, network_access
+from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph, create_line_analysis_graph
 from ai_ems.agent.mongolia_graph import (
     MONGOLIA_SYSTEM_PROMPT,
     DisallowedMongoliaTool,
@@ -641,6 +647,12 @@ def chat(request: ChatRequest, grid_id: str = KPG_GRID_ID):
             detail="message is required.",
         )
 
+    with _legacy_session_gate(KPG_GRID_ID, session_id):
+        return _kpg_legacy_turn(session_id, user_message)
+
+
+def _kpg_legacy_turn(session_id: str, user_message: str) -> dict[str, Any]:
+    """Legacy KPG history read -> graph -> history write (PH4-02B3-2: under the session gate)."""
     messages = agent_sessions.get(session_id)
     if messages is None:
         messages = [
@@ -726,6 +738,12 @@ def mongolia_chat(request: ChatRequest) -> dict[str, Any]:
             detail=f"몽골 합성 PF 데이터 검증에 실패했습니다: {exc}",
         ) from exc
 
+    with _legacy_session_gate(MONGOLIA_GRID_ID, session_id):
+        return _mongolia_legacy_turn(session_id, user_message)
+
+
+def _mongolia_legacy_turn(session_id: str, user_message: str) -> dict[str, Any]:
+    """Legacy MN history read -> graph -> history write (PH4-02B3-2: under the session gate)."""
     messages = mongolia_agent_sessions.get(session_id) or [
         SystemMessage(content=MONGOLIA_SYSTEM_PROMPT),
     ]
@@ -1107,7 +1125,7 @@ def _analysis_opt_in(request: ChatRequest) -> bool:
 
 
 def _analysis_chat(url_grid_id: str, request: ChatRequest, kpg_endpoint: bool = False) -> dict[str, Any]:
-    """v1 chat opt-in: explains registered server results only; never the legacy Agent."""
+    """v1 opt-in: reference explains registered results; run uses a request-scoped B2 Agent, never the legacy one."""
     try:
         parsed = parse_analysis_request(
             request.request_id, request.analysis_context, request.session_id, request.message)
@@ -1122,9 +1140,7 @@ def _analysis_chat(url_grid_id: str, request: ChatRequest, kpg_endpoint: bool = 
             raise AnalysisApiError(409, "ANALYSIS_CONTEXT_UNSUPPORTED",
                                    "이 계통은 분석 문맥 v1을 아직 지원하지 않습니다.")
         if parsed.context.mode == "run":
-            raise AnalysisApiError(409, "ANALYSIS_RUN_NOT_READY",
-                                   "새 분석 실행(run)은 아직 준비되지 않았습니다. "
-                                   "기존 결과 설명(reference)이나 수동 분석을 사용하세요.")
+            return _run_envelope(url_grid_id, parsed)
         return _reference_envelope(url_grid_id, parsed)
     except AnalysisApiError as error:
         raise _v1_http_error(error, request.request_id) from None
@@ -1146,6 +1162,7 @@ def _reference_envelope(grid_id: str, parsed) -> dict[str, Any]:
     fingerprint = parsed.fingerprint(grid_id)
     cached = analysis_requests.begin(key, fingerprint)
     if cached is not None:
+        _require_fresh_replay(cached)
         return cached
     try:
         # Lock order: v1 session gate -> short registry lock (released) -> network guard.
@@ -1179,6 +1196,181 @@ def _reference_envelope(grid_id: str, parsed) -> dict[str, Any]:
         raise
     analysis_requests.complete(key, fingerprint, envelope)
     return envelope
+
+
+# --- PH4-02B3-2: v1 run through the request-scoped B2 graph; legacy session gate ---
+
+RUN_MESSAGES = {
+    "completed": "이번 요청에서 검증된 Tool 실행 결과입니다.",
+    "not_evaluated": "검증된 실행 결과이며 미평가 항목이 있습니다.",
+    "not_run": "실제 분석 Tool이 실행되지 않아 결과가 없습니다.",
+    "failed": "실행 근거를 승인하지 못해 결과를 공개하지 않습니다.",
+}
+_run_clock = time.monotonic
+
+
+@contextmanager
+def _legacy_session_gate(grid_id: str, session_id: str):
+    """Legacy chat shares the v1 (grid, session) gate: only an overlap gets 409 (string detail)."""
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(analysis_sessions.hold(grid_id, session_id))
+        except AnalysisApiError:
+            raise HTTPException(status_code=409, detail="SESSION_BUSY") from None
+        yield
+
+
+def _analysis_run_model(budget):
+    """Provider model with explicit transport timeouts; tests inject a scripted model here."""
+    return run_chat_model(budget)
+
+
+def _require_fresh_replay(envelope: dict[str, Any]) -> None:
+    """Fail closed: a replayed success must still be registered and match the current model."""
+    receipts = envelope["analysis"]["results"]
+    if not receipts:
+        return  # A failure or not-run notice carries no result that could become stale.
+    stale = AnalysisApiError(409, "REQUEST_REPLAY_STALE",
+                             "이전 응답의 결과가 만료되었거나 현재 모델 상태와 달라 다시 보내지 않습니다. "
+                             "새 request_id로 요청하세요.")
+    for receipt in receipts:
+        entry = analysis_results.lookup(receipt["result_id"])
+        if entry is None or entry.receipt.as_dict() != receipt:
+            raise stale
+    current = _current_model_revision()
+    if any(receipt["model_revision"] != current for receipt in receipts):
+        raise stale
+
+
+def _run_envelope(grid_id: str, parsed) -> dict[str, Any]:
+    if not single_worker_confirmed():
+        raise AnalysisApiError(409, "ANALYSIS_RUN_NOT_READY",
+                               "단일 worker 실행이 확인되지 않아 새 분석 실행(run)을 허용하지 않습니다. "
+                               "지원 launcher(run_agent.sh)로 서버를 실행하세요.")
+    try:
+        budget = run_budget()
+    except ValueError as exc:
+        raise AnalysisApiError(409, "ANALYSIS_RUN_NOT_READY",
+                               "실행 예산 설정이 올바르지 않아 새 분석 실행(run)을 허용하지 않습니다.") from exc
+    key = (grid_id, parsed.session_id, parsed.request_id)
+    fingerprint = parsed.fingerprint(grid_id)
+    cached = analysis_requests.begin(key, fingerprint)
+    if cached is not None:
+        _require_fresh_replay(cached)
+        return cached
+    try:
+        # The gate spans history read -> graph -> publish -> history write; only this
+        # request's own completion releases it (HTTP cancellation does not).
+        with analysis_sessions.hold(grid_id, parsed.session_id):
+            envelope = _execute_run(grid_id, parsed, budget)
+    except BaseException:
+        analysis_requests.abandon(key, fingerprint)
+        raise
+    analysis_requests.complete(key, fingerprint, envelope)
+    return envelope
+
+
+def _execute_run(grid_id: str, parsed, budget) -> dict[str, Any]:
+    """Request-scoped B2 graph -> ledger verification -> atomic publish -> history (PH4-02B3-2)."""
+    context = parsed.context
+    ledger = ExecutionLedger(AnalysisJob(
+        grid_id, context.operation, context.outage_line_id, context.monitored_line_id))
+    clock = _run_clock
+    deadline = clock() + budget.deadline_seconds
+    history = agent_sessions.get(parsed.session_id) or [SystemMessage(content=SYSTEM_PROMPT)]
+    input_messages = [*history, HumanMessage(content=parsed.message)]
+    try:
+        graph = create_line_analysis_graph(network, ledger, model=_analysis_run_model(budget),
+                                           deadline=deadline, clock=clock)
+        output = graph.invoke({"messages": input_messages},
+                              config={"recursion_limit": budget.recursion_limit})["messages"]
+    except Exception as exc:  # Nothing is published and the history is left unchanged.
+        code, message = agent_failure(exc)
+        raise AnalysisApiError(500, code, message) from exc
+    generated = output[len(input_messages):]
+    verification, published = _publish_run(ledger, generated, parsed)
+    receipts = [receipt.as_dict() for receipt, _ in published]
+    payloads = [payload for _, payload in published]
+    answer = format_run_answer(list(zip(receipts, payloads)), verification.status,
+                               verification.reason_code, context.operation)
+    agent_sessions[parsed.session_id] = [*input_messages, *_history_messages(generated),
+                                         AIMessage(content=answer)]
+    return {
+        "session_id": parsed.session_id,
+        "grid_id": grid_id,
+        "request_id": parsed.request_id,
+        "analysis_context": context.echo(),
+        "answer": answer,
+        "ui_updates": [{"type": receipt["kind"], "grid_id": grid_id, "result_id": receipt["result_id"],
+                        "result": payload} for receipt, payload in zip(receipts, payloads)],
+        "analysis": {
+            "status": verification.status,
+            "source": "tool_execution" if receipts else "none",
+            "results": receipts,
+            "reason_code": verification.reason_code,
+            "message": RUN_MESSAGES[verification.status],
+        },
+    }
+
+
+def _publish_run(ledger: ExecutionLedger, generated: list[Any], parsed):
+    """Approve only ledger-verified results and register them inside one network-guard boundary."""
+    executed = next((record.revision_after for record in reversed(ledger.snapshot().records)
+                     if record.revision_after), None)
+    verification = verify_evidence(ledger, generated, current_revision=executed)
+    if verification.status not in ("completed", "not_evaluated"):
+        return verification, []
+    try:
+        # No model access can interleave between this revision check and registration.
+        with network_access(network):
+            try:
+                current = access_for(network).capture_revision().revision
+            except (ModelIdentityUnavailable, TypeError):
+                return Verification("failed", "MODEL_IDENTITY_UNAVAILABLE"), []
+            verification = verify_evidence(ledger, generated, current_revision=current)
+            if verification.status not in ("completed", "not_evaluated"):
+                return verification, []
+            payloads = [_kpg_line_analysis_payload(result) for result in verification.results]
+            receipts = _register_published(verification, payloads, parsed)
+            return verification, list(zip(receipts, payloads))
+    except NetworkBusy:
+        return Verification("failed", "ANALYSIS_BUSY"), []
+    except ValueError:  # Registry validation or strict JSON; nothing was stored.
+        return Verification("failed", "RESULT_NOT_REGISTERED"), []
+
+
+def _register_published(verification: Verification, payloads: list[dict[str, Any]], parsed):
+    return analysis_results.register_all([{
+        "grid_id": result.grid_id,
+        "session_id": parsed.session_id,
+        "kind": result.kind,
+        "outage_line_id": result.outage_line_id,
+        "monitored_line_id": result.monitored_line_id,
+        "monitored_selection": result.monitored_selection,
+        "top_n": result.top_n,
+        "model_revision": result.model_revision,
+        "producer": "agent_tool",
+        "producer_request_id": parsed.request_id,
+        "tool_call_id": result.tool_call_id,
+        "assessment": result.assessment,
+        "reason_code": result.reason_code,
+        "payload": payload,
+        "evidence": {"job_id": result.job_id, "execution_id": result.execution_id,
+                     "artifact_sha256": result.artifact_sha256,
+                     "operation": parsed.context.operation},
+    } for result, payload in zip(verification.results, payloads)])
+
+
+def _history_messages(generated: list[Any]) -> list[Any]:
+    """Tool exchanges for conversational context only: artifacts dropped, never evidence."""
+    kept = []
+    for message in generated:
+        if isinstance(message, ToolMessage):
+            kept.append(ToolMessage(content=message.content, tool_call_id=message.tool_call_id,
+                                    name=message.name, status=message.status))
+        elif isinstance(message, AIMessage) and message.tool_calls:
+            kept.append(message)
+    return kept
 
 
 def _generator_contingency_result_for_ui(

@@ -62,3 +62,44 @@ def format_reference_answer(results: list[tuple[dict[str, Any], dict[str, Any]]]
         lines += (_security_lines if receipt["kind"] == "security" else _sensitivity_lines)(receipt, payload)
     lines += ["", "KPG-193 합성 시험계통의 저장된 계산 결과이며 실제 한국 운영계통 결과가 아닙니다."]
     return "\n".join(lines)
+
+
+# --- PH4-02B3-2: answers for v1 runs (verified execution or a fixed failure notice) ---
+
+GUARD_REJECTIONS = frozenset({
+    "MULTIPLE_TOOL_CALLS", "NO_TOOL_CALL", "TOOL_NOT_ALLOWED", "INVALID_TOOL_CALL_ID",
+    "UNEXPECTED_TOOL_SEQUENCE", "INVALID_ARGUMENTS", "UNEXPECTED_ARGUMENT", "OUTAGE_LINE_MISMATCH",
+    "MONITORED_LINE_NOT_ALLOWED", "AUTO_SELECTION_REPLACED", "MONITORED_LINE_MISMATCH", "TOP_N_NOT_ALLOWED",
+})
+FAILURE_NOTICES = {
+    "TOOL_NOT_EXECUTED": "실제 분석 Tool이 실행되지 않아 새 계산 결과가 없습니다. AI 답변 문장은 계산 근거로 쓰지 않습니다.",
+    "MODEL_REVISION_CHANGED": ("계산 전후 모델 상태가 달라(예: 새로 로드한 모델의 최초 AC) 이번 결과를 근거로 승인하지 않았습니다. "
+                               "자동으로 다시 계산하지 않았습니다. 같은 분석을 새 요청으로 다시 실행하면 현재 상태에서 계산합니다."),
+    "MODEL_IDENTITY_UNAVAILABLE": "실제 로드 모델을 식별할 수 없어 결과를 승인하지 않았습니다.",
+    "ANALYSIS_BUSY": "다른 계산이 같은 모델을 사용 중이어서 결과를 승인하지 않았습니다. 잠시 후 새 요청으로 다시 실행하세요.",
+    "TOOL_INPUT_REJECTED": "선로 ID 등 입력을 모델에서 확인할 수 없어 계산하지 못했습니다.",
+    "CHAIN_INCOMPLETE": "N-1 다음 민감도 단계가 실행되지 않아 부분 결과를 공개하지 않았습니다.",
+}
+GENERIC_FAILURE = "실행 근거 검증을 통과하지 못해 결과를 공개하지 않았습니다."
+
+
+def failure_notice(reason_code: str | None) -> str:
+    if reason_code in GUARD_REJECTIONS:
+        return "AI가 고정된 분석 조건과 다른 Tool 호출을 시도해 실행 전에 거부했습니다. 계산하지 않았습니다."
+    return FAILURE_NOTICES.get(reason_code, GENERIC_FAILURE)
+
+
+def format_run_answer(results: list[tuple[dict[str, Any], dict[str, Any]]], status: str,
+                      reason_code: str | None, operation: str) -> str:
+    """Explain one v1 run from verified (receipt, canonical payload) pairs, or say why none exist."""
+    if not results:
+        return "\n".join([f"분석 실행 결과를 공개하지 않습니다({reason_code}).", failure_notice(reason_code),
+                          "기존 지도와 분석 패널은 바뀌지 않습니다."])
+    lines = ["이번 요청에서 검증된 Tool 실행으로 계산한 결과입니다."]
+    for receipt, payload in results:
+        lines.append("")
+        lines += (_security_lines if receipt["kind"] == "security" else _sensitivity_lines)(receipt, payload)
+    if operation == "security_then_sensitivity" and len(results) == 1:
+        lines += ["", f"N-1 결과가 미평가({reason_code})여서 민감도는 실행하지 않았습니다. 후보·순위가 없습니다."]
+    lines += ["", "KPG-193 합성 시험계통의 계산 결과이며 실제 한국 운영계통 결과가 아닙니다."]
+    return "\n".join(lines)

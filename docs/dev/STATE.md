@@ -6,32 +6,41 @@
 
 - Phase 3 완료. Phase 4의 PH4-01 AI 채팅 통합 구현·로컬 검증 완료.
 - DOC-01: 개발 규칙과 출처·해시를 갖춘 개발팀 키트/Artifact 참고 자료를 정리하여 통합 브랜치에 반영했다.
-- PH4-02A·B0·B1·B2(+MAINT-02)는 PR #17·#18·#19·#20으로 통합됐다(B2 squash `b0fbeb9`).
-- PH4-02B3-1: 선택적 `request_id`·`analysis_context`, KPG 수동 receipt·registry, 서버 결과만 설명하는 `mode=reference` 구현과 로컬 검증 완료
-  (`feature/ph4-02b31-context-reference-api`, [Draft PR #21](https://github.com/GangHyeokLee/ai-ems-agent/pull/21) 검토 대상). `mode=run`은 409 `ANALYSIS_RUN_NOT_READY`로 거부하며 Agent run은 미연결이다.
-- v1 capability(`console_analysis_context_versions`)는 어떤 계통에도 광고하지 않는다. 몽골·한국 OSM v1은 409로 거부하고 콘솔 UI는 바꾸지 않았다.
+- PH4-02A·B0·B1·B2(+MAINT-02)·B3-1은 PR #17·#18·#19·#20·#21로 통합됐다(B3-1 squash `00f6edc`).
+- PH4-02B3-2: KPG `mode=run`을 요청별 B2 Agent·ledger·`verify_evidence`에 연결하고, 검증된 결과만 `producer=agent_tool` receipt로
+  한 network guard 안에서 원자 등록한다. legacy 채팅의 세션 gate 공유, provider timeout·실행 예산·단일 worker 단언까지 구현·로컬 검증 완료
+  (`feature/ph4-02b32-agent-run-api`, Draft PR 검토 대상). 실제 LLM smoke는 endpoint HTTP 502로 **미실행**이다.
+- v1 capability(`console_analysis_context_versions`)는 여전히 어떤 계통에도 광고하지 않는다. 몽골·한국 OSM v1은 409로 거부하고 콘솔 UI는 바꾸지 않았다.
 - 실시간 브랜치·HEAD·커밋 여부·staged/unstaged/untracked 상태는 `dev_handoff.py` 출력으로 확인한다.
-- 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 B3-2(run 연결)·C(콘솔) 단계이며 자동 착수하지 않는다.
+- 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C(콘솔) 단계이며 자동 착수하지 않는다.
 
-## 최근 완료 작업: PH4-02B3-1
+## 최근 완료 작업: PH4-02B3-2
 
-- `analysis_context.py`: v1 요청·X-EMS 헤더의 순수 검증과 `AnalysisApiError`({code, message, request_id}) 추가. B2 코드는 그대로다.
-- `analysis_registry.py`(신규): `ResultRegistry`(256·TTL 10분·oldest-first), `RequestTracker`((grid, session, request_id) 10분 창, 성공 응답만 보관),
-  `SessionGates`(v1 전용 non-blocking), `AnalysisReceipt`. lock은 짧은 기록에만 쓰며 계산·LLM 중에는 잡지 않는다.
-- `web_app.py`: ChatRequest 선택 필드와 v1 분기(legacy 본문 불변), KPG Security/Sensitivity opt-in receipt(같은 network guard 안 전후 revision,
-  최초 AC 등 변화 시 `analysis_receipt_error`, `Cache-Control: no-store`), 몽골 REST opt-in 거부, reference(registry 조건·현재 revision·결정적 설명).
-- `agent/formatters/analysis_reference.py`(신규): 저장된 canonical 수치만 쓰는 설명. v1 경로는 KPG/MN Agent 이력을 읽거나 쓰지 않는다.
-- 해시 체인: `kems-console-ph402b31-code-hashes.json`(PH4-02 기록 `6b8c8482…`을 잇고 `web_app.py` `5a7abf5c…`→`13c0e2cb…`, edits 13개)과
-  `tests/test_mn_pipeline.py` 확장(기존 PH4-02 테스트는 HEAD 대신 복원한 PH4-02 바이트 사용, 단언 유지). 상세: `docs/specs/PH4-02B3-1_CONTEXT_REFERENCE_API.md`.
+- `web_app.py`: run = 단일 worker 단언·예산 확인 → 중복 확인 → 세션 gate → 요청별 `AnalysisJob`/`ExecutionLedger`/graph(기한·recursion 12)
+  → `verify_evidence` → network guard 안에서 현재 revision 재검증·REST canonical 변환·`register_all` → 결정적 답변·`ui_updates`·artifact 없는 이력.
+  성공·실패 200 응답은 중복 창에 보관하고, receipt가 있는 응답의 재생은 registry·현재 revision을 확인해 아니면 409 `REQUEST_REPLAY_STALE`(reference 재생 포함).
+  KPG·MN legacy 채팅 본문은 그대로 옮겨 같은 `(grid, session)` gate 안에서 실행하며 겹칠 때만 `409 {"detail": "SESSION_BUSY"}`.
+- `analysis_run.py`(신규): `AI_EMS_SINGLE_WORKER`, 예산(connect 5·read 30·write 10·pool 5초, 실행 기한 30초, 0<값≤600), `AGENT_*` 실패 코드.
+  `agent/graph.py`: run 전용 provider timeout, `RunDeadlineExceeded`. `analysis_registry.py`: `register_all`(all-or-nothing).
+  `formatters/analysis_reference.py`: `format_run_answer`. `scripts/run_agent.py`: `--workers 1`, `WEB_CONCURRENCY`≠1 거부(exit 2), 자식에만 단일 worker 표시.
+- 최초 AC: 실제 계산 후 `failed`/`MODEL_REVISION_CHANGED`와 새 요청 안내. warm-up·숨은 재실행 없음. 명시 감시 Sensitivity는 상태를 쓰지 않아 승인될 수 있다.
+- 해시 체인: `kems-console-ph402b32-code-hashes.json`(B3-1 기록 `104ecf38…`을 잇고 `web_app.py` `13c0e2cb…`→`f7bcaa61…`, edits 9개)과
+  `tests/test_mn_pipeline.py` 확장(B3-1 테스트는 HEAD 대신 복원한 B3-1 바이트 사용, 단언 유지). 상세: `docs/specs/PH4-02B3-2_AGENT_RUN_API.md`.
 
-## PH4-02B3-1 실제 검증
+## PH4-02B3-2 실제 검증
 
-- 신규 API 76개: **76 passed**(최종 12.42s). 신규 + 기존 관련 19개 파일: **397 passed (32.92s)**. 해시 체인 관련: **75 passed** (기존 53 + 신규 22).
-- 전체 비브라우저: 변경 전 `b0fbeb9` **795 passed, 103 skipped**, 최종 **893 passed, 103 skipped, 1 warning (74.11s)**, 실패 0.
-- 통합 기준 격리 사본 대비 기존 REST/Tool/legacy 채팅 33개 JSON 동일(`7e10e21c…`)과 응답 원문 21개 바이트·상태·Cache-Control 동일(최종 바이트로 재확인).
-- 격리 사본 변이: 구현 안전장치 16/16 검출, 체인 검사 약화 6개 중 5개 검출(나머지 before_blob 연결은 중복 검사). 확장 전 체인 테스트는 새 `web_app.py`에서 23개 실패해 미기록 변경을 탐지했다.
-- 모델만 실패 stub로 대체, 실제 full KPG·MN 계산. 실제 LLM·Chrome 미사용. 제한: 테스트별 45/40초(전체 120초), 명령 180~900초(+kill).
-- 증거: `.local/ph4-02b31/20261104-174059/`. `git diff --check`와 범위 외 기존 파일 SHA256 보존을 확인했다.
+- 신규 run API: 최초 39개 통과 → 보강 후 **46 passed (12.00s)**. 신규 + 기존 관련 20개 파일: **443 passed (40.87s)**. 해시 체인 관련: **101 passed** (기존 75 + 신규 26).
+- 전체 비브라우저: 변경 전 `00f6edc` **893 passed, 103 skipped**, 최종 **965 passed, 103 skipped, 1 warning (80.23s)**, 실패 0.
+- 통합 기준 격리 사본 대비 기존 REST/Tool/legacy 채팅 33개 JSON 동일(`7e10e21c…`), 응답 원문 21개 동일, HTTP 순차 legacy 채팅 원문·이력 10개 동일(최종 바이트로 재확인).
+- Chrome(고정 그래프, 실제 채팅 경로): PH4-01 콘솔 채팅 **6 passed (14.04s)**, 기존 채팅 관련 `test_browser_stale_responses.py -k chat` **4 passed (15.02s)**(고정 증거 경로 보존 위해 격리 사본).
+- 격리 사본 변이: 구현 안전장치 24/24 검출, 체인 검사 약화 9개 중 8개 검출(HEAD 핀 단언 1개는 전체 체인 검사와 중복). 확장 전 체인 테스트는 새 `web_app.py`에서 45개 실패.
+- 실제 LLM smoke: **미실행**(`/api/tags` HTTP 502, 18:50·21:15 KST). 모델만 scripted이고 Tool·계산은 실제 full KPG·MN. 제한: 테스트별 45/40초(전체 120초), 명령 300~1500초(+kill), Chrome 케이스 210초.
+- 증거: `.local/ph4-02b32/20261104-182655/`. `git diff --check`와 범위 외 기존 파일 SHA256 보존을 확인했다.
+
+## 보존된 검증: PH4-02B3-1 (이번 실행 결과 아님)
+
+- 신규 76 passed, 신규+관련 397 passed, 해시 체인 75 passed, 전체 비브라우저 893 passed/103 skipped, legacy 33개 동일(`7e10e21c…`)·원문 21개 동일,
+  변이 16/16·체인 약화 5/6(중복 1). 실제 LLM·Chrome 미사용. 증거 `.local/ph4-02b31/20261104-174059/`.
 
 ## 보존된 검증: PH4-02-MAINT-02·PH4-02B2 (이번 실행 결과 아님)
 
@@ -117,12 +126,15 @@
 ## 주요 주의 사항과 보존 기록
 
 - PH4-01 당시 원본 UI·모델/데이터·Agent와 Stage 1·3C·Phase 2·3 기록을 보존했다. B1은 서버/Tool 경계만,
-  B2는 v1 Tool wrapper·검증 모듈·`web_app.py` 순수 mapper 분리와 canonical 변환만, B3-1은 v1 요청·receipt·reference 서버 경로만 변경한다.
+  B2는 v1 Tool wrapper·검증 모듈·`web_app.py` 순수 mapper 분리와 canonical 변환만, B3-1은 v1 요청·receipt·reference 서버 경로만,
+  B3-2는 v1 run·legacy gate 공유·예산/launcher 경계만 변경한다(콘솔·모델·데이터·물리 알고리즘 불변).
 - PH4-01의 `docs/validation/kems-console-phase4-code-hashes.json`은 당시 allowlist 변경을 고정한다.
   원래 Stage 1 계약의 실패를 성공으로 바꾸지 않으며 변조 검사는 임시 복사본에서만 수행했다.
-  PH4-01 고정값(`6628d110…`)과 PH4-02 고정값(`5a7abf5c…`)은 과거 기록으로 그대로 두고, 최신 기록
-  `kems-console-ph402b31-code-hashes.json`이 현재 바이트(`13c0e2cb…`)를 고정한다. 이후 `web_app.py`를 바꾸면 기존 기록을 수정하지 말고
-  최신 기록의 SHA256과 edits를 잇는 새 기록을 추가하고, `ph402_after_bytes` 같은 복원 경로를 한 단계 연장한다.
+  PH4-01(`6628d110…`)·PH4-02(`5a7abf5c…`)·B3-1(`13c0e2cb…`) 고정값은 과거 기록으로 그대로 두고, 최신 기록
+  `kems-console-ph402b32-code-hashes.json`이 현재 바이트(`f7bcaa61…`)를 고정한다. 이후 `web_app.py`를 바꾸면 기존 기록을 수정하지 말고
+  최신 기록의 SHA256과 edits를 잇는 새 기록을 추가하고, `ph402b31_after_bytes` 같은 복원 경로를 한 단계 연장한다.
+- run 운영 전제: 지원 launcher만 `AI_EMS_SINGLE_WORKER=1`을 자식 프로세스에 넣는다. 셸·`.env`에 직접 넣지 않는다(worker 자동 감지 아님).
+  HTTP 취소·콘솔 60초 timeout은 서버 run·JVM 계산을 멈추지 않으며 gate·ledger·network guard는 실행이 끝날 때 해제된다.
 - PH4-01 실제 LLM 연결·응답 품질은 미검증이다. Stage 3C 외부 LLM 502/503 실패 기록도 유지한다.
   Issue #11의 2026-10-22 사용자 Ollama 성공 기록과는 검증 환경·시점·범위를 구분한다.
 - 대화는 페이지 메모리에만 보존된다. 초기화는 새 세션을 시작하며 기존 서버 세션 정리 정책은 바꾸지 않았다.
@@ -130,14 +142,13 @@
 
 ## 다음 작업과 다음 담당자에게
 
-- B3-2는 별도 요청으로 진행한다. run을 B2 job/graph/ledger/`verify_evidence`에 연결하고, publish 직전 network guard 안에서 현재 revision을
-  재확인한 뒤 `producer=agent_tool` receipt만 B3-1 registry에 등록한다. 응답 문장은 검증 결과로 결정적으로 만든다.
-- B3-2 선행 결정: legacy 채팅과 v1 세션 gate 공유(동시 요청에서만 legacy 동작 변화, Chrome 회귀 필요), 새로 로드한 KPG의 첫 AC
-  `MODEL_REVISION_CHANGED` 안내/준비 정책, provider timeout·graph 예산·단일 worker 명시, 실제 LLM smoke(guard 엄격성), MN model identity.
-- 콘솔(C)은 Security operation에 감시 ID null, Sensitivity top_n=5, `analysis_receipt_error`·v1 `{code, message, request_id}`·legacy 문자열 오류를 처리해야 한다.
-- 서버 계약·세션 동시성과 단일 worker/timeout 전제를 연결·검증한 뒤에만 v1을 광고한다. 그 후 PH4-02C에서 UI commit과 Chrome 회귀를 연결한다.
-- B3-1은 base=`feature/kems-multi-grid`인 `feature/ph4-02b31-context-reference-api`·Draft PR #21로 검토한다. 상위 #14는 완료 처리하지 않으며 B3-2/C는 자동 착수하지 않는다.
-- 통합된 작업 브랜치(DOC-01, PH4-02A·B0·B1·B2)는 이력 보존상 삭제 후보이며 실제 삭제와 PR/main 병합은 별도 승인 후 판단한다.
+- PH4-02C(콘솔)는 별도 요청으로 진행한다. run 응답의 `completed/not_evaluated/not_run/failed`·사유 코드 표시, 성공 run의 `ui_updates`만 반영,
+  v1 오류(`AGENT_*`, `ANALYSIS_RUN_NOT_READY`, `REQUEST_REPLAY_STALE`, `SESSION_BUSY`)·legacy 문자열 오류·`analysis_receipt_error` 처리,
+  Security 감시 ID null·Sensitivity top_n=5, 취소/timeout은 결과 미확정으로 다루고 같은 `request_id`를 자동 재시도하지 않는다.
+- C 이전/병행 확인: 실제 LLM smoke(고정 Tool·인자 준수, 지연)와 예산 재조정, 배포 환경의 지원 launcher·단일 worker. MN v1은 model identity가 별도로 필요하다.
+- 위 연결과 Chrome 회귀를 마친 뒤에만 `console_analysis_context_versions: [1]`을 광고한다.
+- B3-2는 base=`feature/kems-multi-grid`인 `feature/ph4-02b32-agent-run-api`·Draft PR로 검토한다. 상위 #14는 완료 처리하지 않으며 C는 자동 착수하지 않는다.
+- 통합된 작업 브랜치(DOC-01, PH4-02A·B0·B1·B2·B3-1)는 이력 보존상 삭제 후보이며 실제 삭제와 PR/main 병합은 별도 승인 후 판단한다.
 - 다음 담당자는 `AGENTS.md`와 이 문서를 읽고 실시간 Git 상태와 기존 변경을 확인·보존한 뒤 지정된 범위만 수행한다.
 - 시작: `python3 scripts/dev_handoff.py`
 - 종료: 이 문서를 갱신한 후 `python3 scripts/dev_handoff.py --write`
