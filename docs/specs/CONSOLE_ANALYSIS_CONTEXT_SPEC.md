@@ -347,8 +347,14 @@ C 완료: JSON 계약의 C 항목과 기존 회귀 통과, 스크린샷/로그/�
 
 ## 11. 설계 리뷰에서 남은 확인
 
+[B0 선행 검증](PH4-02B0_SERVER_PREFLIGHT.md)에서 실제 KPG 사본·격리 ToolNode 실험을 수행했다.
+model revision과 잠금은 CONDITIONAL, 같은 실행의 full artifact 방식은 GO다. 프로덕션 기능은 미구현이다.
+최초 AC의 상태 쓰기·재로드 caseDate 차이, Security/Sensitivity 유효 설정 차이,
+ToolNode 실행 스레드의 잠금 소유권과 launcher의 worker 환경 영향을 B에서 먼저 해소해야 한다.
+확인되지 않은 모델/접근 경계에서는 v1 capability를 광고하지 않는다.
+
 - 프로토콜 형태는 이 제안으로 정했으나 **아직 승인·구현 전**이다. receipt 헤더/TTL·동기 실행 방식의 리뷰가 필요하다.
-- B0에서 KPG active network revision과 잠금 적용 대상의 누락 없는 목록을 실제 코드로 확인해야 한다.
+- B에서 B0의 KPG active network revision·접근 목록을 실제 guard에 연결하고 누락 없는지 통합 테스트해야 한다.
   이를 파일 mtime이나 LLM 설명으로 대신 통과시키지 않는다.
 - 동기 JVM 실행을 강제 취소하는 기능은 없다. 긴 실제 모델/계산의 운영 timeout 값은 실제 환경 검증 후 기록한다.
 - 단일 worker 전제와 기존 session_id의 비인증 성격, 재시작/만료 뒤 이전 화면의 참조 불가를 배포·UI에서 명시해야 한다.
