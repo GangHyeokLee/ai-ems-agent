@@ -8,12 +8,29 @@
 - DOC-01: 개발 규칙과 출처·해시를 갖춘 개발팀 키트/Artifact 참고 자료를 정리하여 통합 브랜치에 반영했다.
 - PH4-02A·B0·B1은 PR #17·#18·#19로 통합됐다. B2 KPG full artifact·요청별 실행 ledger·서버 검증 구현과 로컬 검증 완료([Draft PR #20](https://github.com/GangHyeokLee/ai-ems-agent/pull/20) 검토 대상).
 - B2 진입점은 API에 연결하지 않았다. ChatRequest 확장·receipt registry·분석 문맥 API·콘솔 연동은 미구현이며 v1 capability는 계속 비활성이다.
-- 통합 기준 `6a4df5e`에서 이미 `tests/test_mn_pipeline.py` 2개가 실패한다. B1의 `web_app.py` 변경이 PH4-01 해시 고정과 맞지 않기 때문이며
-  (B0 트리 사본에서는 통과) B2는 해시 기록·테스트를 바꾸지 않았다. 별도 승인 작업이 필요하다.
+- PH4-02-MAINT-02(같은 PR #20): 통합 기준 `6a4df5e`부터 실패하던 `tests/test_mn_pipeline.py` 2개(B1의 `web_app.py` 변경이 PH4-01
+  해시 고정과 불일치)를 새 PH4-02 코드 변경 기록과 체인 테스트 확장으로 해결했다. 기존 기록·해시는 바꾸지 않았다.
 - 실시간 브랜치·HEAD·커밋 여부·staged/unstaged/untracked 상태는 `dev_handoff.py` 출력으로 확인한다.
 - 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 B3(서버 계약)·C(콘솔) 단계다.
 
-## 최근 완료 작업: PH4-02B2
+## 최근 완료 작업: PH4-02-MAINT-02
+
+- `docs/validation/kems-console-ph402-code-hashes.json`(신규): PH4-01 기록 SHA256(`fa71f907…`)을 잇고, `web_app.py`의
+  PH4-01 `6628d110…` → B1 `6a4df5e` `a3d46cd0…` → B2 `3dd3ece` `5a7abf5c…`를 commit·Git blob·SHA256과 단계별 정확한 edits로 기록한다.
+- `tests/test_mn_pipeline.py`: `ph402_code_changes`·`ph402_versions` 추가. 현재 바이트에서 edits를 역적용해 B1·PH4-01 바이트를 복원하고
+  단계별 SHA256·blob ID를 확인한다(Git 실행 없음). PH4-01 테스트는 바이트 출처만 복원한 PH4-01 바이트로 바꾸고 단언은 그대로 유지했다.
+  real-asset 테스트는 체인 끝에 새 기록 하나를 이었다. 신규 25개(복원 1, 미기록 바이트 거부 3, 격리 기록 변이 21).
+- 기존 Stage 3C·Phase 2·3·PH4-01 기록, Stage 1 계약, B1/B2 기능 코드, 데이터는 바꾸지 않았다. 상세: `docs/specs/PH4-02-MAINT-02_CODE_HASH_CHAIN.md`.
+
+## PH4-02-MAINT-02 실제 검증
+
+- 해시 체인 관련(`-k "code_record or real_asset or ph402"`): 수정 전 **2 failed, 26 passed**, 수정 후 **53 passed**.
+- 전체 비브라우저 수정 후 **795 passed, 103 skipped, 1 warning (64.91s)**, 실패 0. (수정 전 수치는 아래 B2 최종 실행 기록이며 재실행하지 않았다.)
+- 기존 기록 연속성 32개 항목(기록 SHA256 연결·Git blob) 통과. 기록 변이 21/21 거부, 격리 사본의 검증기 약화 변이 7/7 검출
+  (최초 3개 미검출 → 대응 기록 변이 3개 추가 후 검출). 변경 허용 목록 밖 기존 파일 SHA256 보존, `git diff --check` 통과.
+- 제한: 테스트별 40초(전체 비브라우저 120초), 명령 180~900초(+kill). 증거: `.local/ph4-02-maint-02/20261104-165048/`.
+
+## 이전 작업: PH4-02B2 (같은 PR #20)
 
 - `src/ai_ems/analysis_context.py`(신규): frozen `AnalysisJob`(KPG만, operation·고정 사고/감시), 요청별 `ExecutionLedger`
   (authorized→started→succeeded/failed, 봉인 artifact SHA256·실행 전후 revision), ToolNode 전 guard 거부 코드, `verify_evidence`.
@@ -25,7 +42,7 @@
 - 실행 전후 revision을 같은 engine guard에서 캡처한다. 변화·식별 불가·chain 단계 간 불일치·검증 시점 변화는 승인하지 않으며 자동 준비·재실행은 없다.
 - 상세: `docs/specs/PH4-02B2_AGENT_ARTIFACT_LEDGER.md`. UI·데이터·기존 테스트·검증 해시는 바꾸지 않았다. B3 구현은 시작하지 않았다.
 
-## PH4-02B2 실제 검증
+## 보존된 검증: PH4-02B2 (이번 실행 결과 아님)
 
 - 신규 61개: **61 passed, 1 warning (12.91s)**. 최초 60개 버전은 60 passed(13.64s), 이후 상태 쓰기 기준 귀속 시험 1개를 추가했다.
 - 신규 + 기존 관련 18개 파일: **298 passed, 1 warning (21.65s)**.
@@ -117,7 +134,8 @@
   B2는 v1 Tool wrapper·검증 모듈·`web_app.py` 순수 mapper 분리와 canonical 변환만 변경한다.
 - PH4-01의 `docs/validation/kems-console-phase4-code-hashes.json`은 당시 allowlist 변경을 고정한다.
   원래 Stage 1 계약의 실패를 성공으로 바꾸지 않으며 변조 검사는 임시 복사본에서만 수행했다.
-  현재 `web_app.py`는 B1(`a3d46cd0…`)·B2(`5a7abf5c…`) 변경으로 그 고정(`6628d110…`)과 달라 기존 실패 2개가 남아 있다. 고정값을 덮어쓰지 않는다.
+  PH4-01 고정값(`6628d110…`)은 과거 기록으로 그대로 두고, `kems-console-ph402-code-hashes.json`이 B1(`a3d46cd0…`)·B2(`5a7abf5c…`)를 이어
+  현재 바이트를 고정한다. 이후 `web_app.py`를 바꾸면 이 기록을 수정하지 말고 그 SHA256과 edits를 잇는 새 기록을 추가한다.
 - PH4-01 실제 LLM 연결·응답 품질은 미검증이다. Stage 3C 외부 LLM 502/503 실패 기록도 유지한다.
   Issue #11의 2026-10-22 사용자 Ollama 성공 기록과는 검증 환경·시점·범위를 구분한다.
 - 대화는 페이지 메모리에만 보존된다. 초기화는 새 세션을 시작하며 기존 서버 세션 정리 정책은 바꾸지 않았다.
@@ -130,9 +148,9 @@
   검증 결과만 registry에 복사한다. graph가 생성한 메시지만 검증에 넘긴다.
 - B3 선행 결정: 새로 로드한 KPG에서 AC를 쓰는 첫 실행이 `MODEL_REVISION_CHANGED`인 문제의 안내/준비 정책, Security operation의 감시 ID 매핑,
   provider timeout·graph 예산·단일 worker 명시, MN model identity와 MN job 연결. 실제 LLM smoke로 guard 엄격성(1회 호출·정확한 인자)을 확인한다.
-- PH4-01 해시 고정 실패는 새 PH4-02 코드 변경 기록(PH4-01 `after`→현재 bytes)과 체인 테스트 확장으로 해결해야 하며 별도 승인 후 수행한다.
+- PH4-01 해시 고정 실패는 PH4-02-MAINT-02로 해결했다. B3 등 이후 `web_app.py` 변경은 PH4-02 기록을 잇는 새 기록과 체인 테스트 확장이 함께 필요하다.
 - 서버 계약·분석 문맥/receipt·세션 동시성과 단일 worker/timeout 전제를 연결·검증한 뒤에만 v1을 광고한다. 그 후 PH4-02C에서 UI commit과 Chrome 회귀를 연결한다.
-- B2는 base=`feature/kems-multi-grid`인 `feature/ph4-02b2-agent-artifact-ledger`·Draft PR #20으로 검토한다. 상위 #14는 완료 처리하지 않으며 B3/C는 자동 착수하지 않는다.
+- B2와 MAINT-02는 base=`feature/kems-multi-grid`인 `feature/ph4-02b2-agent-artifact-ledger`·Draft PR #20으로 함께 검토한다. 상위 #14는 완료 처리하지 않으며 B3/C는 자동 착수하지 않는다.
 - 통합된 작업 브랜치(DOC-01, PH4-02A·B0·B1)는 이력 보존상 삭제 후보이며 실제 삭제와 PR/main 병합은 별도 승인 후 판단한다.
 - 다음 담당자는 `AGENTS.md`와 이 문서를 읽고 실시간 Git 상태와 기존 변경을 확인·보존한 뒤 지정된 범위만 수행한다.
 - 시작: `python3 scripts/dev_handoff.py`

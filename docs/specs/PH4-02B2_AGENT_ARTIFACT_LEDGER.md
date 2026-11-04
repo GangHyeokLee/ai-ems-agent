@@ -160,6 +160,10 @@ B1의 회귀 범위에 `test_mn_pipeline.py`가 없었다. B2는 `web_app.py`를
 B2는 과거 기록·해시·테스트를 덮어쓰거나 완화하지 않았다. 해결에는 PH4-01 `after`를 `before`로 잇는 새 PH4-02 코드 변경 기록과
 그 체인을 검사하는 테스트 확장이 필요하며, 검증 해시 영역이므로 별도 승인 작업으로 남긴다.
 
+**후속 해결(PH4-02-MAINT-02, 같은 PR #20):** `docs/validation/kems-console-ph402-code-hashes.json`이 PH4-01 `after`에서 B1·B2까지
+`web_app.py`를 잇고, 테스트는 기록된 edits로 PH4-01 바이트를 복원해 과거 검증을 유지한다. 위 B2 실행 결과(실패 2개)는 당시 기록으로 남긴다.
+상세: [PH4-02-MAINT-02](PH4-02-MAINT-02_CODE_HASH_CHAIN.md).
+
 ## 8. 미해결 위험과 B3 선행 조건
 
 - 준비 상태: 새로 로드한 KPG에서 AC를 쓰는 첫 v1 실행은 `MODEL_REVISION_CHANGED`다. B3/C는 사용자 안내 또는 별도로 검증된 준비 정책을 정해야 한다.
@@ -172,7 +176,8 @@ B2는 과거 기록·해시·테스트를 덮어쓰거나 완화하지 않았다
 - Security job은 감시 ID를 받지 않는다(receipt의 security monitored=null). 콘솔 문맥의 감시 ID를 Security operation에 전달하지 않도록 B3가 매핑해야 한다.
 - MN v1: model revision·요청별 guard·artifact ledger 연결이 없다. 연결 전에는 MN job을 만들 수 없다.
 - 세션 잠금·중복 요청 창·LLM provider timeout·graph 예산·단일 worker 명시는 미구현이다(B3).
-- §7의 해시 기록 문제는 별도 승인 후 처리해야 한다. v1 capability는 계속 광고하지 않는다.
+- §7의 해시 기록 문제는 PH4-02-MAINT-02에서 새 기록으로 해결했다. 이후 `web_app.py` 변경은 그 기록을 잇는 새 기록이 필요하다.
+  v1 capability는 계속 광고하지 않는다.
 
 ## 9. 재현 명령
 

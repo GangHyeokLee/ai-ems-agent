@@ -1,0 +1,208 @@
+{
+  "schema": "kems-ph402-code-change-audit-1",
+  "basis": "K-EMS Console PH4-02B1/B2 (KPG model identity and shared network guard; Agent full artifact and execution ledger), recorded by PH4-02-MAINT-02 after both changes were committed. Extends docs/validation/kems-console-phase4-code-hashes.json without modifying it, the Phase 2/3 or Stage 3C records, or the original Stage 1 contract: 'before' is the PH4-01 'after' pin and 'after' is the current web_app.py. 'commits' lists, in order, the PH4-01 version and every later commit that changed web_app.py, with its Git blob ID and SHA256. Each later step stores its exact line edits (' ' context, '-' removed, '+' added), so every earlier version is recovered from the current bytes and the historical PH4-01 check runs on the PH4-01 bytes. The PH4-02B2 commit is the PR #20 branch commit; a later squash commit carries the same blob. This is review evidence, not replacement model approval.",
+  "stage1_contract_sha256": "bde2dbd9f55fc6eef6efdfee1cb5ff1a84dd05500b7deda28c96ff910456ff73",
+  "phase4_record_sha256": "fa71f907438ecddb08f4f22c907de287cf583ec1271c280c17614e0bded4bb45",
+  "files": {
+    "ems_code.web_app.py": {
+      "path": "web_app.py",
+      "before": "6628d110f783d02ac16abec69c3346c0beeec676729c839b25a2387df8ddbcac",
+      "after": "5a7abf5c6b059799f1debdedee625737d4ab262fe85d25bfba43b65be1e1195b",
+      "commits": [
+        {
+          "commit": "3094305c14bfb312be70ab23132713f2de688df2",
+          "blob": "d38aad38d26f38533e5ae7d52d455723b34f56ab",
+          "sha256": "6628d110f783d02ac16abec69c3346c0beeec676729c839b25a2387df8ddbcac",
+          "change": "PH4-01 'after' pin (CONSOLE_ASSETS allows api-chat.js); unchanged through PH4-02A and PH4-02B0 (d6ecf79)"
+        },
+        {
+          "commit": "6a4df5e1aa0a0f88c692096b2ee256764b5fb368",
+          "blob": "2f104914759159fc42eb9eaf447b8d02dd4c039b",
+          "sha256": "a3d46cd00d691bd1c83e058461575753484e69f280a7cef7c72b433ecc325a9b",
+          "change": "PH4-02B1 (PR #19 squash of a498835): identified KPG model load, NetworkBusy -> 409 ANALYSIS_BUSY handler, shared network guard on KPG summary/map/Security/Sensitivity routes and the sensitivity mapper, chat re-raises NetworkBusy",
+          "edits": [
+            [
+              " )",
+              "-from ai_ems import load_network",
+              "+from ai_ems.network import load_identified_network",
+              "+from ai_ems.network_access import NetworkBusy, guarded",
+              " from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph"
+            ],
+            [
+              " ",
+              "-network = load_network(CASE_FILE)",
+              "+network = load_identified_network(CASE_FILE)",
+              " agent_graph = create_agent_graph(network)"
+            ],
+            [
+              " app = FastAPI(title=\"AI-EMS Agent\", lifespan=_lifespan)",
+              "+",
+              "+",
+              "+@app.exception_handler(NetworkBusy)",
+              "+async def _network_busy(request, exc):",
+              "+    return JSONResponse(status_code=409, content={\"detail\": \"ANALYSIS_BUSY\"})",
+              " "
+            ],
+            [
+              " @app.get(\"/api/network-summary\")",
+              "+@guarded(lambda: network)",
+              " def network_summary():"
+            ],
+            [
+              " @app.get(\"/api/network-map\")",
+              "+@guarded(lambda: network)",
+              " def network_map():"
+            ],
+            [
+              " @app.get(\"/api/security-analysis\")",
+              "+@guarded(lambda: network)",
+              " def security_analysis("
+            ],
+            [
+              " @app.get(\"/api/sensitivity-analysis\")",
+              "+@guarded(lambda: network)",
+              " def sensitivity_analysis("
+            ],
+            [
+              "         )",
+              "+    except NetworkBusy:",
+              "+        raise",
+              "     except Exception as exc:"
+            ],
+            [
+              " ",
+              "+@guarded(lambda: network)",
+              " def _sensitivity_result_for_ui("
+            ]
+          ]
+        },
+        {
+          "commit": "3dd3ecef87c5fdae195f9b31ad418fe502e38e1f",
+          "blob": "546b19a38db6a8ef10debb6349e26a2e3ec31fd3",
+          "sha256": "5a7abf5c6b059799f1debdedee625737d4ab262fe85d25bfba43b65be1e1195b",
+          "change": "PH4-02B2 (PR #20 branch commit): REST sensitivity not-evaluated builder and pure mapper split with byte-identical responses, ledger-verified KPG result to REST canonical mapping; no route added",
+          "edits": [
+            [
+              " )",
+              "+from ai_ems.analysis_context import VerifiedResult",
+              " from ai_ems.network import load_identified_network",
+              " from ai_ems.network_access import NetworkBusy, guarded"
+            ],
+            [
+              " ",
+              "         if security_result[\"post_status\"] != \"CONVERGED\":",
+              "-            return {",
+              "-                \"analysis_status\": \"SECURITY_NOT_CONVERGED\",",
+              "-                \"outage_line_id\": outage_line_id,",
+              "-                \"monitored_line_id\": None,",
+              "-                \"candidate_count\": 0,",
+              "-                \"candidates\": [],",
+              "-                \"message\": (",
+              "-                    \"\uc0c1\uc815\uc0ac\uace0 \ubd84\uc11d\uc774 \uc218\ub834\ud558\uc9c0 \uc54a\uc544 \" \"\ubbfc\uac10\ub3c4 \ubd84\uc11d\uc744 \uc218\ud589\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.\"",
+              "-                ),",
+              "-            }",
+              "+            return _sensitivity_not_evaluated_for_ui(outage_line_id, \"SECURITY_NOT_CONVERGED\")",
+              " ",
+              "         selected = select_most_severe_violated_line("
+            ],
+            [
+              " ",
+              "         if selected is None:",
+              "-            return {",
+              "-                \"outage_line_id\": outage_line_id,",
+              "-                \"monitored_line_id\": None,",
+              "-                \"candidate_count\": 0,",
+              "-                \"candidates\": [],",
+              "-                \"analysis_status\": \"NO_OVERLOAD\",",
+              "-                \"message\": \"\uacfc\ubd80\ud558 \uc120\ub85c\uac00 \ud655\uc778\ub418\uc9c0 \uc54a\uc544 \ubbfc\uac10\ub3c4 \ubd84\uc11d \ub300\uc0c1\uc744 \uc120\ud0dd\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.\",",
+              "-            }",
+              "+            return _sensitivity_not_evaluated_for_ui(outage_line_id, \"NO_OVERLOAD\")",
+              " ",
+              "         monitored_line_id = selected[\"equipment_id\"]"
+            ],
+            [
+              " ",
+              " ",
+              "+def _sensitivity_not_evaluated_for_ui(",
+              "+    outage_line_id: str,",
+              "+    status: str,",
+              "+) -> dict[str, Any]:",
+              "+    if status == \"SECURITY_NOT_CONVERGED\":",
+              "+        return {",
+              "+            \"analysis_status\": \"SECURITY_NOT_CONVERGED\",",
+              "+            \"outage_line_id\": outage_line_id,",
+              "+            \"monitored_line_id\": None,",
+              "+            \"candidate_count\": 0,",
+              "+            \"candidates\": [],",
+              "+            \"message\": (",
+              "+                \"\uc0c1\uc815\uc0ac\uace0 \ubd84\uc11d\uc774 \uc218\ub834\ud558\uc9c0 \uc54a\uc544 \" \"\ubbfc\uac10\ub3c4 \ubd84\uc11d\uc744 \uc218\ud589\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.\"",
+              "+            ),",
+              "+        }",
+              "+    if status == \"NO_OVERLOAD\":",
+              "+        return {",
+              "+            \"outage_line_id\": outage_line_id,",
+              "+            \"monitored_line_id\": None,",
+              "+            \"candidate_count\": 0,",
+              "+            \"candidates\": [],",
+              "+            \"analysis_status\": \"NO_OVERLOAD\",",
+              "+            \"message\": \"\uacfc\ubd80\ud558 \uc120\ub85c\uac00 \ud655\uc778\ub418\uc9c0 \uc54a\uc544 \ubbfc\uac10\ub3c4 \ubd84\uc11d \ub300\uc0c1\uc744 \uc120\ud0dd\ud560 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4.\",",
+              "+        }",
+              "+    raise ValueError(f\"Unsupported sensitivity status: {status}\")",
+              "+",
+              "+",
+              " @guarded(lambda: network)",
+              " def _sensitivity_result_for_ui("
+            ],
+            [
+              " ) -> dict[str, Any]:",
+              "     generators = network.get_generators(all_attributes=True)",
+              "+    return _sensitivity_payload_for_ui(result, generators[\"voltage_level_id\"])",
+              "+",
+              "+",
+              "+def _sensitivity_payload_for_ui(",
+              "+    result: dict[str, Any],",
+              "+    voltage_level_ids,",
+              "+) -> dict[str, Any]:",
+              "+    \"\"\"Pure REST mapping from generator voltage levels captured with the result.\"\"\"",
+              "     candidates = []",
+              " ",
+              "     for candidate in result.get(\"candidates\", []):",
+              "         generator_id = candidate[\"generator_id\"]",
+              "-        row = generators.loc[generator_id]",
+              "-        voltage_level_id = row[\"voltage_level_id\"]",
+              "+        voltage_level_id = voltage_level_ids[generator_id]",
+              "         bus_id = _bus_number(voltage_level_id)",
+              "         location = bus_location_map.get(bus_id)"
+            ],
+            [
+              "         \"analysis_status\": \"COMPLETED\",",
+              "     }",
+              "+",
+              "+",
+              "+def _kpg_line_analysis_payload(result: VerifiedResult) -> dict[str, Any]:",
+              "+    \"\"\"PH4-02B2: REST canonical payload of one ledger-verified KPG v1 execution.",
+              "+",
+              "+    Pure projection of the sealed artifact through the existing REST mappers.",
+              "+    No engine call and no live-model read; not exposed by any API in B2.",
+              "+    \"\"\"",
+              "+    artifact = result.artifact()",
+              "+    if result.grid_id != KPG_GRID_ID or artifact.get(\"grid_id\") != KPG_GRID_ID:",
+              "+        raise ValueError(\"Not a KPG line-analysis result\")",
+              "+    raw = artifact[\"result\"]",
+              "+    if result.kind == \"security\":",
+              "+        return _security_result_for_ui(raw)",
+              "+    if result.kind != \"sensitivity\":",
+              "+        raise ValueError(f\"Unsupported analysis kind: {result.kind}\")",
+              "+    if raw[\"ranking\"] is None:",
+              "+        return _sensitivity_not_evaluated_for_ui(result.outage_line_id, result.reason_code)",
+              "+    voltage_level_ids = {generator_id: metadata[\"voltage_level_id\"]",
+              "+                         for generator_id, metadata in raw[\"generator_metadata\"].items()}",
+              "+    return _sensitivity_payload_for_ui(raw[\"ranking\"], voltage_level_ids)",
+              " "
+            ]
+          ]
+        }
+      ]
+    }
+  }
+}
