@@ -1,6 +1,6 @@
 import json
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langchain_ollama import ChatOllama
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode, tools_condition
@@ -13,7 +13,8 @@ from ai_ems.agent.formatters import (
     format_generator_outage_response,
     format_generator_risk_response,
 )
-from ai_ems.agent.tools import create_agent_tools
+from ai_ems.agent.tools import create_agent_tools, create_line_analysis_tools
+from ai_ems.analysis_context import SENSITIVITY_TOP_N, ToolCallRejected
 from ai_ems.config import LLM_BASE_URL, MODEL_NAME, get_llm_client_kwargs
 
 DETERMINISTIC_FORMATTERS = {
@@ -320,6 +321,19 @@ Line Corrective Action / Redispatch Workflow:
 """
 
 
+def _chat_model(model_name: str | None, base_url: str | None):
+    resolved_model_name = model_name or MODEL_NAME
+    resolved_base_url = base_url or LLM_BASE_URL
+
+    client_kwargs = get_llm_client_kwargs(resolved_base_url)
+    return ChatOllama(
+        model=resolved_model_name,
+        base_url=resolved_base_url,
+        temperature=0,
+        **({"client_kwargs": client_kwargs} if client_kwargs else {}),
+    )
+
+
 def create_agent_graph(
     network,
     model_name: str | None = None,
@@ -327,16 +341,7 @@ def create_agent_graph(
 ):
     tools = create_agent_tools(network)
 
-    resolved_model_name = model_name or MODEL_NAME
-    resolved_base_url = base_url or LLM_BASE_URL
-
-    client_kwargs = get_llm_client_kwargs(resolved_base_url)
-    model = ChatOllama(
-        model=resolved_model_name,
-        base_url=resolved_base_url,
-        temperature=0,
-        **({"client_kwargs": client_kwargs} if client_kwargs else {}),
-    )
+    model = _chat_model(model_name, base_url)
 
     model_with_tools = model.bind_tools(tools)
 
@@ -401,4 +406,79 @@ def create_agent_graph(
     )
     builder.add_edge("deterministic_response", END)
 
+    return builder.compile()
+
+
+def line_analysis_instruction(job, next_kind: str | None) -> str:
+    """Transient context built from the validated job only; never stored."""
+    lines = [
+        "Server-validated analysis job (transient context, not user text).",
+        f"grid_id={job.grid_id}; operation={job.operation}; "
+        f"outage_line_id={json.dumps(job.outage_line_id, ensure_ascii=False)}.",
+    ]
+    tool_name = next((name for name, kind in job.tools.items() if kind == next_kind), None)
+    if tool_name is None:
+        lines.append("Do not call any tool. The server reports only verified results.")
+        return "\n".join(lines)
+    arguments = {"outage_line_id": job.outage_line_id}
+    if next_kind == "sensitivity":
+        if job.monitored_line_id is None:
+            lines.append("Omit monitored_line_id: the server selects the monitored line.")
+        else:
+            arguments["monitored_line_id"] = job.monitored_line_id
+        arguments["top_n"] = SENSITIVITY_TOP_N
+    lines.append(f"Call exactly one tool now: {tool_name} with arguments "
+                 f"{json.dumps(arguments, ensure_ascii=False)}.")
+    lines.append("Do not call other tools, change these arguments or state results yourself.")
+    return "\n".join(lines)
+
+
+def create_line_analysis_graph(network, ledger, model=None, model_name=None, base_url=None):
+    """PH4-02B2 per-request KPG line-analysis graph for one validated job.
+
+    The job's Tools and ledger are request closures; the global graph, Tools and
+    prompt are not modified. A guard authorizes each AI tool call BEFORE ToolNode
+    and a rejection ends the run without execution. The server, not the model,
+    decides whether a chain continues after an actual N-1 result. The run ends
+    after the last planned execution or any failure, so results are explained
+    from verified evidence only. No API uses this factory in B2.
+    """
+    ledger.claim()
+    job = ledger.job
+    tools = [tool for tool in create_line_analysis_tools(network, ledger) if tool.name in job.tools]
+    if model is None:
+        model = _chat_model(model_name, base_url)
+    model_with_tools = model.bind_tools(tools)
+
+    def agent_node(state: MessagesState):
+        context = SystemMessage(content=line_analysis_instruction(job, ledger.next_kind()))
+        # The frozen job context reaches this model call only; graph state never stores it.
+        return {"messages": [model_with_tools.invoke([*state["messages"], context])]}
+
+    def guard_node(state: MessagesState):
+        calls = state["messages"][-1].tool_calls
+        try:
+            ledger.authorize(calls)
+        except ToolCallRejected as exc:
+            return {"messages": [
+                ToolMessage(content=f"Rejected before execution: {exc.code}", status="error",
+                            name=str(call.get("name") or ""), tool_call_id=str(call.get("id") or ""))
+                for call in calls
+            ]}
+        return {"messages": []}
+
+    def route_after_agent(state: MessagesState):
+        last = state["messages"][-1]
+        return "guard" if isinstance(last, AIMessage) and last.tool_calls else END
+
+    builder = StateGraph(MessagesState)
+    builder.add_node("agent", agent_node)
+    builder.add_node("guard", guard_node)
+    builder.add_node("tools", ToolNode(tools, handle_tool_errors=True))
+    builder.add_edge(START, "agent")
+    builder.add_conditional_edges("agent", route_after_agent, {"guard": "guard", END: END})
+    builder.add_conditional_edges("guard", lambda state: END if ledger.rejection else "tools",
+                                  {"tools": "tools", END: END})
+    builder.add_conditional_edges("tools", lambda state: "agent" if ledger.next_kind() else END,
+                                  {"agent": "agent", END: END})
     return builder.compile()
