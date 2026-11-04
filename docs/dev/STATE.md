@@ -9,7 +9,7 @@
 - PH4-02A·B0·B1·B2(+MAINT-02)·B3-1은 PR #17·#18·#19·#20·#21로 통합됐다(B3-1 squash `00f6edc`).
 - PH4-02B3-2: KPG `mode=run`을 요청별 B2 Agent·ledger·`verify_evidence`에 연결하고, 검증된 결과만 `producer=agent_tool` receipt로
   한 network guard 안에서 원자 등록한다. legacy 채팅의 세션 gate 공유, provider timeout·실행 예산·단일 worker 단언까지 구현·로컬 검증 완료
-  (`feature/ph4-02b32-agent-run-api`, Draft PR 검토 대상). 실제 LLM smoke는 endpoint HTTP 502로 **미실행**이다.
+  (`feature/ph4-02b32-agent-run-api`, [Draft PR #22](https://github.com/GangHyeokLee/ai-ems-agent/pull/22) 검토 대상). 실제 LLM smoke는 endpoint HTTP 502로 **미실행**이다.
 - v1 capability(`console_analysis_context_versions`)는 여전히 어떤 계통에도 광고하지 않는다. 몽골·한국 OSM v1은 409로 거부하고 콘솔 UI는 바꾸지 않았다.
 - 실시간 브랜치·HEAD·커밋 여부·staged/unstaged/untracked 상태는 `dev_handoff.py` 출력으로 확인한다.
 - 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C(콘솔) 단계이며 자동 착수하지 않는다.
@@ -147,7 +147,7 @@
   Security 감시 ID null·Sensitivity top_n=5, 취소/timeout은 결과 미확정으로 다루고 같은 `request_id`를 자동 재시도하지 않는다.
 - C 이전/병행 확인: 실제 LLM smoke(고정 Tool·인자 준수, 지연)와 예산 재조정, 배포 환경의 지원 launcher·단일 worker. MN v1은 model identity가 별도로 필요하다.
 - 위 연결과 Chrome 회귀를 마친 뒤에만 `console_analysis_context_versions: [1]`을 광고한다.
-- B3-2는 base=`feature/kems-multi-grid`인 `feature/ph4-02b32-agent-run-api`·Draft PR로 검토한다. 상위 #14는 완료 처리하지 않으며 C는 자동 착수하지 않는다.
+- B3-2는 base=`feature/kems-multi-grid`인 `feature/ph4-02b32-agent-run-api`·Draft PR #22로 검토한다. 상위 #14는 완료 처리하지 않으며 C는 자동 착수하지 않는다.
 - 통합된 작업 브랜치(DOC-01, PH4-02A·B0·B1·B2·B3-1)는 이력 보존상 삭제 후보이며 실제 삭제와 PR/main 병합은 별도 승인 후 판단한다.
 - 다음 담당자는 `AGENTS.md`와 이 문서를 읽고 실시간 Git 상태와 기존 변경을 확인·보존한 뒤 지정된 범위만 수행한다.
 - 시작: `python3 scripts/dev_handoff.py`
