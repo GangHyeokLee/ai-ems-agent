@@ -4,7 +4,10 @@ from typing import Any
 
 import numpy as np
 
+from ai_ems.network_access import guarded_network
 
+
+@guarded_network
 def get_network_summary(network) -> dict[str, Any]:
     """Return a compact, JSON-serializable network summary."""
     voltage_levels = network.get_voltage_levels()
@@ -25,6 +28,7 @@ def get_network_summary(network) -> dict[str, Any]:
     }
 
 
+@guarded_network
 def list_lines(network, limit: int | None = None) -> list[dict[str, Any]]:
     """Return line identifiers and key endpoint/flow attributes."""
     lines = network.get_lines(all_attributes=True)
@@ -52,6 +56,7 @@ def list_lines(network, limit: int | None = None) -> list[dict[str, Any]]:
     ]
 
 
+@guarded_network
 def get_line(network, line_id: str) -> dict[str, Any]:
     """Return detailed information for one transmission line."""
     lines = network.get_lines(all_attributes=True)
@@ -90,6 +95,7 @@ def get_line(network, line_id: str) -> dict[str, Any]:
     )
 
 
+@guarded_network
 def list_generators(
     network,
     limit: int | None = None,

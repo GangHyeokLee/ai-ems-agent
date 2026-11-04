@@ -2,7 +2,10 @@ from typing import Any
 
 import pypowsybl as pp
 
+from ai_ems.network_access import guarded_network, identified_parameters, identified_provider
 
+
+@guarded_network
 def rank_generator_sensitivities(
     network,
     outage_line_id: str,
@@ -27,6 +30,7 @@ def rank_generator_sensitivities(
     return result
 
 
+@guarded_network
 def rank_generator_sensitivities_after_generator_outage(
     network,
     outage_generator_id: str,
@@ -112,7 +116,12 @@ def _rank_generator_sensitivities_after_contingency(
     )
 
     if loadflow_parameters is None:
-        result = analysis.run(network)
+        bound = identified_parameters(network, "sensitivity")
+        if bound is None:
+            result = analysis.run(network)
+        else:
+            result = analysis.run(network, parameters=bound,
+                                  provider=identified_provider(network, "sensitivity"))
     else:
         sensitivity_parameters = pp.sensitivity.Parameters(
             load_flow_parameters=loadflow_parameters,

@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+from tempfile import TemporaryDirectory
 from typing import Any
 
 import pypowsybl as pp
 
 from .utils.kpg_powsybl_adapter import load_kpg_network
+from .network_access import (
+    access_for, guarded_network, identified_parameters, identified_provider,
+)
 
 IMPORT_PARAMETERS = {
     "matpower.import.ignore-base-voltage": "false",
@@ -14,6 +19,12 @@ IMPORT_PARAMETERS = {
 LOADFLOW_PARAMETERS = pp.loadflow.Parameters(
     distributed_slack=False,
 )
+_SOURCE_ROOT = Path(__file__).parent
+# Capture the code identity of this loaded process, not a later on-disk edit.
+_CONVERSION_CODE = {
+    name: hashlib.sha256((_SOURCE_ROOT / name).read_bytes()).hexdigest()
+    for name in ("network.py", "utils/kpg_powsybl_adapter.py")
+}
 
 
 def load_network(case_path: str | Path):
@@ -36,6 +47,35 @@ def load_network(case_path: str | Path):
     )
 
 
+def load_identified_network(case_path: str | Path):
+    """Load the bytes we fingerprint, preserving basename-dependent conversion.
+
+    The original path may subsequently change; it is never re-read to assert
+    provenance of this object. The legacy/private loader remains unchanged.
+    """
+    path = Path(case_path).expanduser().resolve()
+    source = path.read_bytes()
+    full_kpg = path.name == "KPG193_ver2_0_powsybl_full.mat"
+    importer = ({"matpower.import.ignore-base-voltage": "false"}
+                if full_kpg else dict(IMPORT_PARAMETERS))
+    with TemporaryDirectory(prefix="ai-ems-model-") as directory:
+        frozen = Path(directory) / path.name
+        frozen.write_bytes(source)
+        network = load_network(frozen)
+    provenance = {
+        "source_sha256": hashlib.sha256(source).hexdigest(),
+        "loader": "kpg-full-matpower-v1" if full_kpg else "pypowsybl-import-v1",
+        "import_parameters": importer,
+        "conversion_code": dict(_CONVERSION_CODE),
+    }
+    # Runtime importer reconfiguration during a general load is unsupported.
+    if not full_kpg and importer != IMPORT_PARAMETERS:
+        provenance = {}
+    access_for(network).identify(provenance, LOADFLOW_PARAMETERS)
+    return network
+
+
+@guarded_network
 def run_ac_load_flow(
         network,
         *,
@@ -43,12 +83,19 @@ def run_ac_load_flow(
     ) -> dict[str, Any]:
     """Run AC load flow and return a JSON-serializable result summary."""
     effective_parameters = (
-        LOADFLOW_PARAMETERS if parameters is None else parameters
+        (identified_parameters(network, "loadflow") or LOADFLOW_PARAMETERS)
+        if parameters is None else parameters
     )
+    if parameters is not None and isinstance(network, pp.network.Network):
+        # The web line-analysis model binds its own exact defaults. An explicit
+        # library override still executes unchanged, but cannot reuse that identity.
+        access_for(network).invalidate_identity()
 
     result = pp.loadflow.run_ac(
         network,
         parameters=effective_parameters,
+        **({"provider": identified_provider(network, "loadflow")}
+           if identified_provider(network, "loadflow") else {}),
     )
 
     components = [
