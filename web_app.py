@@ -26,6 +26,7 @@ from ai_ems.kpg_pf_preview import (
     get_kpg_pf_preview,
     validate_kpg_pf_preview,
 )
+from ai_ems.analysis_context import VerifiedResult
 from ai_ems.network import load_identified_network
 from ai_ems.network_access import NetworkBusy, guarded
 from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph
@@ -501,16 +502,7 @@ def sensitivity_analysis(
         )
 
         if security_result["post_status"] != "CONVERGED":
-            return {
-                "analysis_status": "SECURITY_NOT_CONVERGED",
-                "outage_line_id": outage_line_id,
-                "monitored_line_id": None,
-                "candidate_count": 0,
-                "candidates": [],
-                "message": (
-                    "상정사고 분석이 수렴하지 않아 " "민감도 분석을 수행할 수 없습니다."
-                ),
-            }
+            return _sensitivity_not_evaluated_for_ui(outage_line_id, "SECURITY_NOT_CONVERGED")
 
         selected = select_most_severe_violated_line(
             network,
@@ -518,14 +510,7 @@ def sensitivity_analysis(
         )
 
         if selected is None:
-            return {
-                "outage_line_id": outage_line_id,
-                "monitored_line_id": None,
-                "candidate_count": 0,
-                "candidates": [],
-                "analysis_status": "NO_OVERLOAD",
-                "message": "과부하 선로가 확인되지 않아 민감도 분석 대상을 선택할 수 없습니다.",
-            }
+            return _sensitivity_not_evaluated_for_ui(outage_line_id, "NO_OVERLOAD")
 
         monitored_line_id = selected["equipment_id"]
 
@@ -870,17 +855,51 @@ def _agent_security_result_for_ui(
     }
 
 
+def _sensitivity_not_evaluated_for_ui(
+    outage_line_id: str,
+    status: str,
+) -> dict[str, Any]:
+    if status == "SECURITY_NOT_CONVERGED":
+        return {
+            "analysis_status": "SECURITY_NOT_CONVERGED",
+            "outage_line_id": outage_line_id,
+            "monitored_line_id": None,
+            "candidate_count": 0,
+            "candidates": [],
+            "message": (
+                "상정사고 분석이 수렴하지 않아 " "민감도 분석을 수행할 수 없습니다."
+            ),
+        }
+    if status == "NO_OVERLOAD":
+        return {
+            "outage_line_id": outage_line_id,
+            "monitored_line_id": None,
+            "candidate_count": 0,
+            "candidates": [],
+            "analysis_status": "NO_OVERLOAD",
+            "message": "과부하 선로가 확인되지 않아 민감도 분석 대상을 선택할 수 없습니다.",
+        }
+    raise ValueError(f"Unsupported sensitivity status: {status}")
+
+
 @guarded(lambda: network)
 def _sensitivity_result_for_ui(
     result: dict[str, Any],
 ) -> dict[str, Any]:
     generators = network.get_generators(all_attributes=True)
+    return _sensitivity_payload_for_ui(result, generators["voltage_level_id"])
+
+
+def _sensitivity_payload_for_ui(
+    result: dict[str, Any],
+    voltage_level_ids,
+) -> dict[str, Any]:
+    """Pure REST mapping from generator voltage levels captured with the result."""
     candidates = []
 
     for candidate in result.get("candidates", []):
         generator_id = candidate["generator_id"]
-        row = generators.loc[generator_id]
-        voltage_level_id = row["voltage_level_id"]
+        voltage_level_id = voltage_level_ids[generator_id]
         bus_id = _bus_number(voltage_level_id)
         location = bus_location_map.get(bus_id)
 
@@ -903,6 +922,27 @@ def _sensitivity_result_for_ui(
         "target_selection": result.get("target_selection"),
         "analysis_status": "COMPLETED",
     }
+
+
+def _kpg_line_analysis_payload(result: VerifiedResult) -> dict[str, Any]:
+    """PH4-02B2: REST canonical payload of one ledger-verified KPG v1 execution.
+
+    Pure projection of the sealed artifact through the existing REST mappers.
+    No engine call and no live-model read; not exposed by any API in B2.
+    """
+    artifact = result.artifact()
+    if result.grid_id != KPG_GRID_ID or artifact.get("grid_id") != KPG_GRID_ID:
+        raise ValueError("Not a KPG line-analysis result")
+    raw = artifact["result"]
+    if result.kind == "security":
+        return _security_result_for_ui(raw)
+    if result.kind != "sensitivity":
+        raise ValueError(f"Unsupported analysis kind: {result.kind}")
+    if raw["ranking"] is None:
+        return _sensitivity_not_evaluated_for_ui(result.outage_line_id, result.reason_code)
+    voltage_level_ids = {generator_id: metadata["voltage_level_id"]
+                         for generator_id, metadata in raw["generator_metadata"].items()}
+    return _sensitivity_payload_for_ui(raw["ranking"], voltage_level_ids)
 
 
 def _generator_contingency_result_for_ui(

@@ -6,45 +6,47 @@
 
 - Phase 3 완료. Phase 4의 PH4-01 AI 채팅 통합 구현·로컬 검증 완료.
 - DOC-01: 개발 규칙과 출처·해시를 갖춘 개발팀 키트/Artifact 참고 자료를 정리하여 통합 브랜치에 반영했다.
-- PH4-02A·B0는 PR #17·#18로 통합됐다. B1 모델 식별·per-object network guard 구현과 로컬 검증 완료.
-- B1 기반은 GO다. 최초 AC는 초기 revision을 무효화하는 보수적 정책이며 자동 준비 계산은 없다.
-- v1 API·receipt registry·full artifact/ledger·콘솔 연동은 미구현이다. v1 capability는 계속 비활성이다.
+- PH4-02A·B0·B1은 PR #17·#18·#19로 통합됐다. B2 KPG full artifact·요청별 실행 ledger·서버 검증 구현과 로컬 검증 완료(Draft PR 검토 대상).
+- B2 진입점은 API에 연결하지 않았다. ChatRequest 확장·receipt registry·분석 문맥 API·콘솔 연동은 미구현이며 v1 capability는 계속 비활성이다.
+- 통합 기준 `6a4df5e`에서 이미 `tests/test_mn_pipeline.py` 2개가 실패한다. B1의 `web_app.py` 변경이 PH4-01 해시 고정과 맞지 않기 때문이며
+  (B0 트리 사본에서는 통과) B2는 해시 기록·테스트를 바꾸지 않았다. 별도 승인 작업이 필요하다.
 - 실시간 브랜치·HEAD·커밋 여부·staged/unstaged/untracked 상태는 `dev_handoff.py` 출력으로 확인한다.
-- 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 B(서버)·C(콘솔) 단계다.
+- 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 B3(서버 계약)·C(콘솔) 단계다.
 
-## 최근 완료 작업
+## 최근 완료 작업: PH4-02B2
 
-- `network.load_identified_network`로 실제 로드 bytes·변환 코드·engine build를 provenance에 결합했다.
-  `network_access.py`는 full working snapshot·연산별 실제 설정·로드 generation으로 revision을 계산한다.
-- 공유 KPG REST·map/조회·metadata mapper·Agent/direct Tool·별도 physics 객체를 같은 객체의 RLock으로 보호한다.
-  chat handler/LLM 대기는 감싸지 않으며 MN·private 모델 계산의 독립성을 유지한다.
-- 최초 AC·모델/설정/variant/재로드 변화는 과거 revision을 사용할 수 없게 한다. snapshot 식별 실패는 fail-closed다.
-  명시적 Python LF override는 legacy 계산을 유지하되 고정 설정 identity를 닫는다(재로드 필요).
-- `docs/specs/PH4-02B1_MODEL_NETWORK_GUARD.md`에 경계·준비 상태 정책·검증·다음 조건을 기록했다.
-- UI·데이터·기존 테스트·과거 검증 해시는 변경하지 않았다. B2/B3 구현은 시작하지 않았다.
+- `src/ai_ems/analysis_context.py`(신규): frozen `AnalysisJob`(KPG만, operation·고정 사고/감시), 요청별 `ExecutionLedger`
+  (authorized→started→succeeded/failed, 봉인 artifact SHA256·실행 전후 revision), ToolNode 전 guard 거부 코드, `verify_evidence`.
+- `agent/tools.py`: legacy 축약을 순수 `summarize_line_contingency`로 추출(반환 동일). v1 전용 `create_line_analysis_tools`는 legacy와 같은
+  이름·schema로 인가된 ToolCall만 1회 계산하고 축약 content와 같은 계산의 full artifact를 함께 반환한다.
+- `agent/graph.py`: `create_line_analysis_graph`(요청별 closure·model 주입·저장하지 않는 일시 job 문맥·guard·서버가 chain 계속 판단).
+  legacy graph는 기본 모델 생성 `_chat_model` 추출만 바뀌었다.
+- `web_app.py`: 미평가 민감도 REST dict와 민감도 mapper의 순수 부분을 분리(응답 바이트 동일), 검증 결과→REST canonical `_kpg_line_analysis_payload`.
+- 실행 전후 revision을 같은 engine guard에서 캡처한다. 변화·식별 불가·chain 단계 간 불일치·검증 시점 변화는 승인하지 않으며 자동 준비·재실행은 없다.
+- 상세: `docs/specs/PH4-02B2_AGENT_ARTIFACT_LEDGER.md`. UI·데이터·기존 테스트·검증 해시는 바꾸지 않았다. B3 구현은 시작하지 않았다.
 
-## PH4-02B1 실제 검증
+## PH4-02B2 실제 검증
 
-- 신규 22개 + 기존 관련 95개: **117 passed, 1 warning (7.03s)**.
-- 통합 기준 코드의 격리 복사본과 기존 REST/Tool 15개 전체 출력·schema가 동일했다.
-- full KPG/IEEE14 변경 감지, 14종 full KPG 테이블 XML round-trip, 실제 계산 설정 전달,
-  RLock 재진입·양방향 REST/ToolNode 경합·자동 민감도 전체 경계·예외 복구·HTTP 취소 후 worker 잠금 유지·MN 분리를 확인했다.
-- 최초 신규 검증 3 failed/14 passed는 객체 수명·XML 행 순서·지연된 ASGI 취소 확인 순서를 수정했다.
-  export 옵션 보완 중 12 failed/105 passed는 SDK의 inclusion/exclusion 상호배타 조건을 코드에서 수정했다. 로그 모두 보존한다.
-- 테스트별 40~45초, 전체 300초+kill 10초 제한. 실제 LLM·Chrome·운영환경 검증은 수행하지 않았다.
-  최종 경고는 설치 Starlette/AnyIO deprecation이다.
-- 로그·격리 비교 코드/JSON: `.local/ph4-02b1/20261104-143915/`. `git diff --check` 통과. 범위 외 기존 파일 331개(기존 테스트·검증 기록·로컬 Artifact 포함)의 SHA256 보존을 확인했다.
+- 신규 61개: **61 passed, 1 warning (12.91s)**. 최초 60개 버전은 60 passed(13.64s), 이후 상태 쓰기 기준 귀속 시험 1개를 추가했다.
+- 신규 + 기존 관련 18개 파일: **298 passed, 1 warning (21.65s)**.
+- 전체 비브라우저: 변경 전 통합 기준 **2 failed, 707 passed, 103 skipped (51.14s)**, 최종 **2 failed, 768 passed, 103 skipped (62.28s)**.
+  실패 2개는 같은 기존 PH4-01 해시 assertion이다. 경고 1개는 설치 Starlette/AnyIO deprecation이다.
+- 통합 기준 트리의 격리 사본과 B2에서 기존 REST/Tool/legacy 채팅 33개 출력 동일(SHA256 `7e10e21c…`), 리팩터링한 REST 원문 바이트 동일.
+- 격리 복사본 변이 14/14 검출. 모델만 scripted, Tool은 실제 full KPG·MN 계산. 실제 LLM·Chrome·운영 서버는 사용하지 않았다.
+- 제한: 신규 테스트별 45초 faulthandler+40초 SIGALRM, 명령 300초; 전체 비브라우저 테스트별 120초, 명령 900~1500초(+kill).
+- 로그·probe·변이 결과: `.local/ph4-02b2/20261104-153953/`. `git diff --check`와 범위 외 기존 파일 SHA256 보존을 확인했다.
+
+## 보존된 검증: PH4-02B1 (이번 실행 결과 아님)
+
+- 신규 22개 + 기존 관련 95개: **117 passed, 1 warning (7.03s)**. 통합 기준 사본과 기존 REST/Tool 15개 출력·schema 동일.
+- 최초 3 failed/14 passed와 export 옵션 보완 중 12 failed/105 passed는 원인 수정 후 로그를 보존했다. 실제 LLM·Chrome 미검증.
+- 증거: `.local/ph4-02b1/20261104-143915/`. 당시 회귀 범위에 `tests/test_mn_pipeline.py`는 없었다.
 
 ## 보존된 검증: PH4-02B0 (이번 실행 결과 아님)
 
-- 격리 feasibility: **8 passed (1.55s)**. 같은 Security 실행 1회에서 위반 9개를 artifact/canonical로 보존했다.
-- 기존 관련 계약: **20 passed, 1 warning (1.72s)**. legacy 채팅/REST, mapper, LF 설정, 발전기 비교, MN 잘못된 근거 거부.
-- 초기 probe 4 failed/4 passed, 중간 harness 3 failed/5 passed를 보존했다. caseDate 가정·ToolNode runtime/message 선택을 수정했다.
-- 기존 테스트 sandbox 실행은 180초 제한(exit 124)으로 종료했다. 동일 테스트는 제한 밖에서 위 결과로 통과했다.
-  원인을 특정 syscall로 확정하지 않는다. 최종 경고는 설치 Starlette의 AnyIO deprecation이다.
-- 각 테스트 40초, 전체 명령 180초+kill 10초 제한. 실제 LLM·외부 서비스·Chrome 검증은 수행하지 않았다.
-- 증거: `.local/ph4-02b0/20261104-140557/`의 최종/초기 로그·검증 코드·observations/runtime JSON.
-- `git diff --check`와 허용 문서 외 기존 파일/로컬 Artifact 해시 보존을 확인한다. B/C 기능은 이번 검증 범위가 아니다.
+- 격리 feasibility **8 passed (1.55s)**, 기존 관련 계약 **20 passed, 1 warning (1.72s)**. 초기 4 failed/4 passed, 중간 3 failed/5 passed 보존.
+- 기존 테스트 sandbox 실행은 180초 제한(exit 124)으로 종료했고 제한 밖에서 통과했다. 원인을 특정 syscall로 확정하지 않는다.
+- 증거: `.local/ph4-02b0/20261104-140557/`. 각 테스트 40초, 전체 180초+kill 10초 제한. 실제 LLM·Chrome 미검증.
 
 ### PH4-01 기능 요약
 
@@ -111,9 +113,11 @@
 
 ## 주요 주의 사항과 보존 기록
 
-- PH4-01 당시 원본 UI·모델/데이터·Agent와 Stage 1·3C·Phase 2·3 기록을 보존했다. B1은 서버/Tool 경계만 변경한다.
+- PH4-01 당시 원본 UI·모델/데이터·Agent와 Stage 1·3C·Phase 2·3 기록을 보존했다. B1은 서버/Tool 경계만,
+  B2는 v1 Tool wrapper·검증 모듈·`web_app.py` 순수 mapper 분리와 canonical 변환만 변경한다.
 - PH4-01의 `docs/validation/kems-console-phase4-code-hashes.json`은 당시 allowlist 변경을 고정한다.
   원래 Stage 1 계약의 실패를 성공으로 바꾸지 않으며 변조 검사는 임시 복사본에서만 수행했다.
+  현재 `web_app.py`는 B1(`a3d46cd0…`)·B2(`5a7abf5c…`) 변경으로 그 고정(`6628d110…`)과 달라 기존 실패 2개가 남아 있다. 고정값을 덮어쓰지 않는다.
 - PH4-01 실제 LLM 연결·응답 품질은 미검증이다. Stage 3C 외부 LLM 502/503 실패 기록도 유지한다.
   Issue #11의 2026-10-22 사용자 Ollama 성공 기록과는 검증 환경·시점·범위를 구분한다.
 - 대화는 페이지 메모리에만 보존된다. 초기화는 새 세션을 시작하며 기존 서버 세션 정리 정책은 바꾸지 않았다.
@@ -121,12 +125,15 @@
 
 ## 다음 작업과 다음 담당자에게
 
-- B2는 별도 요청으로 진행한다. B1의 같은 owner 경계에서 전후 revision을 확인하고, 상태가 바뀐 실행을 기존 상태의 receipt로 등록하지 않는다.
-- 현재 job full artifact/ledger·분석 문맥/receipt·세션 동시성과 단일 worker/timeout 전제를 연결·검증한 뒤에만 v1을 광고한다.
-- B의 검증 후 PH4-02C: snapshot/receipt·검증 후 UI commit과 결정론적 Chrome 회귀를 연결한다.
-- 실제 LLM smoke는 별도 허용 범위에서 수행한다. timeout 예산·단일 worker 운영 전제도 실제 환경에서 확인해야 한다.
-- B1은 base=`feature/kems-multi-grid`인 별도 작업 브랜치·Draft PR로 검토한다. 상위 #14는 완료 처리하지 않으며 B/C는 자동 착수하지 않는다.
-- 두 완료 브랜치는 이력 보존상 삭제 후보이며 실제 삭제와 PR/main 병합은 별도 승인 후 판단한다.
+- B3는 별도 요청으로 진행한다. ChatRequest optional 필드·receipt registry·세션/중복 잠금·v1 envelope을 구현하고,
+  B2의 job/ledger/`verify_evidence`/`_kpg_line_analysis_payload`를 쓴다. publish 직전 network guard 안에서 현재 revision을 다시 캡처하고
+  검증 결과만 registry에 복사한다. graph가 생성한 메시지만 검증에 넘긴다.
+- B3 선행 결정: 새로 로드한 KPG에서 AC를 쓰는 첫 실행이 `MODEL_REVISION_CHANGED`인 문제의 안내/준비 정책, Security operation의 감시 ID 매핑,
+  provider timeout·graph 예산·단일 worker 명시, MN model identity와 MN job 연결. 실제 LLM smoke로 guard 엄격성(1회 호출·정확한 인자)을 확인한다.
+- PH4-01 해시 고정 실패는 새 PH4-02 코드 변경 기록(PH4-01 `after`→현재 bytes)과 체인 테스트 확장으로 해결해야 하며 별도 승인 후 수행한다.
+- 서버 계약·분석 문맥/receipt·세션 동시성과 단일 worker/timeout 전제를 연결·검증한 뒤에만 v1을 광고한다. 그 후 PH4-02C에서 UI commit과 Chrome 회귀를 연결한다.
+- B2는 base=`feature/kems-multi-grid`인 별도 작업 브랜치·Draft PR로 검토한다. 상위 #14는 완료 처리하지 않으며 B3/C는 자동 착수하지 않는다.
+- 통합된 작업 브랜치(DOC-01, PH4-02A·B0·B1)는 이력 보존상 삭제 후보이며 실제 삭제와 PR/main 병합은 별도 승인 후 판단한다.
 - 다음 담당자는 `AGENTS.md`와 이 문서를 읽고 실시간 Git 상태와 기존 변경을 확인·보존한 뒤 지정된 범위만 수행한다.
 - 시작: `python3 scripts/dev_handoff.py`
 - 종료: 이 문서를 갱신한 후 `python3 scripts/dev_handoff.py --write`
