@@ -26,7 +26,8 @@ from ai_ems.kpg_pf_preview import (
     get_kpg_pf_preview,
     validate_kpg_pf_preview,
 )
-from ai_ems import load_network
+from ai_ems.network import load_identified_network
+from ai_ems.network_access import NetworkBusy, guarded
 from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph
 from ai_ems.agent.mongolia_graph import (
     MONGOLIA_SYSTEM_PROMPT,
@@ -76,7 +77,7 @@ MONGOLIA_DISPLAY_GEOMETRY_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-d
 KPG_GEOGRAPHY_FILE = PROJECT_ROOT / "data" / "grids" / "kr-geography.json"
 _mongolia_bundle_runtime = MongoliaBundleRuntime(MONGOLIA_BUNDLE_DIR, MONGOLIA_BUNDLE_MANIFEST_SHA256)
 
-network = load_network(CASE_FILE)
+network = load_identified_network(CASE_FILE)
 agent_graph = create_agent_graph(network)
 direct_agent_tools = {
     tool.name: tool
@@ -139,6 +140,11 @@ async def _lifespan(app):
 
 
 app = FastAPI(title="AI-EMS Agent", lifespan=_lifespan)
+
+
+@app.exception_handler(NetworkBusy)
+async def _network_busy(request, exc):
+    return JSONResponse(status_code=409, content={"detail": "ANALYSIS_BUSY"})
 
 
 @app.middleware("http")
@@ -349,6 +355,7 @@ def kpg_pf_preview():
 
 
 @app.get("/api/network-summary")
+@guarded(lambda: network)
 def network_summary():
     return {
         "buses": len(network.get_buses()),
@@ -359,6 +366,7 @@ def network_summary():
 
 
 @app.get("/api/network-map")
+@guarded(lambda: network)
 def network_map():
     buses = []
     voltage_levels = network.get_voltage_levels()
@@ -459,6 +467,7 @@ def network_map():
 
 
 @app.get("/api/security-analysis")
+@guarded(lambda: network)
 def security_analysis(
     outage_line_id: str,
     monitored_line_id: str | None = None,
@@ -477,6 +486,7 @@ def security_analysis(
 
 
 @app.get("/api/sensitivity-analysis")
+@guarded(lambda: network)
 def sensitivity_analysis(
     outage_line_id: str,
     monitored_line_id: str | None = None,
@@ -599,6 +609,8 @@ def chat(request: ChatRequest, grid_id: str = KPG_GRID_ID):
                 "messages": input_messages,
             }
         )
+    except NetworkBusy:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=500,
@@ -858,6 +870,7 @@ def _agent_security_result_for_ui(
     }
 
 
+@guarded(lambda: network)
 def _sensitivity_result_for_ui(
     result: dict[str, Any],
 ) -> dict[str, Any]:

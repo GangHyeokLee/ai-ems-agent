@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Depends
+from ai_ems.network_access import guarded
 from typing import Literal
 
 from ai_ems.api.adapters import (
@@ -56,6 +57,7 @@ def create_physics_router(
         "/security-analysis",
         response_model=SecurityAnalysisResponse,
     )
+    @guarded(lambda: network)
     def security_analysis(
         request: SecurityAnalysisRequest,
     ):
@@ -83,6 +85,7 @@ def create_physics_router(
         "/sensitivity-analysis",
         response_model=SensitivityAnalysisResponse,
     )
+    @guarded(lambda: network)
     def sensitivity_analysis(
         request: SensitivityAnalysisRequest,
     ):

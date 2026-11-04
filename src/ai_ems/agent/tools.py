@@ -4,6 +4,7 @@ from typing import Any, Literal
 from langchain_core.tools import tool
 
 from ai_ems.config import CASE_FILE
+from ai_ems.network_access import guarded
 from ai_ems.tools.control_tools import validate_balanced_redispatch
 from ai_ems.tools.network_tools import get_line, get_network_summary, list_generators, list_lines
 from ai_ems.tools.security_tools import get_limit_unit, run_line_contingency, select_most_severe_violated_line, select_primary_violation
@@ -48,26 +49,31 @@ def create_agent_tools(network, case_path: str | Path = CASE_FILE):
         }
 
     @tool
+    @guarded(lambda: network)
     def network_summary() -> dict[str, Any]:
         """Get a summary of the current power network."""
         return get_network_summary(network)
 
     @tool
+    @guarded(lambda: network)
     def line_list(limit: int = 10) -> list[dict[str, Any]]:
         """List transmission lines in the current power network."""
         return list_lines(network, limit=limit)
 
     @tool
+    @guarded(lambda: network)
     def line_detail(line_id: str) -> dict[str, Any]:
         """Get detailed information for one transmission line."""
         return get_line(network, line_id)
 
     @tool
+    @guarded(lambda: network)
     def generator_list(limit: int = 10, connected_only: bool = True) -> list[dict[str, Any]]:
         """List generators in the current power network."""
         return list_generators(network, limit=limit, connected_only=connected_only)
 
     @tool
+    @guarded(lambda: network)
     def line_contingency(outage_line_id: str, monitored_line_id: str | None = None) -> dict[str, Any]:
         """Analyze a transmission line outage and optionally monitor one line."""
         monitored_line_ids = [monitored_line_id] if monitored_line_id is not None else None
@@ -139,6 +145,7 @@ def create_agent_tools(network, case_path: str | Path = CASE_FILE):
         )
 
     @tool
+    @guarded(lambda: network)
     def generator_sensitivity(outage_line_id: str, monitored_line_id: str | None = None, top_n: int = 5) -> dict[str, Any]:
         """Rank generators by post-contingency branch-flow sensitivity."""
         auto_selected = monitored_line_id is None

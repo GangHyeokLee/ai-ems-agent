@@ -6,6 +6,8 @@ from typing import Any
 
 import pypowsybl as pp
 
+from ai_ems.network_access import guarded_network
+
 from ai_ems.network import (
     LOADFLOW_PARAMETERS,
     load_network,
@@ -15,6 +17,7 @@ from ai_ems.tools.security_tools import run_line_contingency
 from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
 
 
+@guarded_network
 def generate_redispatch_candidates(
     network,
     outage_line_id: str,
