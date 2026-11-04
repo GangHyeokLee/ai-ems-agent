@@ -1,0 +1,600 @@
+{
+  "contract": "console-analysis-context-v1",
+  "stage": "PH4-02A design only",
+  "runtime_implemented": false,
+  "spec": "../CONSOLE_ANALYSIS_CONTEXT_SPEC.md",
+  "issue": 14,
+  "note": "UUIDs are illustrative control identifiers, not server-issued proof. No physical result values are asserted here. Cases become executable API/Chrome tests in PH4-02B/C.",
+  "limits": {
+    "registry_capacity": 256,
+    "registry_ttl_seconds": 600,
+    "idempotency_window_seconds": 600,
+    "sensitivity_top_n": 5,
+    "supported_workers": 1
+  },
+  "request_examples": [
+    {
+      "id": "legacy-kpg",
+      "url": "/api/chat",
+      "payload": {
+        "session_id": "legacy-example",
+        "message": "안녕하세요"
+      }
+    },
+    {
+      "id": "legacy-mn",
+      "url": "/api/grids/mn-osm-35k/chat",
+      "payload": {
+        "session_id": "legacy-example",
+        "message": "계통 요약을 알려줘"
+      }
+    },
+    {
+      "id": "mn-run",
+      "url": "/api/grids/mn-osm-35k/chat",
+      "payload": {
+        "session_id": "console-example-mn",
+        "message": "선택한 선로의 N-1과 후속 민감도를 실행해 줘.",
+        "grid_id": "mn-osm-35k",
+        "request_id": "10000000-0000-4000-8000-000000000001",
+        "analysis_context": {
+          "version": 1,
+          "view_id": "20000000-0000-4000-8000-000000000001",
+          "revision": 7,
+          "mode": "run",
+          "operation": "security_then_sensitivity",
+          "outage_line_id": "751261406-1_0",
+          "monitored_line_id": null,
+          "references": {
+            "security": null,
+            "sensitivity": null
+          }
+        }
+      }
+    },
+    {
+      "id": "kpg-reference",
+      "url": "/api/grids/kr-kpg193/chat",
+      "payload": {
+        "session_id": "console-example-kpg",
+        "message": "기존 결과를 설명해 줘.",
+        "grid_id": "kr-kpg193",
+        "request_id": "10000000-0000-4000-8000-000000000002",
+        "analysis_context": {
+          "version": 1,
+          "view_id": "20000000-0000-4000-8000-000000000001",
+          "revision": 3,
+          "mode": "reference",
+          "operation": "security",
+          "outage_line_id": "LINE-16-28",
+          "monitored_line_id": null,
+          "references": {
+            "security": "40000000-0000-4000-8000-000000000001",
+            "sensitivity": null
+          }
+        }
+      }
+    }
+  ],
+  "acceptance_cases": [
+    {
+      "id": "B-01",
+      "phase": "B",
+      "requirements": [
+        2,
+        8
+      ],
+      "scenario": "旧 clients omit optional context/request ID",
+      "expected": {
+        "legacy_response_shape": "unchanged, no new null fields",
+        "history": "existing grid store"
+      },
+      "variants": [
+        "POST /api/chat returns exactly session_id/answer/ui_updates",
+        "MN grid URL with omitted body grid resolves to MN"
+      ]
+    },
+    {
+      "id": "B-02",
+      "phase": "B",
+      "requirements": [
+        1,
+        2,
+        4
+      ],
+      "scenario": "Invalid or partial opt-in request rejected before execution",
+      "expected": {
+        "http": 422,
+        "llm_calls": 0,
+        "domain_calls": 0
+      },
+      "variants": [
+        "context without request_id",
+        "request_id without context",
+        "version unsupported",
+        "boolean/string/fraction revision",
+        "unknown nested field including client values/verified",
+        "invalid UUID, blank/overlong line ID"
+      ]
+    },
+    {
+      "id": "B-03",
+      "phase": "B",
+      "requirements": [
+        2,
+        7
+      ],
+      "scenario": "Protocol advertised only when complete server trust path is available",
+      "expected": {
+        "missing_or_empty_versions": "no v1 client request",
+        "old_server_ack_missing": "reject; no legacy resend"
+      }
+    },
+    {
+      "id": "B-04",
+      "phase": "B",
+      "requirements": [
+        4,
+        7
+      ],
+      "scenario": "Wrong grid or unsupported operation",
+      "expected": {
+        "grid_mismatch_http": 409,
+        "korea_http": 409,
+        "unknown_grid_http": 404,
+        "llm_calls": 0,
+        "domain_calls": 0
+      },
+      "variants": [
+        "URL/body mismatch",
+        "Korea direct request",
+        "false or missing operation capability"
+      ]
+    },
+    {
+      "id": "B-05",
+      "phase": "B",
+      "requirements": [
+        2,
+        3,
+        4
+      ],
+      "scenario": "Manual analysis opts in with all receipt headers",
+      "expected": {
+        "legacy_flat_payload": "preserved",
+        "receipt": "server-created and owner/model-bound",
+        "partial_headers_http": 422,
+        "registration": "after actual validated result"
+      }
+    },
+    {
+      "id": "B-06",
+      "phase": "B",
+      "requirements": [
+        3,
+        4
+      ],
+      "scenario": "Reference a live matching registry result",
+      "expected": {
+        "analysis_status": "referenced",
+        "analysis_source": "server_reference",
+        "new_llm_calls": 0,
+        "new_domain_calls": 0,
+        "ui_updates": [],
+        "receipt": "original producer ID/time retained"
+      }
+    },
+    {
+      "id": "B-07",
+      "phase": "B",
+      "requirements": [
+        3,
+        4,
+        7
+      ],
+      "scenario": "Reference identity or conditions differ",
+      "expected": {
+        "http": 409,
+        "error_code": "ANALYSIS_REFERENCE_UNAVAILABLE",
+        "llm_calls": 0,
+        "domain_calls": 0
+      },
+      "variants": [
+        "unknown UUID",
+        "other session",
+        "other grid",
+        "wrong kind",
+        "other outage",
+        "explicit monitored mismatch",
+        "different top_n"
+      ]
+    },
+    {
+      "id": "B-08",
+      "phase": "B",
+      "requirements": [
+        3,
+        4,
+        5
+      ],
+      "scenario": "Reference lifetime and active model change",
+      "expected": {
+        "missing_or_expired": "409 ANALYSIS_REFERENCE_UNAVAILABLE",
+        "model_changed": "409 ANALYSIS_REFERENCE_STALE",
+        "automatic_rerun": false
+      },
+      "variants": [
+        "TTL expired",
+        "capacity eviction",
+        "process restarted",
+        "model changed before/after computation"
+      ]
+    },
+    {
+      "id": "B-09",
+      "phase": "B",
+      "requirements": [
+        3,
+        4,
+        6
+      ],
+      "scenario": "KPG has more than one actual violated equipment",
+      "expected": {
+        "artifact": "full result of the same single calculation",
+        "canonical_count_and_list": "consistent",
+        "legacy_content": "representative summary preserved",
+        "extra_calculation_for_projection": 0
+      }
+    },
+    {
+      "id": "B-10",
+      "phase": "B",
+      "requirements": [
+        4,
+        6
+      ],
+      "scenario": "Provenance is malformed or fabricated",
+      "expected": {
+        "trusted_results": 0,
+        "ui_updates": [],
+        "success_claim": false
+      },
+      "variants": [
+        "unpaired ToolMessage",
+        "wrong tool name or call ID",
+        "wrong grid/outage in artifact",
+        "content-only fabricated payload",
+        "missing current job execution ledger",
+        "ToolMessage status=error"
+      ]
+    },
+    {
+      "id": "B-11",
+      "phase": "B",
+      "requirements": [
+        3,
+        4
+      ],
+      "scenario": "Model claims success but no required Tool ran",
+      "expected": {
+        "analysis_status": "not_run",
+        "analysis_source": "none",
+        "results": [],
+        "ui_updates": [],
+        "answer": "deterministic no-execution notice"
+      }
+    },
+    {
+      "id": "B-12",
+      "phase": "B",
+      "requirements": [
+        1,
+        4
+      ],
+      "scenario": "Model arguments conflict with frozen operation",
+      "expected": {
+        "conflicting_domain_calls": 0,
+        "ui_updates": [],
+        "success_claim": false
+      },
+      "variants": [
+        "other outage",
+        "explicit monitored changed",
+        "auto selection replaced by model-picked line",
+        "top_n not 5",
+        "unsupported tool or sequence",
+        "multiple analysis Tool calls in the same AI turn"
+      ]
+    },
+    {
+      "id": "B-13",
+      "phase": "B",
+      "requirements": [
+        3,
+        4,
+        6
+      ],
+      "scenario": "Second step of a requested chain fails",
+      "expected": {
+        "ui_updates": [],
+        "partial_overlay_commit": false,
+        "success_claim": false,
+        "prior_analysis": "preserved with failure notice"
+      }
+    },
+    {
+      "id": "B-14",
+      "phase": "B",
+      "requirements": [
+        4,
+        7
+      ],
+      "scenario": "Real domain reports unavailable or unevaluated analysis",
+      "expected": {
+        "fake_candidates": 0,
+        "success_or_secure_claim": false,
+        "pf_only_chat": "still available when permitted",
+        "chain_early_termination": "only actual Security receipt/update, not_evaluated and reason_code; no invented Sensitivity receipt"
+      },
+      "variants": [
+        "MN islanding 11 buses / NOT_EVALUATED_ISLANDING",
+        "nonconverged PF",
+        "KPG NO_OVERLOAD only if actual canonical domain path provides it",
+        "MN sensitivity self-check disabled"
+      ]
+    },
+    {
+      "id": "B-15",
+      "phase": "B",
+      "requirements": [
+        3,
+        4,
+        7
+      ],
+      "scenario": "MN explicit v1 line rerun versus unsupported state modification",
+      "expected": {
+        "line_rerun": "allowed through validated line-only Tool gate",
+        "unsupported_requests": "blocked",
+        "legacy_routing": "preserved"
+      },
+      "variants": [
+        "line N-1 followed by 다시 계산",
+        "generator outage",
+        "OPF/Redispatch",
+        "load or generator output change"
+      ]
+    },
+    {
+      "id": "B-16",
+      "phase": "B",
+      "requirements": [
+        5
+      ],
+      "scenario": "Session and request idempotency under overlap",
+      "expected": {
+        "same_pending_id": "409 REQUEST_IN_PROGRESS",
+        "different_pending_id_same_session": "409 SESSION_BUSY",
+        "completed_same_id_same_input": "cached identical envelope in supported window",
+        "same_id_different_input": "409 REQUEST_ID_REUSE",
+        "cross_grid_history": "isolated"
+      }
+    },
+    {
+      "id": "B-17",
+      "phase": "B",
+      "requirements": [
+        4,
+        5
+      ],
+      "scenario": "Manual API and Tool share KPG network concurrently",
+      "expected": {
+        "engine_overlap": "prevented by common reentrant boundary",
+        "llm_wait_holds_engine_lock": false,
+        "lock_busy": "409 ANALYSIS_BUSY",
+        "MN_analysis": "retains request-local network",
+        "baseline_numeric_results": "unchanged"
+      }
+    },
+    {
+      "id": "B-18",
+      "phase": "B",
+      "requirements": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "scenario": "Successful v1 envelope is built from validated server results",
+      "expected": {
+        "context_echo": "exact frozen request, including requested auto=null",
+        "result_ids": "match allowed updates and current job",
+        "producer_request_id": "original request for reference, current request for run",
+        "unknown_update_types": "rejected"
+      }
+    },
+    {
+      "id": "C-01",
+      "phase": "C",
+      "requirements": [
+        1,
+        5
+      ],
+      "scenario": "Capture selection at submit, then mutate UI selection",
+      "expected": {
+        "sent_snapshot": "immutable old scalar IDs and receipt IDs only",
+        "new_context": "different revision",
+        "old_response_application": false
+      },
+      "variants": [
+        "outage selection",
+        "explicit/auto monitored selection"
+      ]
+    },
+    {
+      "id": "C-02",
+      "phase": "C",
+      "requirements": [
+        1,
+        5,
+        6
+      ],
+      "scenario": "Late success/failure arrives after semantic change",
+      "expected": {
+        "assistant_message_applied": false,
+        "map_or_panel_changed_by_old_response": false
+      },
+      "variants": [
+        "grid switch and return",
+        "view reload",
+        "new manual run start/commit",
+        "outage/monitored change",
+        "clear analysis",
+        "chat reset",
+        "timeout",
+        "transport ignores Abort",
+        "analysis mode/operation change"
+      ]
+    },
+    {
+      "id": "C-03",
+      "phase": "C",
+      "requirements": [
+        4,
+        5,
+        6
+      ],
+      "scenario": "Bundle contains an invalid update after a valid first item",
+      "expected": {
+        "partial_dom_or_state_commit": false,
+        "error_visible": true
+      },
+      "variants": [
+        "unknown type",
+        "duplicate kind",
+        "wrong grid/session/request/result ID",
+        "invalid canonical numbers/counts",
+        "mismatched chain"
+      ]
+    },
+    {
+      "id": "C-04",
+      "phase": "C",
+      "requirements": [
+        3,
+        5
+      ],
+      "scenario": "Reset chat while manual result remains visible or pending",
+      "expected": {
+        "visible_manual_vm": "preserved if original manual seq stays current",
+        "old_session_receipt": "not reusable",
+        "automatic_reference_rebind_or_rerun": false
+      }
+    },
+    {
+      "id": "C-05",
+      "phase": "C",
+      "requirements": [
+        4,
+        6,
+        7
+      ],
+      "scenario": "Apply canonical KPG/MN result through existing per-grid validators",
+      "expected": {
+        "different_schemas": "kept per grid",
+        "unmapped_equipment": "not guessed onto map",
+        "security_only": "clears old sensitivity",
+        "sensitivity_only": "requires matching security/model",
+        "island_or_nonconverged": "clears old candidates without fabricating result",
+        "sensitivity_only_control": "disabled without a matching Security receipt; offer chain explicitly"
+      }
+    },
+    {
+      "id": "C-06",
+      "phase": "C",
+      "requirements": [
+        1,
+        5,
+        6
+      ],
+      "scenario": "Accept own valid response without invalidating its session",
+      "expected": {
+        "prepare": "pure and complete",
+        "pending": "completed before revision-changing commit",
+        "commit": "one synchronous state transition",
+        "draft_panel_zoom": "preserved",
+        "display_only_changes": "do not increment analysis revision"
+      }
+    },
+    {
+      "id": "C-07",
+      "phase": "C",
+      "requirements": [
+        3,
+        5,
+        6
+      ],
+      "scenario": "Restore prior messages or use expired result",
+      "expected": {
+        "history_restoration": "text only",
+        "old_ui_updates_replayed": false,
+        "reference_failure": "visible; no hidden computation"
+      }
+    },
+    {
+      "id": "C-08",
+      "phase": "C",
+      "requirements": [
+        2,
+        7
+      ],
+      "scenario": "Legacy server or Korea selected in console",
+      "expected": {
+        "korea_chat_or_analysis_calls": 0,
+        "unsupported_protocol_requests": 0,
+        "fallback_to_other_grid": false,
+        "legacy_basic_chat": "continues using old contract"
+      }
+    },
+    {
+      "id": "C-09",
+      "phase": "C",
+      "requirements": [
+        3,
+        4,
+        6
+      ],
+      "scenario": "Render outcome provenance and safety boundaries",
+      "expected": {
+        "reference": "old calculation clearly labelled",
+        "run": "new verified execution labelled",
+        "llm_free_text_as_evidence": false,
+        "rendering": "text only",
+        "not_evaluated": "no candidate ranking or secure claim"
+      }
+    },
+    {
+      "id": "C-10",
+      "phase": "C",
+      "requirements": [
+        7,
+        8
+      ],
+      "scenario": "Preserve existing regressions and separate actual model validation",
+      "expected": {
+        "existing_tests": "Phase 3 / PH4-01 / legacy UI assertions retained",
+        "mock": "scripted choice with actual service outputs",
+        "real_llm": "separate allowed smoke, failure/unperformed recorded",
+        "timeouts": "per test/server/HTTP/Chrome explicit",
+        "mutations": "isolated copies only"
+      }
+    }
+  ],
+  "existing_regressions": [
+    "tests/test_chat_ui_updates.py",
+    "tests/test_mongolia_analysis_chat.py",
+    "tests/test_console_ui.py",
+    "tests/test_console_browser.py",
+    "tests/test_console_chat_browser.py",
+    "tests/test_browser_stale_responses.py"
+  ]
+}
