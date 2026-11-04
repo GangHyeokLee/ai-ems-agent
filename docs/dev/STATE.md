@@ -6,21 +6,31 @@
 
 - Phase 3 완료. Phase 4의 PH4-01 AI 채팅 통합 구현·로컬 검증 완료.
 - DOC-01: 개발 규칙과 출처·해시를 갖춘 개발팀 키트/Artifact 참고 자료를 정리하여 통합 브랜치에 반영했다.
-- PH4-02A: 콘솔 분석 문맥·검증 결과 API 계약 설계 제안 작성. 기능 구현은 아직 하지 않았다.
+- PH4-02A는 PR #17로 통합됐다. PH4-02B0 선행 검증 완료: model_revision·잠금 CONDITIONAL, full artifact 방식 GO.
+- v1 API·receipt registry·운영 잠금·콘솔 기능은 미구현이다. 조건을 충족하기 전 v1 capability를 활성화하지 않는다.
 - 실시간 브랜치·HEAD·커밋 여부·staged/unstaged/untracked 상태는 `dev_handoff.py` 출력으로 확인한다.
 - 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 B(서버)·C(콘솔) 단계다.
 
 ## 최근 완료 작업
 
-- [DOC-01 #15](https://github.com/GangHyeokLee/ai-ems-agent/issues/15) / PR #16: `AGENTS.md` 개발 원칙 보강 및 `docs/references/workstation-agent-kit/`, `docs/references/claude-artifact-ui/` 참고 자료를 출처·해시와 함께 보존했다. 참고 키트의 실행 명령·기술 스택은 AI-EMS에 적용하지 않는다.
-- DOC-01 로컬 최신 Artifact와 회귀 원본은 전체 700,339바이트·SHA256 `47b7eed9878b75f5583c4ebd5e7fd8db0ba6a266832d751fb513f13d93838b49`로 동일하다. 게시 사본에서는 932행 빈 줄의 공백 2바이트만 제거했다.
-- `docs/specs/CONSOLE_ANALYSIS_CONTEXT_SPEC.md`에 현재 흐름, optional API, 서버 receipt/artifact 검증,
-  snapshot/revision·원자적 UI commit, 동시성·실패·단일 worker 경계, 파일별 책임과 B/C 완료 조건을 설계했다.
-- `docs/specs/contracts/console-analysis-context-v1-cases.json`에 요청 예시 4개와 B/C 인수 조건 28개를 작성했다.
-  이는 미래 테스트 계약이며 현재 API에 새 문맥 필드나 기능이 구현됐다는 뜻이 아니다.
-- 기본 채팅은 유지하고 reference는 서버 저장 결과만 새 계산 없이 설명, run은 실제 Tool 재실행으로 구분한다.
-  클라이언트 수치·LLM 자유서술은 검증 근거로 사용하지 않으며 KPG/MN 결과 변환을 분리한다.
-- 이전 MAINT-01에서 #11을 Completed 처리하고 Draft PR #2와 PH4-02 #14를 정리했다.
+- `docs/specs/PH4-02B0_SERVER_PREFLIGHT.md`: 로드 provenance/전체 snapshot 후보, 공유 network 접근 목록·잠금,
+  같은 계산의 artifact와 timeout/worker 경계, B 구현 순서·진입 조건을 기록했다.
+- 실제 full KPG 사본과 IEEE14에서 변경 감지·RLock·ToolNode·전체 artifact를 검증했다. 서버/실제 LLM 호출은 없다.
+  최초 AC 상태 변경, 재로드 caseDate 차이, Security/Sensitivity의 현재 LF 설정 차이를 확인했다.
+- 프로덕션 코드·기존 테스트·계통 데이터·검증 기록은 수정하지 않았다. 검증 코드는 `/tmp`와 `.local`에만 보존한다.
+- DOC-01 참고 자료·출처/해시, PH4-02A 요청 예시 4개/B·C 인수 조건 28개는 통합 브랜치에서 보존한다.
+  A 계약은 기능 구현이나 실행 통과를 의미하지 않는다. MAINT-01의 #11 종료·Draft PR #2·#14 기록도 유지한다.
+
+## PH4-02B0 실제 검증
+
+- 격리 feasibility: **8 passed (1.55s)**. 같은 Security 실행 1회에서 위반 9개를 artifact/canonical로 보존했다.
+- 기존 관련 계약: **20 passed, 1 warning (1.72s)**. legacy 채팅/REST, mapper, LF 설정, 발전기 비교, MN 잘못된 근거 거부.
+- 초기 probe 4 failed/4 passed, 중간 harness 3 failed/5 passed를 보존했다. caseDate 가정·ToolNode runtime/message 선택을 수정했다.
+- 기존 테스트 sandbox 실행은 180초 제한(exit 124)으로 종료했다. 동일 테스트는 제한 밖에서 위 결과로 통과했다.
+  원인을 특정 syscall로 확정하지 않는다. 최종 경고는 설치 Starlette의 AnyIO deprecation이다.
+- 각 테스트 40초, 전체 명령 180초+kill 10초 제한. 실제 LLM·외부 서비스·Chrome 검증은 수행하지 않았다.
+- 증거: `.local/ph4-02b0/20261104-140557/`의 최종/초기 로그·검증 코드·observations/runtime JSON.
+- `git diff --check`와 허용 문서 외 기존 파일/로컬 Artifact 해시 보존을 확인한다. B/C 기능은 이번 검증 범위가 아니다.
 
 ### PH4-01 기능 요약
 
@@ -35,7 +45,7 @@
 - 분석 영역과 채팅을 별도 DOM에 유지해 N-1·Sensitivity 갱신 시 입력 초안이 사라지지 않는다.
 - 마지막 완료 작업: PH4-01 구현, 신규 채팅 Chrome 6개 및 기존 Chrome 20개 회귀 통과.
 
-## PH4-02A 실제 확인 범위
+## 보존된 검증: PH4-02A (이번 실행 결과 아님)
 
 - 최신 통합 브랜치와 깨끗한 작업 트리를 확인하고 허용된 `feature/ph4-02-console-analysis-context`에서 설계했다.
 - 현재 legacy 응답 shape 및 MN의 잘못된 artifact 거부 기준선: **2 passed, 1 warning (1.99s)**.
@@ -46,6 +56,7 @@
 
 ## DOC-01 보존 검증 (PH4-02A에서 재실행한 결과 아님)
 
+- 로컬 최신/회귀 Artifact는 700,339바이트·SHA256 `47b7eed9878b75f5583c4ebd5e7fd8db0ba6a266832d751fb513f13d93838b49`로 동일하다. 게시 사본만 빈 줄 공백 2바이트를 제거했다.
 - Artifact CSS·모델·스크립트·마크업/원본 슬라이스: **5 passed, 1 warning**.
 - Artifact 원본/콘솔 Chrome parity: **1 passed**. 실제 LLM 호출 없음.
 - 로그: `.local/doc-01/20261104-5cxny96h/artifact-static.log`, `artifact-parity.log`.
@@ -96,10 +107,11 @@
 
 ## 다음 작업과 다음 담당자에게
 
-- 설계 리뷰 후 PH4-02B: active model revision·공유 KPG network 잠금·full artifact를 우선 확인하고 서버 계약을 구현한다.
+- 다음 PH4-02B는 별도 요청으로 진행한다. 로드 provenance·준비 상태·전체 snapshot/설정 coverage와 공유 객체 guard를 먼저 연결한다.
+- 같은 job 실행 ledger/full artifact, legacy 회귀와 통합 동시성·단일 worker/timeout 전제가 확인돼야 v1을 광고한다.
 - B의 검증 후 PH4-02C: snapshot/receipt·검증 후 UI commit과 결정론적 Chrome 회귀를 연결한다.
 - 실제 LLM smoke는 별도 허용 범위에서 수행한다. timeout 예산·단일 worker 운영 전제도 실제 환경에서 확인해야 한다.
-- PH4-02A 설계는 PR #17에서 통합 브랜치에 반영한다. 다음 작업 B0은 최신 `feature/kems-multi-grid`에서 별도 브랜치와 Draft PR로 시작하며 B/C 기능은 자동으로 구현하지 않는다.
+- B0는 base=`feature/kems-multi-grid`인 별도 작업 브랜치·Draft PR로 검토한다. 상위 #14는 완료 처리하지 않으며 B/C는 자동 착수하지 않는다.
 - 두 완료 브랜치는 이력 보존상 삭제 후보이며 실제 삭제와 PR/main 병합은 별도 승인 후 판단한다.
 - 다음 담당자는 `AGENTS.md`와 이 문서를 읽고 실시간 Git 상태와 기존 변경을 확인·보존한 뒤 지정된 범위만 수행한다.
 - 시작: `python3 scripts/dev_handoff.py`
