@@ -1,0 +1,23 @@
+# Claude Code 개인 설정 (내 컴퓨터 경로가 들어 있음)
+.claude/settings.local.json
+.claude/agent-memory-local/
+
+# 비밀값
+.env
+.env.local
+.env.production
+
+# 로컬 도구 (Julia, 모델 등 대용량)
+.tools/
+
+# 의존성·빌드 산출물
+backend/.venv/
+__pycache__/
+.pytest_cache/
+frontend/node_modules/
+frontend/dist/
+
+# 로컬 DB·실행 산출물 (저장소 밖 APP_DATA_DIR 를 쓰지만 테스트·실수로 생긴 파일 방지)
+*.db
+*.db-wal
+*.db-shm
