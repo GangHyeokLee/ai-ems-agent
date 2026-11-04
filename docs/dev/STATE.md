@@ -8,7 +8,7 @@
 - DOC-01: 개발 규칙과 출처·해시를 갖춘 개발팀 키트/Artifact 참고 자료를 정리하여 통합 브랜치에 반영했다.
 - PH4-02A·B0·B1·B2(+MAINT-02)는 PR #17·#18·#19·#20으로 통합됐다(B2 squash `b0fbeb9`).
 - PH4-02B3-1: 선택적 `request_id`·`analysis_context`, KPG 수동 receipt·registry, 서버 결과만 설명하는 `mode=reference` 구현과 로컬 검증 완료
-  (`feature/ph4-02b31-context-reference-api`, Draft PR 검토 대상). `mode=run`은 409 `ANALYSIS_RUN_NOT_READY`로 거부하며 Agent run은 미연결이다.
+  (`feature/ph4-02b31-context-reference-api`, [Draft PR #21](https://github.com/GangHyeokLee/ai-ems-agent/pull/21) 검토 대상). `mode=run`은 409 `ANALYSIS_RUN_NOT_READY`로 거부하며 Agent run은 미연결이다.
 - v1 capability(`console_analysis_context_versions`)는 어떤 계통에도 광고하지 않는다. 몽골·한국 OSM v1은 409로 거부하고 콘솔 UI는 바꾸지 않았다.
 - 실시간 브랜치·HEAD·커밋 여부·staged/unstaged/untracked 상태는 `dev_handoff.py` 출력으로 확인한다.
 - 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 B3-2(run 연결)·C(콘솔) 단계이며 자동 착수하지 않는다.
@@ -136,7 +136,7 @@
   `MODEL_REVISION_CHANGED` 안내/준비 정책, provider timeout·graph 예산·단일 worker 명시, 실제 LLM smoke(guard 엄격성), MN model identity.
 - 콘솔(C)은 Security operation에 감시 ID null, Sensitivity top_n=5, `analysis_receipt_error`·v1 `{code, message, request_id}`·legacy 문자열 오류를 처리해야 한다.
 - 서버 계약·세션 동시성과 단일 worker/timeout 전제를 연결·검증한 뒤에만 v1을 광고한다. 그 후 PH4-02C에서 UI commit과 Chrome 회귀를 연결한다.
-- B3-1은 base=`feature/kems-multi-grid`인 `feature/ph4-02b31-context-reference-api`·Draft PR로 검토한다. 상위 #14는 완료 처리하지 않으며 B3-2/C는 자동 착수하지 않는다.
+- B3-1은 base=`feature/kems-multi-grid`인 `feature/ph4-02b31-context-reference-api`·Draft PR #21로 검토한다. 상위 #14는 완료 처리하지 않으며 B3-2/C는 자동 착수하지 않는다.
 - 통합된 작업 브랜치(DOC-01, PH4-02A·B0·B1·B2)는 이력 보존상 삭제 후보이며 실제 삭제와 PR/main 병합은 별도 승인 후 판단한다.
 - 다음 담당자는 `AGENTS.md`와 이 문서를 읽고 실시간 Git 상태와 기존 변경을 확인·보존한 뒤 지정된 범위만 수행한다.
 - 시작: `python3 scripts/dev_handoff.py`
