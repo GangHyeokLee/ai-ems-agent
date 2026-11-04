@@ -5,17 +5,19 @@
 ## 현재 단계
 
 - Phase 3 완료. Phase 4의 PH4-01 AI 채팅 통합 구현·로컬 검증 완료.
-- MAINT-01: GitHub Issue・PR・기존 브랜치 포함 관계 및 인수인계 문서 정리.
+- PH4-02A: 콘솔 분석 문맥·검증 결과 API 계약 설계 제안 작성. 설계 리뷰 대상이며 기능 구현은 아직 하지 않았다.
 - 실시간 브랜치·HEAD·커밋 여부·staged/unstaged/untracked 상태는 `dev_handoff.py` 출력으로 확인한다.
-- 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)이며 아직 착수하지 않았다.
+- 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 B(서버)·C(콘솔) 단계다.
 
 ## 최근 완료 작업
 
-- [Issue #11](https://github.com/GangHyeokLee/ai-ems-agent/issues/11): PR #12 실제 병합과 요구사항 충족을 확인하고
-  [근거 댓글](https://github.com/GangHyeokLee/ai-ems-agent/issues/11#issuecomment-6619195724)을 남겨 Completed 처리했다.
-- [Draft PR #2](https://github.com/GangHyeokLee/ai-ems-agent/pull/2): 초기 지도 MVP 설명을 현재 다계통·PH4-01 수준으로 갱신했다.
-  계통별 지원, 합성 데이터 한계, 검증 범위와 미검증 사항을 구분하며 Draft 및 기존 base/head를 유지한다.
-- PH4-02 #14에 요구사항·완료 조건·Mock/실제 LLM 분리 테스트 계획을 작성했다. 관리 작업은 기능 구현을 포함하지 않는다.
+- `docs/specs/CONSOLE_ANALYSIS_CONTEXT_SPEC.md`에 현재 흐름, optional API, 서버 receipt/artifact 검증,
+  snapshot/revision·원자적 UI commit, 동시성·실패·단일 worker 경계, 파일별 책임과 B/C 완료 조건을 설계했다.
+- `docs/specs/contracts/console-analysis-context-v1-cases.json`에 요청 예시 4개와 B/C 인수 조건 28개를 작성했다.
+  이는 미래 테스트 계약이며 현재 API에 새 문맥 필드나 기능이 구현됐다는 뜻이 아니다.
+- 기본 채팅은 유지하고 reference는 서버 저장 결과만 새 계산 없이 설명, run은 실제 Tool 재실행으로 구분한다.
+  클라이언트 수치·LLM 자유서술은 검증 근거로 사용하지 않으며 KPG/MN 결과 변환을 분리한다.
+- 이전 MAINT-01에서 #11을 Completed 처리하고 Draft PR #2와 PH4-02 #14를 정리했다.
 
 ### PH4-01 기능 요약
 
@@ -30,13 +32,14 @@
 - 분석 영역과 채팅을 별도 DOM에 유지해 N-1·Sensitivity 갱신 시 입력 초안이 사라지지 않는다.
 - 마지막 완료 작업: PH4-01 구현, 신규 채팅 Chrome 6개 및 기존 Chrome 20개 회귀 통과.
 
-## MAINT-01 확인 범위
+## PH4-02A 실제 확인 범위
 
-- GitHub 실제 상태, PR #12/#13 병합, 로컬·원격 브랜치의 Git ancestry를 재확인했다.
-- 두 정리 대상 브랜치의 통합 브랜치 미포함 커밋은 0개다. 아래는 2026-11-04 확인한 tip이며 삭제하지 않았다.
-  `feature/mn-agent-analysis`: `c2379bc`; `feature/grid-chat-session-restore`: `84d6d8f`.
-- 관리 작업에서는 STATE 문서와 GitHub 메타데이터만 변경하며 기능 코드·테스트·계통 데이터·검증 해시는 보존한다.
-- 기능 테스트와 실제 LLM은 재실행하지 않는다. 아래 수치는 각 개발 단계의 과거 검증 근거다.
+- 최신 통합 브랜치와 깨끗한 작업 트리를 확인하고 허용된 `feature/ph4-02-console-analysis-context`에서 설계했다.
+- 현재 legacy 응답 shape 및 MN의 잘못된 artifact 거부 기준선: **2 passed, 1 warning (1.99s)**.
+  로그: `.local/ph4-02a/20261104-scwvjjy0/legacy-contract-baseline.log`. 실제 LLM 호출 없음, 각 테스트 90초 제한.
+- JSON 구문·예시·UUID·인수 조건 ID·요구사항 1~8 대응 확인. 미래 v1 동작/Chrome 검증을 통과했다고 기록하지 않는다.
+- 설계 문서·최소 테스트 계약·STATE만 변경한다. 기존 코드·테스트·데이터·검증 기록과 로컬 Artifact는 보존한다.
+- `git diff --check` 및 범위/해시 보존 점검을 수행한다. 아래 Phase 3·PH4-01 수치는 과거 실행 결과다.
 
 ## 과거 검증: Phase 3 (이번 실행 결과 아님)
 
@@ -81,9 +84,10 @@
 
 ## 다음 작업과 다음 담당자에게
 
-- 다음 작업은 #14: 선택 계통·사고·감시 선로 문맥과 검증된 `ui_updates` 연동. 기존 결과 참조와 Tool 재실행을 구분한다.
-- 착수 승인 후 최신 `feature/kems-multi-grid`에서 `feature/ph4-02-console-analysis-context` 같은 별도 브랜치를 만들고
-  base=`feature/kems-multi-grid`인 Draft PR로 진행한다. 이번 관리 작업에서는 새 브랜치·PR을 만들지 않는다.
+- 설계 리뷰 후 PH4-02B: active model revision·공유 KPG network 잠금·full artifact를 우선 확인하고 서버 계약을 구현한다.
+- B의 검증 후 PH4-02C: snapshot/receipt·검증 후 UI commit과 결정론적 Chrome 회귀를 연결한다.
+- 실제 LLM smoke는 별도 허용 범위에서 수행한다. timeout 예산·단일 worker 운영 전제도 실제 환경에서 확인해야 한다.
+- 작업은 base=`feature/kems-multi-grid`인 Draft PR에서 진행하며 A 단계에서 B/C 기능을 구현하지 않는다.
 - 두 완료 브랜치는 이력 보존상 삭제 후보이며 실제 삭제와 PR/main 병합은 별도 승인 후 판단한다.
 - 다음 담당자는 `AGENTS.md`와 이 문서를 읽고 실시간 Git 상태와 기존 변경을 확인·보존한 뒤 지정된 범위만 수행한다.
 - 시작: `python3 scripts/dev_handoff.py`
