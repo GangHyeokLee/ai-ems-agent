@@ -321,6 +321,64 @@ const KemsApiAnalysis = (() => {
     return adapter.sensitivity(payload, request, ctx);
   }
 
+  /* C-1 provenance checks. These validate the wire contract, not physical truth:
+   * only the server registry can establish ownership and current model identity. */
+  const UUID4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+  const RECEIPT_KEYS = ['result_id', 'grid_id', 'kind', 'outage_line_id', 'monitored_line_id', 'monitored_selection',
+    'top_n', 'model_revision', 'producer', 'producer_request_id', 'tool_call_id', 'assessment', 'reason_code', 'created_at', 'expires_at'];
+  function sameJson(a, b) {
+    if (a === b) return true;
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) !== Array.isArray(b)) return false;
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every((key) => Object.hasOwn(b, key) && sameJson(a[key], b[key]));
+  }
+
+  function manualReceipt(payload, kind, request) {
+    const r = payload.analysis_receipt;
+    const completed = payload.analysis_status === 'COMPLETED';
+    if (!isObject(r) || Object.keys(r).length !== RECEIPT_KEYS.length || RECEIPT_KEYS.some((key) => !Object.hasOwn(r, key))
+        || payload.analysis_receipt_error !== undefined || !UUID4.test(r.result_id) || !UUID4.test(r.producer_request_id)
+        || r.grid_id !== request.gridId || r.kind !== kind || r.outage_line_id !== request.line
+        || r.producer !== 'manual' || r.tool_call_id !== null || r.producer_request_id !== request.requestId
+        || typeof r.model_revision !== 'string' || !/^[0-9a-f]{64}$/.test(r.model_revision)
+        || r.assessment !== (completed ? 'completed' : 'not_evaluated') || r.reason_code !== (completed ? null : payload.analysis_status)) {
+      reject('Receipt가 수동 분석 요청·결과와 일치하지 않습니다');
+    }
+    if (kind === 'security') {
+      if (r.monitored_line_id !== null || r.monitored_selection !== null || r.top_n !== null) reject('N-1 Receipt 조건 오류');
+    } else if (r.monitored_line_id !== (payload.monitored_line_id ?? null) || r.top_n !== TOP_N
+        || r.monitored_selection !== (request.monitored ? 'explicit' : 'auto')
+        || (request.monitored && r.monitored_line_id !== request.monitored)
+        || (r.monitored_line_id !== null && (typeof r.monitored_line_id !== 'string' || !r.monitored_line_id
+          || r.monitored_line_id.length > 128 || r.monitored_line_id.trim() !== r.monitored_line_id || /[\x00-\x1f\x7f]/.test(r.monitored_line_id)))
+        || (r.monitored_line_id === null && (completed || request.monitored))) reject('Sensitivity Receipt 조건 오류');
+    for (const value of [r.created_at, r.expires_at]) {
+      if (typeof value !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value)
+          || !Number.isFinite(Date.parse(value))) reject('Receipt 시각 오류');
+    }
+    if (Date.parse(r.expires_at) <= Date.parse(r.created_at)) reject('Receipt 유효 기간 오류');
+    return Object.freeze({...r});
+  }
+
+  function referenceResponse(payload, snapshot, requestId, sessionId) {
+    const analysis = payload.analysis;
+    const expected = snapshot.receipts;
+    if (payload.grid_id !== snapshot.gridId || payload.session_id !== sessionId || payload.request_id !== requestId
+        || !sameJson(payload.analysis_context, snapshot.context) || analysis?.status !== 'referenced'
+        || analysis.source !== 'server_reference' || typeof analysis.message !== 'string'
+        || !Array.isArray(payload.ui_updates) || payload.ui_updates.length !== 0
+        || !Array.isArray(analysis.results) || analysis.results.length !== expected.length
+        || analysis.reason_code !== (expected.find((r) => r.assessment !== 'completed')?.reason_code ?? null)
+        || !expected.every((r, i) => sameJson(r, analysis.results[i]))) {
+      reject('기존 결과 설명 응답 계약 불일치');
+    }
+    // Only after the whole contract matched, so expiry never hides a mismatch: a receipt that
+    // expired while the answer was in flight is still rejected, but reported as expiry.
+    if (!expected.every((r) => Date.parse(r.expires_at) > Date.now())) {
+      throw Object.assign(new Invalid('참조한 분석 결과가 만료되었습니다'), {code: 'RECEIPT_EXPIRED'});
+    }
+  }
+
   /* ---------- map overlay ---------- */
   function overlay(sec, sens) {
     if (!sec) return null;
@@ -598,5 +656,6 @@ const KemsApiAnalysis = (() => {
   }
 
   return Object.freeze({TIMEOUT_MS, Invalid, adapter: (gridId) => ADAPTERS[gridId] || null, support, security, sensitivity, overlay, legend,
+    manualReceipt, referenceResponse,
     lineBlock, featureRows, panel});
 })();
