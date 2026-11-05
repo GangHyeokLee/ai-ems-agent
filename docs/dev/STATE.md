@@ -4,6 +4,7 @@
 
 ## 현재 단계
 
+- PH4-02-DEMO-01: AI EMS 콘솔 화면·시연 가능 범위를 `docs/demos/PH4-02-DEMO-01.md`에 기록했다. 기준 `ad2c1f8`; C-2c Scripted LLM Chrome 13개 통과. 운영 AI Run 미광고와 실제 LLM 미실행을 분명히 구분한다.
 - Phase 3 완료. Phase 4의 PH4-01 AI 채팅 통합 구현·로컬 검증 완료.
 - DOC-01: 개발 규칙과 출처·해시를 갖춘 개발팀 키트/Artifact 참고 자료를 정리하여 통합 브랜치에 반영했다.
 - PH4-02A·B0·B1·B2(+MAINT-02)·B3-1은 PR #17·#18·#19·#20·#21로 통합됐다(B3-1 squash `00f6edc`).
@@ -21,7 +22,17 @@
   로컬 커밋 `d3b32d5`는 있으나 Push가 인증 오류로 실패해 Draft PR은 생성되지 않았다. 원격 diff/mergeability 확인도 남아 있다.
   (C-2c 병합 시 확인: INFRA-02 커밋 `d3b32d5`·`226fd50`은 통합 브랜치 `feature/kems-multi-grid`에 있다. 위 원 기록은 그대로 둔다.)
 - PH4-02C-2c: 콘솔 AI run 연결과 원자적 화면 반영을 `feature/ph4-02c2c-console-run`([PR #27](https://github.com/GangHyeokLee/ai-ems-agent/pull/27), Draft)에 구현했다. 운영 노출은 없다.
-- 다음 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C-3(run capability 서버 광고, 실제 LLM smoke, 운영 공개 결정)이며 자동 착수하지 않는다.
+- 다음은 PH4-02-DEMO-01 Draft PR 검토다. C-3(run capability 광고·실제 LLM smoke·운영 공개 결정)는 별도 승인 전 착수하지 않는다.
+
+## 최근 작업: PH4-02-DEMO-01 — AI EMS 콘솔 시연 점검
+
+- 기준 `ad2c1f800533d17c4851d7ce1986b76886630dbe`에서 새 `feature/ph4-02-demo-readiness` worktree를 사용했다. 변경 범위는 시연 보고서와 STATE뿐이며 UI·JS/CSS·서버·계통 데이터·테스트 단언은 수정하지 않았다.
+- `AI_EMS_BROWSER_TESTS=1 AI_EMS_CHROME=<Chrome executable> .venv/bin/python -B -m pytest -q -p no:cacheprovider tests/test_console_run_browser.py`: **13 passed (37.45s)**. 로그: `.local/demo-review/console-run-c2c-pytest.log`.
+- fixture는 실제 FastAPI/registry/KPG PyPowSyBl 경로, Scripted LLM만 사용했다. C-2c `run_chain`의 JSON에서 기존 receipt reference 성공을 확인했다. 실제 Ollama/LLM 호출은 하지 않았다.
+- KPG Security/Sensitivity/연쇄·receipt/reference, 결과 반영, 평가 불가/실패, capability gating, 몽골/한국 OSM 제한을 테스트와 화면으로 확인했다. 운영 콘솔은 run capability를 광고하지 않으므로 AI Run은 fixture 전용이다.
+- 캡처는 `.local/demo-review/screenshots/`; JSON/PNG 원본은 `.local/browser-tests/{logs,screenshots}/console_run_c2c/7ae88b7ea050/`. 한국어 폰트 부재로 headless 이미지 일부 글리프가 깨진다. 기능 결함으로 단정하지 않는다.
+- 전체 동선·미확인 범위·UI/UX 개선 우선순위·실제 LLM 시연 전 조건: `docs/demos/PH4-02-DEMO-01.md`.
+- 실제 LLM 실행 및 C-3 착수 없음. 작업 종료 전 커밋/Push/Draft PR 여부를 확인한다. `data/grids` untracked symlink는 작업 범위 밖으로 남겨 두고 stage하지 않는다.
 
 ## 최근 작업: PH4-02C-2c — AI Run 콘솔 연결과 원자적 반영
 
