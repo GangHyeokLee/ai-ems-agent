@@ -2,9 +2,8 @@
 
 LLM/Tool entry points are forbidden for references. Explicit transport corruption,
 clock expiry and model changes are test controls, never production behavior.
-Initial KPG map/PF reads are delivered to the real routes sequentially to isolate
-the pre-existing 15f634c non-blocking read contention. The separate, unchanged
-Phase 3 regression runs without this scheduling and records that failure.
+Initial KPG map/PF reads use the real routes without fixture scheduling; the
+production console owns their ordering (MAINT-03).
 """
 from __future__ import annotations
 
@@ -32,7 +31,6 @@ from ai_ems.network_access import network_access
 COUNTS = Counter()
 CONTROL = {"hits": [], "reads": [], "report": None, "advertise": True, "rule": None}
 DONE = asyncio.Event()
-READ_GATE = asyncio.Lock()
 REAL_CLOCK = time.monotonic
 OFFSET = 0
 FULL = ROOT / "data/KPG193_ver2_0_powsybl_full.mat"
@@ -105,15 +103,9 @@ addEventListener('unhandledrejection',e=>window.__referenceErrors.push(String(e.
         CONTROL["hits"].append(hit)
         rule = CONTROL["rule"]
         CONTROL["rule"] = None
+    response = await call_next(request)
     if path in ("/api/grids/kr-kpg193/map", "/api/grids/kr-kpg193/pf-preview"):
-        # Only order the prerequisite reads. No response, engine lock, manual
-        # analysis, receipt/reference request or cancellation behavior is mocked.
-        async with asyncio.timeout(30):
-            async with READ_GATE:
-                response = await call_next(request)
         CONTROL["reads"].append({"path": path, "status": response.status_code})
-    else:
-        response = await call_next(request)
     if path == "/api/grids" and CONTROL["advertise"]:
         payload = json.loads(b"".join([chunk async for chunk in response.body_iterator]))
         # Deliberately advertise all grids: the console must still gate MN/Korea.

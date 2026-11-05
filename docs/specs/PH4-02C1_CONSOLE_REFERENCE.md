@@ -18,7 +18,7 @@ KPG 수동 Security/Sensitivity의 실제 결과를 receipt로 등록하고, 서
 | `ui/console/api-chat.js` | `create`, `post`, `submit`, `render`, `retire`, `setContext`: 기본/참조 모드, snapshot 전송, 취소·세션 통지, 텍스트 표시. `uuid`, `errorText` 공통 사용 |
 | `ui/console/api-analysis.js` | 기존 `security/sensitivity` VM 검증 유지. `manualReceipt`, `referenceResponse`, `sameJson`: provenance·응답 순수 검증 추가 |
 | `ui/console/api-bridge.css` | 기존 composer를 유지하는 작은 모드/operation 선택 영역 |
-| `tests/test_console_reference_browser.py` | 신규 Chrome 8개 시나리오, 제한 시간·실행별 증거 디렉터리 |
+| `tests/test_console_reference_browser.py` | 신규 Chrome 10개 시나리오(최초 8 + F1/F3 2), 제한 시간·실행별 증거 디렉터리 |
 | `tests/browser/console_reference_app.py`, `console_reference_probe.js` | 실제 FastAPI·registry·수동 계산, capability 주입, 의도적인 오류·지연 시험과 호출 수 기록 |
 | 이 문서, `docs/dev/STATE.md` | 결정·검증·미해결 사항 인수인계 |
 
@@ -122,7 +122,7 @@ HTTP Abort와 별도로 `Promise.race`의 60초 deadline과 현재 요청 판정
 graph·도메인·PyPowSyBl 호출 카운터가 같음을 확인한다. 최초 AC, 정상 연속 receipt, 세 operation, 자동/명시 감시,
 실제 NO_OVERLOAD, XSS, receipt/응답 조작, 만료/모델 변경, 초기화, 같은 계통 reload, 계통 왕복, Abort 무시, timeout을 검사한다.
 
-fixture의 초기 KPG map/PF **읽기 요청만** 순서대로 실제 경로에 전달한다. 이는 아래 기준 커밋 경합을 C-1 시험의 준비 단계에서 격리하기 위한 것이다.
+위 과거 실행에서는 fixture의 초기 KPG map/PF **읽기 요청만** 순서대로 실제 경로에 전달했다. FINAL 통합에서는 해당 우회를 제거했다. 이는 아래 기준 커밋 경합을 C-1 시험의 준비 단계에서 격리하기 위한 것이다.
 응답 수치·잠금·수동 계산·reference 경로는 대체하지 않는다. 실제 서비스의 병렬 읽기 호환성이 통과했다는 뜻이 아니다.
 오류/변조/지연 주입은 시험 사례로 명시한다. 운영 capability는 변경하지 않았고, fixture가 MN/Korea에도 잘못 광고했을 때 차단되는지도 확인한다.
 
@@ -202,7 +202,7 @@ v1 detail 객체는 opt-in 요청에서만 생긴다. 따라서 미광고 운영
   - 수정 후 트리에서 단독으로 2회 다시 실행하면 통과했다. 시험은 수정하지 않았다.
 - MAINT-03 대상 실패는 수정하거나 우회하지 않았다. 전체 회귀 통과로 보고하지 않는다.
 
-## 미해결 사항과 C-2 선행 조건
+## 통합 전 차단 사항 (과거 기록; FINAL 결과는 아래 참조)
 
 **기존 Phase 3 Chrome은 전체 통과가 아니다.** 다음 5개는 변경 전 `15f634c`에서도 모두 실패한다.
 
@@ -219,3 +219,85 @@ C-1은 해당 로딩 순서·서버 guard·기존 테스트를 바꾸지 않았�
 C-2 이전에 이 기존 읽기 경합을 별도 범위로 해결하고 Phase 3 회귀를 재확인해야 한다. 이후 run의 prepare→atomic commit,
 서버 검증 receipt/update 대응, 실제 LLM smoke와 예산, 지원 launcher·단일 worker 조건, capability 공개 절차를 검증한다.
 MN v1에는 별도 model identity가 필요하다. 본 작업은 C-2/C-3에 착수하거나 Issue #14를 닫지 않는다.
+
+
+## FINAL — MAINT-03 통합 및 PR #23 병합 준비 (2026-11-05)
+
+### 구현·충돌 해결
+
+`76d9fe8`(C-1/F1/F3)에 `origin/feature/kems-multi-grid` `c7251c3`(PR #24)을 일반 merge했다.
+기존 두 C-1 커밋을 보존한다. 충돌은 `docs/dev/STATE.md` 하나였으며 C-1·Claude 후속·MAINT-03의 구현/검증 기록과 미완료 사항을 함께 유지했다.
+`api-bridge.js`는 자동 병합됐고 `loadGrid()` 본문은 MAINT-03과 정확히 같다. KPG는 지도 검증·표시 → 현재 view/Abort 확인 → PF,
+몽골은 map/GIS/PF 병렬 조회다. 기존 view/session/revision/receipt/reference와 수동 Security/Sensitivity 경로를 보존했다.
+
+이번 별도 편집은 `tests/browser/console_reference_app.py`, 이 문서, STATE뿐이다. fixture의 `READ_GATE`와 초기 map/PF용 30초 잠금 대기 래퍼를 제거했다.
+각 요청은 다른 요청과 동일하게 `call_next`로 실제 서버에 전달하고 상태만 기록한다. 명시적 오류/지연, TTL/모델 변경, 실제 계산/registry,
+기본 scripted graph, LLM 금지, 210초 case·150초 Chrome·60초 기동·5초 HTTP 제한은 유지한다. 테스트 단언이나 사례를 삭제·완화하지 않았다.
+
+`api-chat.js`, `api-analysis.js`, C-1 probe/테스트 파일은 `76d9fe8` 그대로다. F1 잠금·F3 만료/변조 구분과 F2 문구 기록을 보존했다.
+서버·Network Guard·계산 설정·모델·원본 UI·검증 해시를 변경하지 않는다. run UI/v1 광고/MN v1/C-2/C-3는 포함하지 않는다.
+
+### 실제 통합 검증
+
+증거 루트: `.local/ph4-02c1-final/20261105-integration/`. 아래는 **이번 실행**이며 앞선 과거 결과와 합산하지 않는다.
+
+| 범위 | 결과 | 로그 |
+|---|---|---|
+| 기존 문제 5건 + MAINT-03 4건, 1회 | **9 passed (31.51s)**, 235개 검사 | `a1.log` |
+| 같은 9건, 2회 | **9 passed (29.63s)**, 235개 검사 | `a2.log` |
+| 우회 없는 C-1 Chrome | **10 passed (45.47s)**, 221개 검사 | `b-reference.log` |
+| Phase 3 전체 + PH4-01 Chrome | **27 passed (119.40s)**, Phase 3 21 + 채팅 6 | `c-chrome.log` |
+| 첫 전체 비브라우저 | **555 passed, 117 skipped, 410 errors (65.89s)**, 실행용 임시 경로 준비 오류 | `c-nonbrowser.log/xml` |
+| 경로 보완 후 전체 비브라우저 | **965 passed, 117 skipped, 1 warning (94.39s)** | `c-nonbrowser-final.log/xml` |
+| 정적·원본 Artifact·라우트 | 위 최종 전체 실행의 **19 passed** 부분집합(JUnit 확인) | `c-nonbrowser-final.xml` |
+| IEEE39 추가 SVG 관찰 | **1 passed (22.16s)**, 기존 전체 fingerprint 단언 유지 | `d-parity.log` |
+
+첫 비브라우저 410개 오류는 모두 `--basetemp` 상위 `pytest/` 폴더가 없는 동일 FileNotFoundError였다. 제품 코드·fixture 단언 변경 없이
+실행 경로의 상위 폴더를 만들고 새로운 경로에서 전체 재실행했다. 이전 실패를 지우거나 통과/skip으로 표시하지 않았다.
+최종 skip 117은 기존 opt-in/환경 103 + C-1 Chrome 10 + MAINT-03 Chrome 4다. 경고 1개는 기존 Starlette/AnyIO deprecation이다.
+
+A의 기존 5개는 API map/PF, PF 다른 계통, PF 비수렴, 실제 N-1/Sensitivity, 분석 stale이다. 실행마다 기존 213 + 신규 로딩 22개 검사와 JS 오류 0.
+신규 로딩 4개는 KPG 순차/MN 병렬, map/PF 실패·409 노출/재시도 없음, Abort/계통 전환/동일 계통 reload/늦은 성공·실패, timeout 복구를 포함한다.
+명시적으로 주입한 PF 409는 유지하며 초기 읽기의 비의도적 409는 재현되지 않았다.
+
+C-1은 순차 수동 분석의 동일 owner·chain receipt, reference 전후 graph/Tool/PyPowSyBl 호출 수 불변, stale, F1 선택 잠금·복구,
+F3 만료·변조 분리, 미광고 기본 채팅/수동 분석을 확인했다. 초기 map/PF 읽기 **28개 전부 HTTP 200**. 실제 LLM 호출과 JS 오류는 0이다.
+
+### IEEE39와 남은 리뷰 사항
+
+변경하지 않은 전체 Chrome 비교와 추가 관찰 모두 원본/콘솔 IEEE39 SVG 309개, 전체 fingerprint가 일치했다.
+추가 관찰은 `.local/`의 probe 사본에 관찰값만 넣었다. viewBox `0 0 640 780`, SVG 크기 `817.4375 × 364.1875`, 노드의 tag/id/class/text/x/y 배열도 같다.
+원본 테스트/단언·정규화는 그대로이며, 원본 HTML과 제품 코드를 수정하지 않았다.
+
+과거 C-1 리뷰·MAINT-03의 309↔310 실패를 이번 통과로 삭제하지 않는다. 원본과 콘솔에서 더 큰 수가 번갈아 나타났고, 이번과 과거 단독 실행은
+일치한다. `app.js`의 overlay 배치는 viewBox/크기와 rAF 시점에 의존하며 이 코드는 이번 merge로 바뀌지 않았다. **기존 렌더링 시점 차이로 보는
+과거 분석과 일치하지만, 이번에는 차이가 재현되지 않아 정확한 트리거·누락 노드를 확정하지 못했다.** 실제 UI 내용 차이나 이번 통합 회귀의 근거는 찾지 못했다.
+
+- F4: 브라우저 시계가 앞서면 유효 receipt가 조기에 비활성화되고 뒤처지면 서버가 만료를 거부할 수 있다. 서버 monotonic TTL/owner/revision이 최종 경계다.
+  이번에는 시계 보정 기능을 추가하거나 시간 오차를 새로 주입하지 않았다. 이 UX 제약을 해결했다고 보고하지 않는다.
+- F5: `referenceCurrent`가 false이면 응답 적용을 막고 `finally`에서 pending을 해제한다. capability/지도 상태가 통지 없이 바뀌면 안내 없는 폐기 가능성이 있다.
+  정상 계통 전환·초기화·수동 분석·선택 잠금/프로그램 변경의 회귀는 통과했다. 새로운 운영 재현 경로나 잘못된 결과 수용은 확인되지 않아 범위를 넓히지 않았다.
+- 다른 탭/클라이언트/진행 중 분석이 같은 network를 점유하면 정상적인 409는 여전히 가능하다. Abort는 서버 계산 중단을 보장하지 않는다.
+- **판정: 요청된 최종 통합 회귀 PASS, 병합 권고 CONDITIONAL.** 알려진 IEEE39 불안정성의 별도 처리를 수용하는 검토가 필요하다.
+  PR #23은 Draft로 유지하며 자동 병합하지 않는다. 실제 LLM smoke·공개 capability·C-2는 별도 작업이다.
+
+### 재현·리뷰 근거
+
+`run_tests.py`는 위 루트의 로컬 실행 보조다. 각 실행의 정확한 pytest argv는 `*-command.json`에 보존했다.
+`c1final_checks.py`는 테스트별 240초 제한(신규 자체 제한 210초 유지), 기존 증거와 다른 출력 경로, Chrome 프로필 보존만 설정한다.
+기존 source/단언/요청 순서에는 관여하지 않는다. 전체 명령은 1200초 + kill 15초이며, 모든 로그·임시 산출물·기존 worktree를 보존한다.
+
+```bash
+run_dir=.local/ph4-02c1-final/20261105-integration
+# 새 실행 이름 사용: 기존 basetemp/증거를 덮어쓰지 않음
+python3 "$run_dir/run_tests.py" repeat-reference browser tests/test_console_reference_browser.py
+python3 "$run_dir/run_tests.py" repeat-chrome browser tests/test_console_browser.py tests/test_console_chat_browser.py
+python3 "$run_dir/run_tests.py" repeat-nonbrowser nonbrowser tests
+```
+
+- C-1 JSON/PNG: `.local/browser-tests/{logs,screenshots}/console_reference_c1/b62cb4ca788c/`.
+- Phase 3 JSON/PNG: `.local/browser-tests/{logs,screenshots}/console_c1final/c-chrome/`(스크린샷 22장).
+- MAINT-03 JSON: `.local/browser-tests/logs/console_loading_maint03/8836363683d9/`, `098b2568479e/`.
+- IEEE39 추가 관찰 JSON: `.local/browser-tests/logs/console_c1final/d-parity/`.
+- 스크린샷에서 지도/분석/채팅 공존을 확인했다. 기존 Linux 한국어 폰트 부재는 그대로이며 내용은 DOM 문자열로 검사했다.
+- 리뷰: `loadGrid()`의 MAINT-03 동일성, F1/F3 및 서버/모델/기존 테스트·해시 보존, `git diff --check`, Git 제외 증거와 인수인계를 확인한다.

@@ -523,7 +523,10 @@
 
     const mapRequest = settle(fetchJson(`/api/grids/${enc(id)}/map`, TIMEOUT_MS.map, signal));
     const geometryRequest = view.geometry.status === 'loading' ? settle(fetchJson(DISPLAY_GEOMETRY[id], TIMEOUT_MS.geometry, signal)) : null;
-    const pfRequest = pfFlag === true ? settle(fetchJson(`/api/grids/${enc(id)}/pf-preview`, TIMEOUT_MS.pf, signal)) : null;
+    // KPG map and PF preview read the same guarded network; do not overlap them.
+    // Other grids keep their independent, parallel reads.
+    const requestPf = () => settle(fetchJson(`/api/grids/${enc(id)}/pf-preview`, TIMEOUT_MS.pf, signal));
+    let pfRequest = pfFlag === true && id !== 'kr-kpg193' ? requestPf() : null;
 
     const mapResult = await mapRequest;
     if (!current()) return;
@@ -535,7 +538,7 @@
     } catch (error) {
       view.map = {status: 'error', error: error.message};
       if (view.geometry.status === 'loading') view.geometry = {status: 'none'};
-      if (pfRequest) view.pf = {status: 'blocked', error: '지도 오류로 PF 결과를 지도와 대조할 수 없어 표시하지 않습니다'};
+      if (pfFlag === true) view.pf = {status: 'blocked', error: '지도 오류로 PF 결과를 지도와 대조할 수 없어 표시하지 않습니다'};
       render();
       return;
     }
@@ -551,6 +554,9 @@
     paintMap();
     render();
 
+    // Show the map immediately, then start KPG PF only for this still-active view.
+    if (!current()) return;
+    if (pfFlag === true && id === 'kr-kpg193') pfRequest = requestPf();
     if (!pfRequest) return;
     const pfResult = await pfRequest;
     if (!current()) return;
