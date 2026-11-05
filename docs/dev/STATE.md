@@ -39,6 +39,13 @@
   - 정적 **39 passed**(C-2a/C-2b 범위 가드 2개는 C-2c 계약 단언으로 교체). C-1 + `commit_contract` **11**, C-2b **1**, MAINT-03 **4**, PH4-01 + Phase 3 **26** passed.
   - 비브라우저 **985 passed, 131 skipped**. 구현 변이 Chrome **10/10** 검출.
 - 제안(미구현): C-3 서버의 run 광고 필드, 확정 v1 오류 시 세션 유지, timeout 뒤 결과 수동 재확인. 상세: `docs/specs/PH4-02C2C_CONSOLE_RUN.md`.
+- 통합 후속: 통합 브랜치 `226fd50`(INFRA-02 smoke 도구)을 일반 merge했다(`b4ee746`). STATE 충돌은 두 기록을 모두 보존해 해결했고, smoke 도구 파일은 변경하지 않았다.
+  run 대기 중 다른 선로 카드 선택은 가능하며, 결과는 고정 대상으로 반영된다(C-1 선택 중립 계약).
+  다만 상태 줄이 새 카드를 "실행 가능"으로 보여 혼동을 줄 수 있어, 대기 중에는 상태 줄과 잠금 안내에 고정 대상을 표시하도록 고쳤다.
+  신규 Chrome `run_selection`을 추가했다. 고치기 전 코드에서는 표시 검사 2개만 실패했다.
+- 통합 후 검증(worktree `.local/ph4-02c2c/20261105-173955-merge/`)
+  - C-2c Chrome **13 passed(검사 69)**. C-1 + `commit_contract` **11**, C-2b **1**, MAINT-03 **4**, PH4-01 + Phase 3 **26** passed. 정적 **39 passed**.
+  - 비브라우저 **997 passed, 132 skipped**. IEEE39 309/310 변동은 재현되지 않았다.
 
 ## 최근 작업: PH4-02-INFRA-02 — LLM Smoke Test 인수
 

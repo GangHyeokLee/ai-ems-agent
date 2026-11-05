@@ -50,7 +50,7 @@ def test_manual_actions_wait_for_a_pending_run():
     for name in ("runSecurity", "runSensitivity", "setMonitored"):
         fn = body(BRIDGE, name)
         assert fn.index("runPending(view)") < fn.index("advanceAnalysis(view)"), name
-    assert "locked: runPending(view) ? RUN_LOCK : null" in body(BRIDGE, "analysisInfo")
+    assert "locked: runPending(view) ? runLock(pendingRun(view)) : null" in body(BRIDGE, "analysisInfo")
     for control in ("disabled: Boolean(info.locked) || (mine && sec.status === 'loading')", "'aria-label': '감시 선로', disabled: Boolean(info.locked)",
                     "disabled: Boolean(info.locked) || sens.status === 'loading'", "disabled: Boolean(info.locked), title: info.locked || null, onclick: () => act.setMonitored(alt.line)"):
         assert control in ANALYSIS, control

@@ -725,7 +725,10 @@
     const option = mode === 'run' ? runOption : referenceOption;
     const options = Object.fromEntries(['security', 'sensitivity', 'security_then_sensitivity'].map((op) => [op, option(view, op)]));
     const selected = options[view.reference.operation];
-    const reason = !selected.ok ? selected.reason : mode === 'run'
+    const pending = pendingRun(view);
+    // While a run is pending, name the outage it computes: the line card may have moved on since it was sent.
+    const reason = pending ? `${runTarget(pending)} · 지도에서 다른 선로를 골라도 이 요청은 이 사고로 계산·반영합니다`
+      : !selected.ok ? selected.reason : mode === 'run'
       ? `AI 분석 실행 가능 · 사고 ${selected.outage} · 감시 ${view.reference.operation === 'security' ? '해당 없음' : selected.monitored || '자동 선정'} · 서버가 계산·검증한 결과만 반영`
       : `기존 결과 설명 가능 · 사고 ${view.selectedOutageLineId} · 감시 ${view.reference.operation === 'security' ? '해당 없음' : view.analysis.monitored || '자동 선정'} · 새 계산 없음`;
     return {supported: true, mode, operation: view.reference.operation, modes: {run}, options, ready: selected.ok,
@@ -773,8 +776,14 @@
   }
 
   // A pending run owns the analysis context: manual N-1/Sensitivity and the monitored line wait for it.
-  const runPending = (view) => Boolean(view && apiChat.isRunPending(view.gridId));
-  const RUN_LOCK = 'AI 분석 실행 중 · 서버 계산과 검증이 끝날 때까지 수동 분석과 감시 선로 변경을 잠급니다.';
+  // The pending run's frozen context (its target never follows the line card chosen after sending).
+  const pendingRun = (view) => {
+    const snapshot = view ? apiChat.pendingAnalysis(view.gridId) : null;
+    return snapshot && snapshot.context.mode === 'run' ? snapshot.context : null;
+  };
+  const runPending = (view) => Boolean(pendingRun(view));
+  const runTarget = (c) => `AI 분석 실행 중 · 사고 ${c.outage_line_id} · 감시 ${c.operation === 'security' ? '해당 없음' : c.monitored_line_id || '자동 선정'}`;
+  const runLock = (c) => `${runTarget(c)} · 서버 계산과 검증이 끝날 때까지 수동 분석과 감시 선로 변경을 잠급니다.`;
 
   // Targets: Security/chain use the line card on screen; Sensitivity alone uses the N-1 result on screen.
   function runOption(view, operation) {
@@ -869,7 +878,7 @@
   function analysisInfo(view) {
     const pf = view.pf.status === 'ready' || view.pf.status === 'nonconverged' ? view.pf : null;
     return {gridId: view.gridId, support: analysisSupport(view), analysis: view.analysis, ctx: analysisCtx(view), clock,
-      excluded: pf ? pf.excluded.lines : null, locked: runPending(view) ? RUN_LOCK : null};
+      excluded: pf ? pf.excluded.lines : null, locked: runPending(view) ? runLock(pendingRun(view)) : null};
   }
 
   function abortAnalysis(a) {

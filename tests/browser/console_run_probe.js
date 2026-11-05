@@ -387,6 +387,47 @@
     }
   }
 
+  // Another line card chosen while a run is pending: the run keeps its frozen outage, the screen says so.
+  async function run_selection() {
+    await choose();
+    await manualSecurity('LINE-58-59');
+    for (const operation of ['security', 'sensitivity']) {
+      const lineCard = operation === 'security' ? 'LINE-16-28' : 'LINE-58-59';
+      selectLine(lineCard);
+      // Security follows the line card; Sensitivity alone follows the N-1 result on screen, not the card.
+      const outage = operation === 'security' ? lineCard : an().line;
+      choice(operation, 'run');
+      await control({script: {operation, outage}});
+      const held = hold((url) => url.endsWith('/chat'));
+      try {
+        submit();
+        await held.arrived;
+        await pause(40);
+        const revision = refState().revision;
+        selectLine('LINE-1-2');  // the map stays usable while the run is pending
+        await pause(40);
+        const lock = document.querySelector('[data-lock="run"]')?.textContent || '';
+        check(`${operation}: another line card can be opened while the run is pending`, state().view.selection?.id === 'LINE-1-2'
+          && card().getAttribute('data-line') === 'LINE-1-2' && card().disabled && refState().revision === revision && refState().runPending);
+        check(`${operation}: status and lock name the outage being computed, not the new card`,
+          text('kemsReferenceStatus').includes(`AI 분석 실행 중 · 사고 ${outage}`) && !text('kemsReferenceStatus').includes('사고 LINE-1-2')
+          && lock.includes(`사고 ${outage}`), {status: text('kemsReferenceStatus'), lock});
+        held.release();
+        await until(() => byId('kemsChat').dataset.busy === 'false', 'selection run settled');
+        await pause(60);
+        const hit = await lastHit(isRun);
+        const overlay = window.kemsConsole.map.overlay();
+        check(`${operation}: the result is applied to the requested outage only`, runBodyOk(hit, operation, outage, null)
+          && an().line === outage && an()[operation].origin === 'run' && JSON.stringify(overlay.outage) === JSON.stringify([outage])
+          && refState().receipts[operation].receipt.outage_line_id === outage
+          && (operation !== 'security' || lastAnswer().includes(`사고 선로 ${outage}`)), {line: an().line, outage: overlay.outage});
+        check(`${operation}: the open card says which outage the shown result belongs to`, state().view.selection?.id === 'LINE-1-2'
+          && (byId('kemsCard').textContent || '').includes(`표시 중인 결과: ${outage} 사고`) && !card().disabled
+          && text('kemsReferenceStatus').includes('AI 분석 실행 가능 · 사고'), byId('kemsCard').textContent);
+      } finally { held.restore(); }
+    }
+  }
+
   // 16: the 60-second limit keeps the screen and says the server may still be computing.
   async function run_timeout() {
     await choose();
@@ -466,8 +507,8 @@
 
   try {
     await window.kemsConsole.ready;
-    await ({run_security, run_sensitivity, run_chain, run_states, run_first_ac, run_reject, run_late, run_locks, run_timeout,
-      run_regression, gating_reference, gating_none})[mode]();
+    await ({run_security, run_sensitivity, run_chain, run_states, run_first_ac, run_reject, run_late, run_locks, run_selection,
+      run_timeout, run_regression, gating_reference, gating_none})[mode]();
   } catch (error) {
     check('probe exception', false, String(error.stack || error));
   } finally {

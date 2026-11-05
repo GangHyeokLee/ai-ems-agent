@@ -296,7 +296,8 @@ const KemsApiChat = (() => {
     render();
     return Object.freeze({setContext, refresh: () => render(),
       getSessionId: (gridId) => gridId === context?.gridId ? currentSession()?.id : null,
-      isRunPending: (gridId) => gridId === context?.gridId && currentSession()?.pending?.analysis?.context.mode === 'run',
+      // The frozen v1 snapshot of the request pending on this grid, if any (read-only for the bridge).
+      pendingAnalysis: (gridId) => (gridId === context?.gridId ? currentSession()?.pending?.analysis || null : null),
       invalidateAnalysisContext: () => {
         const state = currentSession();
         if (state?.pending?.analysis) {

@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 RUN_ID = uuid.uuid4().hex[:12]
 SUITE = f"console_run_c2c/{RUN_ID}"
 CASES = ("run_security", "run_sensitivity", "run_chain", "run_states", "run_first_ac", "run_reject", "run_late",
-         "run_locks", "run_timeout", "run_regression", "gating_reference", "gating_none")
+         "run_locks", "run_selection", "run_timeout", "run_regression", "gating_reference", "gating_none")
 pytestmark = pytest.mark.skipif(os.environ.get("AI_EMS_BROWSER_TESTS") != "1", reason="Chrome regression is opt-in")
 
 

@@ -163,6 +163,58 @@ analysisChanged()                                          // 한 번
 
 worktree에는 Git이 무시하는 실행 자료(KPG `.mat`, `bus_location.csv`, `data/grids`, `local-reference`, `.cache`, `.venv`, 몽골 bundle, `outputs/kr_topology`)를 원본 저장소로 읽기 전용 연결했다. 이 링크는 커밋하지 않았다.
 
+## 통합 후속 (PR #27, 2026-11-05)
+
+### 통합 브랜치 병합
+
+통합 브랜치 `226fd50`(PH4-02-INFRA-02 smoke 도구 `d3b32d5`·`226fd50`)을 일반 merge했다(`b4ee746`). force push·reset·rebase는 하지 않았다.
+
+- 충돌은 `docs/dev/STATE.md` 하나였다. INFRA-02의 현재 단계 항목과 "최근 작업" 절을 **문구 그대로** 보존하고 C-2c 기록과 함께 두었다.
+- `scripts/smoke_test_llm.py`·`tests/test_smoke_test_llm.py`는 통합 브랜치와 바이트 단위로 같다(변경 없음).
+
+### run 대기 중 다른 선로 카드 선택
+
+1. **가능한가:** 그렇다. run 대기 중 잠그는 것은 수동 분석·감시 선로·채팅 선택이고, 지도 클릭·검색과 카드는 잠그지 않는다.
+2. **응답 시 처리:** `runCurrent`는 선택을 보지 않는다. 결과는 보낼 때 고정한 사고 선로(snapshot)로 반영되고, 새로 연 카드는 그대로 남는다.
+   - 카드는 `표시 중인 결과: <사고> 사고`로 결과의 사고 선로를 알려 준다.
+   - Sensitivity 단독은 카드가 아니라 화면 N-1 결과의 사고 선로를 대상으로 한다.
+3. **혼동:** 실제 문제가 하나 있었다.
+   - C-2c에서 카드 선택 때 chat을 다시 그리도록 했는데, run 대기 중에도 상태 줄이 **새 카드**를 `AI 분석 실행 가능 · 사고 <새 카드>`로 보여 줬다.
+   - 패널 잠금 안내에는 계산 중인 사고 선로가 없었다.
+   - 고치기 전 `b4ee746` 사본에서 신규 사례가 이 두 검사만 실패했다(`pre-fix-b4ee746/`). 결과 반영 자체는 고치기 전에도 정확했다.
+4. **판단:** 선택 잠금도, 선택 변경 시 run 무효화도 아니고 **대상 고정을 유지하고 표시를 고친다.**
+   - C-1 계약은 "지도·후보 클릭, zoom, 초안은 분석 문맥을 바꾸지 않는다"이다.
+   - 잠금은 최대 60초 동안 지도 탐색을 막는다.
+   - 무효화는 서버가 계속 계산하는 결과를 버리게 한다.
+
+**최소 수정**
+- chat이 대기 중인 v1 snapshot을 읽기 전용으로 알려 준다(`pendingAnalysis`, `isRunPending` 대체).
+- bridge는 run이 대기 중이면 상태 줄과 패널 잠금 안내에 **그 run의 고정 대상**을 표시한다: `AI 분석 실행 중 · 사고 X · 감시 … · 지도에서 다른 선로를 골라도 이 요청은 이 사고로 계산·반영합니다`.
+- 의미(대상·반영)는 바꾸지 않았다.
+
+**신규 Chrome `run_selection`:** Security와 Sensitivity 단독 각각에 대해 다음을 확인한다.
+- 대기 중에 다른 카드를 열 수 있다.
+- revision이 그대로이고 run이 계속된다.
+- 상태 줄과 잠금 안내가 고정 대상을 표시한다(새 카드 아님).
+- 결과는 요청한 사고 선로에만 반영된다(요청 본문, `a.line`, overlay 사고 선로, receipt, 서버 답변).
+- 열린 카드는 표시 중인 결과의 사고 선로를 알린다.
+- 종료 후 잠금이 풀리고 상태 줄은 다음 대상을 표시한다.
+
+### 통합 후 최종 검증 (증거 worktree `.local/ph4-02c2c/20261105-173955-merge/`)
+
+| 범위 | 결과 |
+|---|---|
+| C-2c Chrome 13개(기존 12 + `run_selection`) | **13 passed, 검사 69개** (`run-c2c.log`) |
+| 첫 실행 | 1 failed. `run_selection` 기대값 오류: Sensitivity 단독의 대상은 앞선 run이 만든 화면 N-1(`LINE-16-28`)인데 probe가 다른 선로를 기대했다. probe만 고쳤고 로그 보존(`run-c2c-first.log`) |
+| 고치기 전 `b4ee746` + 신규 사례 | 표시 검사 2개만 실패, 반영 검사 통과 (`pre-fix-b4ee746/`) |
+| 정적 계약 | **39 passed** |
+| C-1 Chrome + C-2a `commit_contract` | **11 passed** |
+| C-2b 검증 Chrome | **1 passed** |
+| MAINT-03 Chrome | **4 passed** |
+| PH4-01 + Phase 3 Chrome | **26 passed, 1 deselected** (IEEE39 비교 통과, 309/310 변동 미재현) |
+| 전체 비브라우저 | **997 passed, 132 skipped** (985/131 + 통합 smoke 시험 12 + `run_selection` skip 1) |
+| INFRA-02 smoke 시험 단독 | **12 passed** (실제 LLM 호출 없음) |
+
 ## 별도 제안 (이번에 구현하지 않음)
 
 1. **run capability (C-3, 서버):** 위 노출 조건 절. 운영 공개 전 필수.
