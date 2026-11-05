@@ -9,15 +9,35 @@
 - PH4-02A·B0·B1·B2(+MAINT-02)·B3-1은 PR #17·#18·#19·#20·#21로 통합됐다(B3-1 squash `00f6edc`).
 - PH4-02B3-2는 [PR #22](https://github.com/GangHyeokLee/ai-ems-agent/pull/22)로 통합됐다(squash `15f634c`). 서버 reference/run과 검증 receipt 경로가 있다.
 - PH4-02C-1: KPG 수동 receipt와 기존 결과 설명(reference) UI를 구현했다. 실제 FastAPI/registry/계산을 사용하는 신규 Chrome 검증을 마쳤다.
-  [PR #23](https://github.com/GangHyeokLee/ai-ems-agent/pull/23)(Draft)에 리뷰 후속 F1·F3 보완을 추가했다.
+  [PR #23](https://github.com/GangHyeokLee/ai-ems-agent/pull/23)으로 통합됐다(merge `a77ef8c`). 리뷰 후속 F1·F3 보완을 포함한다.
   MAINT-03은 [PR #24](https://github.com/GangHyeokLee/ai-ems-agent/pull/24)로 통합됐으며, C-1에 일반 merge로 반영했다. 실제 통합 경로의 최종 회귀는 모두 통과했다. 과거 IEEE39 렌더링 불안정성을 해결한 것은 아니므로 병합 권고는 CONDITIONAL이다.
 - v1 capability는 어떤 계통에도 광고하지 않는다. C-1 UI는 광고가 있는 테스트 fixture에서만 활성화된다. MN v1·한국 OSM AI는 차단을 유지한다.
 - 실시간 브랜치·HEAD·커밋 여부·staged/unstaged/untracked 상태는 `dev_handoff.py` 출력으로 확인한다.
-- PH4-02C-2a: run 반영을 위한 공통 상태·commit 리팩터링을 `feature/ph4-02c2a-common-commit`([PR #25](https://github.com/GangHyeokLee/ai-ems-agent/pull/25), PR #23 위의 stacked Draft)에 구현했다.
+- PH4-02C-2a: run 반영을 위한 공통 상태·commit 리팩터링. [PR #25](https://github.com/GangHyeokLee/ai-ems-agent/pull/25)로 통합됐다(merge `950de21`).
   동작 변경은 없고, run 모드·`mode=run` 전송·run 결과 반영은 구현하지 않았다.
-- 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C-2b(run 응답 검증)이며 자동 착수하지 않는다.
+- PH4-02C-2b: run 응답·agent receipt·`ui_updates`의 순수 검증 함수를 `feature/ph4-02c2b-run-validation`(Draft PR)에 구현했다.
+  화면 연결은 없다(C-2c 미착수).
+- 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C-2c(run 결과 반영·잠금·상태별 UI)이며 자동 착수하지 않는다.
 
-## 최근 작업: PH4-02C-2a — Revision 분리와 공통 Commit
+## 최근 작업: PH4-02C-2b — Run 응답·Receipt 순수 검증
+
+- 기준은 `950de21`이며 별도 worktree에서 작업했다. 변경 파일은 `ui/console/api-analysis.js`와 신규 테스트, 문서다.
+  bridge·chat·서버·`web_app.py`·데이터·검증 해시는 그대로다.
+- `KemsApiAnalysis.runResponse(payload, {gridId, context}, requestId, sessionId)`: B3-2 `_execute_run` 응답 전체를 검증한다.
+  하나라도 맞지 않으면 `Invalid`를 던지고, 계약이 모두 맞은 뒤의 만료만 `RECEIPT_EXPIRED`다.
+  반환값은 frozen `{status, reasonCode, message, answer, modelRevision, expiresAt, receipts, items}`이며, `items`는 C-2a `prepareAnalysisResults` 입력 형식이다.
+- `agentReceipt`는 C-1 `manualReceipt`와 공용 검사(`receiptShape`·`assessmentMatches`·`receiptTimes`)를 함께 쓴다. 수동 판정은 그대로다.
+  결과 데이터는 기존 `securityCommon`/`sensitivityCommon`으로 지도 없이 검사한다(지도 대응은 C-2c의 prepare).
+- 검증(worktree `.local/ph4-02c2b/20261105-160144/`)
+  - 신규 Chrome 실행 시험: **1 passed, 검사 108개**. 실제 B3-2 run 응답 19건(정상·미평가 10, 실패·미실행 9)과 수동 응답 5건을 썼다.
+    변조 66종을 781개 응답에 적용해 모두 거부했다. 만료/계약 구분 6건, 순수성(fetch 0·DOM·저장소·입력 불변)도 확인했다.
+  - 첫 실행 1 failed는 probe의 `window.KemsApiAnalysis` 참조 오류였고 로그를 보존했다.
+  - 정적 **32 passed**. 검증 함수 변이 **10/10** 검출.
+  - C-1 + `commit_contract` **11 passed**, MAINT-03 **4 passed**, PH4-01 + Phase 3 **26 passed**.
+  - 비브라우저 **978 passed, 119 skipped**.
+- 한계: receipt에 결과 digest가 없어 결과 수치의 진위는 클라이언트가 인증하지 않는다. 상세는 `docs/specs/PH4-02C2B_RUN_VALIDATION.md`.
+
+## 보존된 작업: PH4-02C-2a — Revision 분리와 공통 Commit
 
 - 기준은 C-1 HEAD `6928d89`이며 별도 worktree에서 작업했다. 변경 파일은 `api-bridge.js`·`api-chat.js`와 신규 테스트, 문서다.
   서버·`web_app.py`·`api-analysis.js`·데이터·검증 해시는 그대로다.
@@ -239,9 +259,10 @@
 - PR #23은 MAINT-03을 포함한 C-1 통합 검토 대상이다. Draft를 유지하고 Issue #14를 닫지 않는다. 최종 실행은 모두 통과했지만 과거 IEEE39 불안정성을 별도 항목으로 수용할지 판단한 뒤 병합한다.
 - 이번 IEEE39 비교는 일치했다. 과거 309/310 변동의 원인 확인·결정적 렌더링 검증은 별도 범위로 남는다. 기존 테스트를 skip/xfail하거나 단언을 완화하지 않는다.
 - F2 REST 오류 문구 범위 한정은 선택 사항이다. F4 브라우저 시계 의존과 F5 미확정 응답의 안내 없는 폐기 가능성도 후속 검토한다(이번 범위에서 새 결함으로 확정하지 않음).
-- C-2a(stacked Draft PR #25, base `feature/ph4-02c1-console-reference`)는 PR #23 다음에 검토·병합한다. PR #23이 바뀌면 그 위로 다시 맞춘다.
-- C-2b(run envelope·agent receipt·`ui_updates` 순수 검증)와 C-2c(run 반영·잠금·상태별 UI)는 별도 요청 후 진행한다.
-  C-2c는 `commitAnalysisResults`에 `epoch: bumpRevision`을 써야 한다. 확정 오류 시 세션 유지 여부와 run capability 분리는 PM 결정 사항이다.
+- C-2a(PR #25)는 통합됐다. C-2b(run 응답·agent receipt·`ui_updates` 순수 검증)는 Draft PR로 검토한다. 자동 병합하지 않는다.
+- C-2c(run 반영·잠금·상태별 UI)는 별도 요청 후 진행한다. `runResponse` → `prepareAnalysisResults(view, run.items)` →
+  `commitAnalysisResults(..., {epoch: bumpRevision, storeReceipts})` 순서를 쓴다(C-2b spec의 인터페이스 절).
+  확정 오류 시 세션 유지 여부와 run capability 분리는 PM 결정 사항이다.
 - C-2는 별도 요청 후 검증된 run receipt/update의 prepare→atomic commit, 실패/미실행/미평가 표시, 수동 분석 중재를 구현한다.
   `completed/not_evaluated/not_run/failed`와 사유 코드, 취소/timeout 결과 미확정, 같은 요청 자동 재시도 금지 조건을 보존한다. C-1 reference는 새 계산·지도 적용 없이 유지한다.
 - 실제 LLM smoke(고정 Tool/인자 준수·지연), provider 예산, 지원 launcher·단일 worker와 Chrome 검증 후에만 capability 공개를 별도로 결정한다. MN v1에는 별도 model identity가 필요하다.
