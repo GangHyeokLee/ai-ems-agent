@@ -28,6 +28,7 @@
 ## 최근 작업: PH4-02-DEMO-01 — AI EMS 콘솔 시연 점검
 
 - 기준 `ad2c1f800533d17c4851d7ce1986b76886630dbe`에서 새 `feature/ph4-02-demo-readiness` worktree를 사용했다. 변경 범위는 시연 보고서와 STATE뿐이며 UI·JS/CSS·서버·계통 데이터·테스트 단언은 수정하지 않았다.
+- 작업 중 통합 브랜치가 `f97ef1c`(PH4-02-INFRA-03 PR #28)로 전진해 이 브랜치에 동기화했다. STATE 충돌은 INFRA-03 기록과 이번 DEMO-01 기록을 모두 보존해 해결했으며, 최신 base 대비 PR diff는 보고서와 STATE 두 문서뿐이다.
 - `AI_EMS_BROWSER_TESTS=1 AI_EMS_CHROME=<Chrome executable> .venv/bin/python -B -m pytest -q -p no:cacheprovider tests/test_console_run_browser.py`: **13 passed (37.45s)**. 로그: `.local/demo-review/console-run-c2c-pytest.log`.
 - fixture는 실제 FastAPI/registry/KPG PyPowSyBl 경로, Scripted LLM만 사용했다. C-2c `run_chain`의 JSON에서 기존 receipt reference 성공을 확인했다. 실제 Ollama/LLM 호출은 하지 않았다.
 - KPG Security/Sensitivity/연쇄·receipt/reference, 결과 반영, 평가 불가/실패, capability gating, 몽골/한국 OSM 제한을 테스트와 화면으로 확인했다. 운영 콘솔은 run capability를 광고하지 않으므로 AI Run은 fixture 전용이다.
