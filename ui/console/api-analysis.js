@@ -369,8 +369,13 @@ const KemsApiAnalysis = (() => {
         || !Array.isArray(payload.ui_updates) || payload.ui_updates.length !== 0
         || !Array.isArray(analysis.results) || analysis.results.length !== expected.length
         || analysis.reason_code !== (expected.find((r) => r.assessment !== 'completed')?.reason_code ?? null)
-        || !expected.every((r, i) => sameJson(r, analysis.results[i]) && Date.parse(r.expires_at) > Date.now())) {
+        || !expected.every((r, i) => sameJson(r, analysis.results[i]))) {
       reject('기존 결과 설명 응답 계약 불일치');
+    }
+    // Only after the whole contract matched, so expiry never hides a mismatch: a receipt that
+    // expired while the answer was in flight is still rejected, but reported as expiry.
+    if (!expected.every((r) => Date.parse(r.expires_at) > Date.now())) {
+      throw Object.assign(new Invalid('참조한 분석 결과가 만료되었습니다'), {code: 'RECEIPT_EXPIRED'});
     }
   }
 

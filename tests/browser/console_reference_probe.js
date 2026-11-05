@@ -341,9 +341,112 @@
       && JSON.parse(old).overlay !== null && byId('kemsChatSend').disabled);
   }
 
+  /* Review F1: a pending explanation locks the mode/operation selectors until it settles. */
+  async function selection_lock() {
+    await choose(); await readySecurity(); await sensitivity();
+    const owner = refState().receipts.security.sessionId, receipts = JSON.stringify(refState().receipts);
+    for (const [operation, choiceMode] of [['sensitivity', 'reference'], ['security_then_sensitivity', 'reference'],
+      ['security', 'basic'], ['security_then_sensitivity', 'reference']]) choice(operation, choiceMode);
+    check('selection alone keeps receipts while nothing is pending', JSON.stringify(refState().receipts) === receipts
+      && !byId('kemsChatMode').disabled && !byId('kemsChatOperation').disabled && !byId('kemsChatSend').disabled);
+    await send();
+    const used = (await api('state')).hits.at(-1).body;
+    check('the same session and receipts still explain after selection changes', lastAnswer().includes('기존 결과 설명 · 새 계산 없음')
+      && used.session_id === owner && JSON.stringify(Object.values(used.analysis_context.references))
+        === JSON.stringify([refState().receipts.security.receipt.result_id, refState().receipts.sensitivity.receipt.result_id]));
+
+    choice('security', 'basic');
+    const basic = hold(url => url.endsWith('/chat'));
+    try {
+      const answers = countAnswers();
+      submit('기본 채팅 대기'); await basic.arrived;
+      check('basic chat does not lock the selectors', !byId('kemsChatMode').disabled && !byId('kemsChatOperation').disabled);
+      choice('security', 'reference');
+      basic.release(); await until(() => byId('kemsChat').dataset.busy === 'false', 'basic chat settled');
+      check('mode change during basic chat keeps that chat and its receipts', countAnswers() === answers + 1
+        && lastAnswer().includes('고정 기본 채팅 응답') && JSON.stringify(refState().receipts) === receipts);
+    } finally { basic.restore(); }
+
+    for (const outcome of ['success', 'failure', 'timeout']) {
+      if (!refState().receipts.security || !refState().receipts.sensitivity) { await security(); await sensitivity(); }
+      choice('security_then_sensitivity');
+      const before = JSON.stringify(refState()), answers = countAnswers();
+      const realTimer = window.setTimeout;
+      if (outcome === 'timeout') window.setTimeout = (fn, ms, ...args) => realTimer(fn, ms === 60000 ? 100 : ms, ...args);
+      const held = hold(url => url.endsWith('/chat'), outcome === 'failure');
+      try {
+        submit();
+        const locked = byId('kemsChatMode').disabled && byId('kemsChatOperation').disabled && byId('kemsChat').dataset.busy === 'true';
+        selectLine('LINE-1-2'); input('대기 중 초안');
+        check(`${outcome}: selectors locked; map selection and draft keep the pending context`, locked && JSON.stringify(refState()) === before);
+        await held.arrived;
+        if (outcome !== 'timeout') held.release();
+        await until(() => byId('kemsChat').dataset.busy === 'false', outcome + ' settled', 5000);
+        const settled = text('kemsChatMessages');
+        if (outcome === 'timeout') { held.release(); await pause(60); }
+        check(`${outcome}: selectors enabled again, draft kept, nothing late applied`, !byId('kemsChatMode').disabled
+          && !byId('kemsChatOperation').disabled && byId('kemsChatInput').value === '대기 중 초안' && settled === text('kemsChatMessages'));
+        check(`${outcome}: the unchanged request settles as before`, outcome === 'success'
+          ? countAnswers() === answers + 1 && lastAnswer().includes('기존 결과 설명') && JSON.stringify(refState()) === before
+          : countAnswers() === answers && byId('kemsChatStatus').classList.contains('kems-err') && !refState().receipts.security
+            && text('kemsChatStatus').includes(outcome === 'timeout' ? '시간이 초과' : '연결할 수 없습니다'));
+      } finally { held.restore(); window.setTimeout = realTimer; }
+    }
+
+    await security(); await sensitivity(); choice('security');
+    const held = hold(url => url.endsWith('/chat'));
+    try {
+      submit(); await held.arrived;
+      byId('kemsChatReset').click();
+      const afterReset = text('kemsChatMessages');
+      check('reset still cancels a locked reference and unlocks the selectors', byId('kemsChat').dataset.busy === 'false'
+        && !byId('kemsChatMode').disabled && !byId('kemsChatOperation').disabled && !refState().receipts.security);
+      held.release(); await pause(60);
+      check('late answer after reset stays discarded', afterReset === text('kemsChatMessages'));
+    } finally { held.restore(); }
+  }
+
+  /* Review F3: a receipt that expires while its explanation is in flight is rejected and named as expiry. */
+  async function expiry_in_flight() {
+    await choose(); await readySecurity();
+    async function heldReference(patch) {
+      await control({ttl: 3});  // real server TTL; the browser waits on the real clock
+      await security(); choice('security');
+      const expiry = Date.parse(refState().receipts.security.receipt.expires_at);
+      const ready = !byId('kemsChatSend').disabled && expiry > Date.now();
+      const answers = countAnswers(), overlay = JSON.stringify(window.kemsConsole.map.overlay()), side = text('kemsSide');
+      if (patch) await control({rule: {patches: [patch]}});
+      const held = hold(url => url.endsWith('/chat'));
+      try {
+        submit(); await held.arrived;
+        const served = (await api('state')).hits.at(-1);
+        await until(() => Date.now() > expiry + 50, 'receipt expiry', 8000);
+        held.release();
+        await until(() => byId('kemsChat').dataset.busy === 'false', 'expired reference settled');
+        return {ready, served, rejected: countAnswers() === answers && byId('kemsChatStatus').classList.contains('kems-err')
+          && overlay === JSON.stringify(window.kemsConsole.map.overlay()) && side === text('kemsSide')};
+      } finally { held.restore(); }
+    }
+    const expired = await heldReference(null);
+    check('server explained the receipt while it was still valid', expired.ready && expired.served.status === 200
+      && expired.served.response.analysis.status === 'referenced');
+    check('receipt expired in flight is rejected and not reusable', expired.rejected && !refState().receipts.security
+      && byId('kemsChatSend').disabled);
+    check('in-flight expiry is reported as expiry, not as a contract violation', text('kemsChatStatus').includes('분석 결과가 만료되었습니다')
+      && !text('kemsChatStatus').includes('계약'));
+    const tampered = await heldReference([['analysis', 'results', 0, 'result_id'], '20000000-0000-4000-8000-000000000001']);
+    check('a tampered response stays a contract violation even after expiry', tampered.ready && tampered.rejected
+      && text('kemsChatStatus').includes('계약') && !text('kemsChatStatus').includes('만료되었습니다'));
+    await control({ttl: 600});
+    await security(); choice('security'); await send();
+    check('an unexpired reference is still accepted', lastAnswer().includes('기존 결과 설명 · 새 계산 없음')
+      && !byId('kemsChatStatus').classList.contains('kems-err'));
+  }
+
   try {
     await window.kemsConsole.ready;
-    await ({receipts, gating, invalid_receipts, invalid_envelopes, races, lifetime, errors, pending_manual})[mode]();
+    await ({receipts, gating, invalid_receipts, invalid_envelopes, races, lifetime, errors, pending_manual,
+      selection_lock, expiry_in_flight})[mode]();
   } catch (error) {
     check('probe exception', false, String(error.stack || error));
   } finally {

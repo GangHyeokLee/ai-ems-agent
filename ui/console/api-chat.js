@@ -116,6 +116,9 @@ const KemsApiChat = (() => {
       operation.value = reference?.operation || 'security';
       operation.hidden = modes.value !== 'reference';
       for (const option of operation.options) option.disabled = !reference?.options?.[option.value]?.ok;
+      // A choice moves the analysis context and would cancel a pending explanation (retiring the
+      // session and its receipts), so both selectors wait for its success, failure or timeout.
+      modes.disabled = operation.disabled = Boolean(state?.pending?.reference);
       referenceStatus.textContent = reference?.reason || '';
       if (Number.isFinite(reference?.expiresAt) && reference.expiresAt > Date.now()) {
         expiryTimer = setTimeout(render, Math.min(reference.expiresAt - Date.now() + 1, 600001));
@@ -193,7 +196,11 @@ const KemsApiChat = (() => {
         if (!current()) return;
         if (request.reference) {
           try { hooks.validateReference(payload, request); }
-          catch (_) { throw new ChatError('기존 결과 설명 응답이 요청 문맥·Receipt 계약과 일치하지 않습니다.'); }
+          catch (error) {
+            // Both are rejections; only a receipt that expired in flight (checked after the full contract) is named as such.
+            throw new ChatError(error?.code === 'RECEIPT_EXPIRED' ? '분석 결과가 만료되었습니다. 다시 분석해야 참조 가능합니다.'
+              : '기존 결과 설명 응답이 요청 문맥·Receipt 계약과 일치하지 않습니다.');
+          }
         }
         const answer = request.reference ? `기존 결과 설명 · 새 계산 없음\n${payload.answer}` : payload.answer;
         state.messages.push({role: 'assistant', text: answer});

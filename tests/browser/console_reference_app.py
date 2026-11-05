@@ -167,6 +167,8 @@ async def control(request: Request):
         OFFSET += 601
     if body.get("short_ttl"):
         web_app.analysis_results.ttl_seconds = 1
+    if "ttl" in body:  # receipts registered afterwards expire on the real clocks after this many seconds
+        web_app.analysis_results.ttl_seconds = float(body["ttl"])
     if body.get("change_model"):
         with network_access(web_app.network):
             loads = web_app.network.get_loads()

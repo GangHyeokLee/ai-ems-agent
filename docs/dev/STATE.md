@@ -9,12 +9,29 @@
 - PH4-02A·B0·B1·B2(+MAINT-02)·B3-1은 PR #17·#18·#19·#20·#21로 통합됐다(B3-1 squash `00f6edc`).
 - PH4-02B3-2는 [PR #22](https://github.com/GangHyeokLee/ai-ems-agent/pull/22)로 통합됐다(squash `15f634c`). 서버 reference/run과 검증 receipt 경로가 있다.
 - PH4-02C-1: KPG 수동 receipt와 기존 결과 설명(reference) UI를 구현했다. 실제 FastAPI/registry/계산을 사용하는 신규 Chrome 검증을 마쳤다.
-  **전체 회귀 통과 상태는 아니다:** 기존 Phase 3 Chrome 5개 실패를 기준 `15f634c`에서도 재현했다. KPG map/PF 병렬 읽기 경합 해결이 남아 있다.
+  [PR #23](https://github.com/GangHyeokLee/ai-ems-agent/pull/23)(Draft)에 리뷰 후속 F1·F3 보완을 추가했다.
+  **전체 회귀 통과 상태는 아니다:** 기존 Phase 3 Chrome 경합 실패가 기준 코드와 C-1 모두에서 재현된다(실행마다 4~6개). KPG map/PF 병렬 읽기 경합(MAINT-03) 해결이 남아 있다.
 - v1 capability는 어떤 계통에도 광고하지 않는다. C-1 UI는 광고가 있는 테스트 fixture에서만 활성화된다. MN v1·한국 OSM AI는 차단을 유지한다.
 - 실시간 브랜치·HEAD·커밋 여부·staged/unstaged/untracked 상태는 `dev_handoff.py` 출력으로 확인한다.
 - 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C-2(run 콘솔 연결)이며 자동 착수하지 않는다.
 
-## 최근 작업: PH4-02C-1
+## 최근 작업: PH4-02C-1 리뷰 후속 보완 (PR #23)
+
+- F1: `api-chat.js` `render()`에서 reference 대기 중에는 모드·분석 종류 선택을 비활성화한다. 성공·실패·timeout·초기화가 끝나면 다시 연다.
+  선택 change 처리는 그대로이며, 대기가 없을 때 선택을 바꿔도 receipt와 세션은 유지된다.
+- F3: `api-analysis.js` `referenceResponse`는 응답 계약 전체를 검사한 뒤에만 만료를 확인한다(`RECEIPT_EXPIRED`).
+  `api-chat.js`는 이를 `분석 결과가 만료되었습니다`로 안내한다. 만료된 결과는 계속 거부하고 세션을 폐기한다. 변조와 만료가 겹치면 계약 불일치로 안내한다.
+- F2: 미광고 상태에서 바뀌는 표시 문구 2건을 현재 동작으로 기록하고, 범위를 한정하는 안은 별도 제안으로 남겼다(spec 리뷰 후속 절).
+  기본 채팅 `SESSION_BUSY`와 REST `ANALYSIS_BUSY`다. `api-bridge.js`는 MAINT-03과의 충돌을 피하려고 바꾸지 않았다.
+- 시험: 신규 Chrome `selection_lock`·`expiry_in_flight`를 추가하고, fixture에 `ttl` 제어를 넣었다. 기존 C-1 사례 8개의 단언은 바꾸지 않았다.
+- 검증(`.local/ph4-02c1-review/20261105-135739/`)
+  - C-1 Chrome **10 passed (44.81s, 검사 221개)**. 수정 전 `dc415f1` 사본에서는 신규 2개가 F1·F3 검사 4개에서만 실패했다.
+  - 정적 **19 passed**. 비브라우저 **965 passed, 113 skipped**.
+  - 기존 PH4-01 + Phase 3 Chrome: 수정 후·수정 전 모두 **6 failed / 20 passed**다. 매번 실패하는 기존 경합 4개 외에 실행마다 다른 2개가 실패했다.
+  - 원본 Artifact 비교의 ieee39 `#sld *` 309/310 차이는 원본과 콘솔 쪽을 번갈아 나타나는 타이밍 차이였다.
+- 남은 리뷰 항목: F4(브라우저 시계 기반 만료, `api-bridge.js`)와 F5(안내 없는 폐기 가능성, 운영 경로 미발견)는 미수정이다.
+
+## 보존된 작업: PH4-02C-1
 
 - 기능 수정은 `api-chat.js`, `api-bridge.js`, `api-analysis.js`, `api-bridge.css` 4개뿐이다. 서버·기존 테스트·원본 UI·계통 데이터·검증 해시는 그대로다.
 - bridge가 view UUID/revision/선택 사고·감시/receipt owner를 소유한다. 정상 수동 Security→Sensitivity는 같은 세션을 유지하고, pending reference 취소·대화 초기화·실패 시 세션과 이전 receipt를 폐기한다.
@@ -22,7 +39,7 @@
 - 등록 실패·최초 AC·만료·모델 변경은 안내하며 자동 재계산하지 않는다. run 모드·결과 지도 적용·capability 공개는 구현하지 않았다.
 - 상세 결정·함수·테스트·남은 문제: `docs/specs/PH4-02C1_CONSOLE_REFERENCE.md`.
 
-## PH4-02C-1 실제 검증
+## 보존된 검증: PH4-02C-1 (이번 리뷰 후속 실행 결과 아님)
 
 - 최종 신규 Chrome **8 passed (35.14s), 187개 브라우저 검사**, 정적/원본/라우트 **19 passed, 1 warning (0.89s)**.
 - 전체 비브라우저(B1/B2/B3 포함): **965 passed, 111 skipped, 1 warning (93.64s)**. 기존 opt-in 등 103 + 신규 Chrome 8 skip이며 실패를 skip으로 바꾼 것이 아니다.
@@ -162,8 +179,10 @@
 
 ## 다음 작업과 다음 담당자에게
 
-- C-1 구현·검증은 `feature/ph4-02c1-console-reference`의 Draft PR 검토 대상이다. Issue #14를 닫거나 C-2/C-3를 자동 시작하지 않는다.
-- 기존 KPG map/PF 병렬 조회가 non-blocking network guard에서 경합하는 문제를 별도 범위로 해결하고, 기존 Phase 3 Chrome 5개 실패를 재확인한다. 현재 전체 회귀를 green으로 보고하지 않는다.
+- C-1 구현·검증은 `feature/ph4-02c1-console-reference`의 Draft PR #23 검토 대상이다. Issue #14를 닫거나 C-2/C-3를 자동 시작하지 않는다.
+- 기존 KPG map/PF 병렬 조회가 non-blocking network guard에서 경합하는 문제를 별도 범위(MAINT-03)로 해결한다. 이어 C-1 위에서 기존 Phase 3 Chrome을 재확인한다.
+  특히 실행마다 실패 여부가 바뀌는 `analysis_drops_stale_results`·`monitored_line_change_drops_sensitivity`를 확인해야 한다. 이것이 PR #23 병합 전 조건이며, 현재 전체 회귀를 green으로 보고하지 않는다.
+- MAINT-03 이후 `api-bridge.js` 후보: F2 범위 한정(선택), F4 브라우저 시계 의존 완화. 원본 Artifact 비교의 ieee39 SLD 개수 변동은 별도 확인 대상이다.
 - C-2는 검증된 run receipt/update의 prepare→atomic commit, 실패/미실행/미평가 표시, 수동 분석과의 중재를 구현한다. C-1 reference는 새 계산·지도 적용 없이 유지한다.
 - 실제 LLM smoke(고정 Tool/인자 준수·지연), provider 예산, 지원 launcher·단일 worker 검증과 Chrome 회귀를 마친 뒤에만 capability 공개를 별도로 결정한다. MN v1에는 model identity가 별도로 필요하다.
 - 서버 변경이 없다면 기존 `web_app.py` 해시 체인을 불필요하게 늘리지 않는다. 이후 서버 변경 시 기존 기록을 잇는 새 기록이 필요하다.
