@@ -17,6 +17,9 @@
 - PH4-02C-2a: run 반영을 위한 공통 상태·commit 리팩터링. [PR #25](https://github.com/GangHyeokLee/ai-ems-agent/pull/25)로 통합됐다(merge `950de21`).
   동작 변경은 없고, run 모드·`mode=run` 전송·run 결과 반영은 구현하지 않았다.
 - PH4-02C-2b: run 응답·agent receipt·`ui_updates`의 순수 검증 함수. [PR #26](https://github.com/GangHyeokLee/ai-ems-agent/pull/26)으로 통합됐다(merge `aebf3d6`).
+- PH4-02-INFRA-02: `feature/ph4-02-infra-real-llm-smoke`에서 Gemini LLM smoke 도구를 인수·보완했다. 실제 LLM `--execute`는 실행하지 않았다.
+  로컬 커밋 `d3b32d5`는 있으나 Push가 인증 오류로 실패해 Draft PR은 생성되지 않았다. 원격 diff/mergeability 확인도 남아 있다.
+  (C-2c 병합 시 확인: INFRA-02 커밋 `d3b32d5`·`226fd50`은 통합 브랜치 `feature/kems-multi-grid`에 있다. 위 원 기록은 그대로 둔다.)
 - PH4-02C-2c: 콘솔 AI run 연결과 원자적 화면 반영을 `feature/ph4-02c2c-console-run`([PR #27](https://github.com/GangHyeokLee/ai-ems-agent/pull/27), Draft)에 구현했다. 운영 노출은 없다.
 - 다음 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C-3(run capability 서버 광고, 실제 LLM smoke, 운영 공개 결정)이며 자동 착수하지 않는다.
 
@@ -36,6 +39,17 @@
   - 정적 **39 passed**(C-2a/C-2b 범위 가드 2개는 C-2c 계약 단언으로 교체). C-1 + `commit_contract` **11**, C-2b **1**, MAINT-03 **4**, PH4-01 + Phase 3 **26** passed.
   - 비브라우저 **985 passed, 131 skipped**. 구현 변이 Chrome **10/10** 검출.
 - 제안(미구현): C-3 서버의 run 광고 필드, 확정 v1 오류 시 세션 유지, timeout 뒤 결과 수동 재확인. 상세: `docs/specs/PH4-02C2C_CONSOLE_RUN.md`.
+
+## 최근 작업: PH4-02-INFRA-02 — LLM Smoke Test 인수
+
+- 기존 Gemini 구현·두 파일을 유지했다. Smoke 전용 기본 URL을 제거하고 실제 실행에는 명시된 HTTPS origin과 기존 인증 설정 계약을 요구한다.
+  접속 확인 실패 시 후속 LLM 호출과 계통 계산을 건너뛰며, Tool 호출·선로 인자는 in-memory ToolMessage에서, receipt는 API 응답에서 검증한다.
+- `.env`, Ollama/Caddy/Tailscale, 서버·모델·계통 데이터는 변경하지 않았다. Tailscale 접근 정책은 실행 환경 설정이므로 실제 연결 전까지 확인되지 않았다.
+- 최종 검증: `tests/test_smoke_test_llm.py` **12 passed, 1 기존 Starlette deprecation warning**.
+  CLI Dry Run은 URL 미설정을 표시하고 실행을 건너뛰었다. CLI Mock은 **10/10 PASS**.
+  첫 검증 보강 중 ToolMessage import 누락으로 3개 실패했으며 수정 후 최종 실행에서 모두 통과했다. 실제 LLM `--execute` 미실행.
+- 기준 통합 HEAD는 `aebf3d6`까지 fast-forward했다. `git push --set-upstream origin feature/ph4-02-infra-real-llm-smoke`는
+  `unable to get password from user`로 실패했다. 인증된 Push 후 `feature/kems-multi-grid` 대상 Draft PR을 생성하고 원격 diff/mergeability를 확인한다.
 
 ## 보존된 작업: PH4-02C-2b — Run 응답·Receipt 순수 검증
 
