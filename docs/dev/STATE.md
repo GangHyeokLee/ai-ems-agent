@@ -17,7 +17,19 @@
   동작 변경은 없고, run 모드·`mode=run` 전송·run 결과 반영은 구현하지 않았다.
 - PH4-02C-2b: run 응답·agent receipt·`ui_updates`의 순수 검증 함수를 `feature/ph4-02c2b-run-validation`([PR #26](https://github.com/GangHyeokLee/ai-ems-agent/pull/26), Draft)에 구현했다.
   화면 연결은 없다(C-2c 미착수).
+- PH4-02-INFRA-02: `feature/ph4-02-infra-real-llm-smoke`에서 Gemini LLM smoke 도구를 인수·보완했다. 실제 LLM `--execute`는 실행하지 않았다.
+  Draft PR 생성과 최신 통합 브랜치 기준 diff/충돌 확인이 남아 있다.
 - 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C-2c(run 결과 반영·잠금·상태별 UI)이며 자동 착수하지 않는다.
+
+## 최근 작업: PH4-02-INFRA-02 — LLM Smoke Test 인수
+
+- 기존 Gemini 구현·두 파일을 유지했다. Smoke 전용 기본 URL을 제거하고 실제 실행에는 명시된 HTTPS origin과 기존 인증 설정 계약을 요구한다.
+  접속 확인 실패 시 후속 LLM 호출과 계통 계산을 건너뛰며, Tool 호출·선로 인자는 in-memory ToolMessage에서, receipt는 API 응답에서 검증한다.
+- `.env`, Ollama/Caddy/Tailscale, 서버·모델·계통 데이터는 변경하지 않았다. Tailscale 접근 정책은 실행 환경 설정이므로 실제 연결 전까지 확인되지 않았다.
+- 최종 검증: `tests/test_smoke_test_llm.py` **12 passed, 1 기존 Starlette deprecation warning**.
+  CLI Dry Run은 URL 미설정을 표시하고 실행을 건너뛰었다. CLI Mock은 **10/10 PASS**.
+  첫 검증 보강 중 ToolMessage import 누락으로 3개 실패했으며 수정 후 최종 실행에서 모두 통과했다. 실제 LLM `--execute` 미실행.
+- 기준 통합 HEAD는 `aebf3d6`까지 fast-forward했다. Draft PR은 `feature/kems-multi-grid` 대상으로 생성 후 이 항목을 갱신한다.
 
 ## 최근 작업: PH4-02C-2b — Run 응답·Receipt 순수 검증
 
