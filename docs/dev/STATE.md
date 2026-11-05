@@ -20,10 +20,43 @@
 - PH4-02-INFRA-02: `feature/ph4-02-infra-real-llm-smoke`에서 Gemini LLM smoke 도구를 인수·보완했다. 실제 LLM `--execute`는 실행하지 않았다.
   로컬 커밋 `d3b32d5`는 있으나 Push가 인증 오류로 실패해 Draft PR은 생성되지 않았다. 원격 diff/mergeability 확인도 남아 있다.
   (C-2c 병합 시 확인: INFRA-02 커밋 `d3b32d5`·`226fd50`은 통합 브랜치 `feature/kems-multi-grid`에 있다. 위 원 기록은 그대로 둔다.)
-- PH4-02C-2c: 콘솔 AI run 연결과 원자적 화면 반영을 `feature/ph4-02c2c-console-run`([PR #27](https://github.com/GangHyeokLee/ai-ems-agent/pull/27), Draft)에 구현했다. 운영 노출은 없다.
-- 다음 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C-3(run capability 서버 광고, 실제 LLM smoke, 운영 공개 결정)이며 자동 착수하지 않는다.
+  현재 상태(INFRA-03 확인): INFRA-02 도구는 위 두 커밋으로 통합 브랜치에 직접 반영됐다. 위의 Push 실패·PR 미생성은 당시 기록이며 별도 INFRA-02 PR은 필요 없다.
+- PH4-02C-2c: 콘솔 AI run 연결과 원자적 화면 반영. [PR #27](https://github.com/GangHyeokLee/ai-ems-agent/pull/27)로 통합됐다(merge `ad2c1f8`). 운영 노출은 없다.
+- PH4-02-INFRA-03: smoke 도구의 fail-closed·인증 일치·판정 결함을 `feature/ph4-02-infra03-smoke-hardening`([PR #28](https://github.com/GangHyeokLee/ai-ems-agent/pull/28), Draft)에서 고쳤다. 실제 LLM은 실행하지 않았다.
+- 다음 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 실제 LLM smoke 실행(사용자 승인 필요)과 C-3(run capability 서버 광고, 운영 공개 결정)이며 자동 착수하지 않는다.
 
-## 최근 작업: PH4-02C-2c — AI Run 콘솔 연결과 원자적 반영
+## 최근 작업: PH4-02-INFRA-03 — 실제 LLM Smoke 도구 안정화
+
+- 기준은 `ad2c1f8`이며 별도 worktree에서 작업했다. 변경 파일은 `scripts/smoke_test_llm.py`, `tests/test_smoke_test_llm.py`(기존 12개 그대로, 신규 추가)와 문서다.
+  서버·`src/`·콘솔·데이터·검증 해시·launcher·Caddy/Tailscale/Ollama 설정은 그대로다. 실제 LLM·`--execute`·GPU 추론은 실행하지 않았다.
+- 수정 전 재현한 결함:
+  - 함수 호출 `mode="mock"`이 실제 경로로 진행했다(차단된 `/api/chat` POST 4회).
+  - Tool Calling 실패 뒤에도 Run을 진행했다.
+  - 지정 모델이 없어도 PASS였다.
+  - 시나리오 8이 항상 PASS였다.
+  - guard 거부를 실행으로 판정했다.
+  - 격리 복구가 누락됐다(원래 없던 속성, 설정 중 예외).
+  - 점검과 Agent의 인증 출처가 달랐다(root가 다르면 불일치).
+  - 예외 원문을 기록했다.
+- 추가로 확인한 위험: ollama 클라이언트가 `OLLAMA_API_KEY`를 Agent에만 Bearer로 붙인다.
+- 고친 동작(상세는 spec):
+  - mode 단일 결정, 불일치 인자 거부.
+  - 인증은 `auth_env` 하나를 점검·실행 범위에 공통 적용하고, Run 직전 실제 클라이언트 헤더와 비교한다.
+  - `OLLAMA_API_KEY` 단독 설정을 거부한다.
+  - 모델은 정확한 이름(태그 없으면 `:latest`)만 인정한다.
+  - Tool Calling은 1개·이름·guard 인자 규칙을 통과해야 하며, 실패하면 이후 단계는 SKIP하고 KPG를 적재하지 않는다.
+  - revision은 실제 전후 값으로 판정하고, 근거가 부족하면 PASS가 아니다.
+  - Evidence·Receipt는 응답·이번 요청 이력·Registry를 대조하고, Ledger 원본 등 확인 못 한 범위는 `limitations`에 기록한다.
+  - 종합 PASS는 10개 모두 PASS일 때만이다.
+  - 보고서 비밀값은 가리고, URL은 origin만 표시한다.
+- 검증(worktree `.local/ph4-02-infra03/20261105-180858/`)
+  - smoke 시험 **70 passed**(기존 12 + 신규 58). 가짜 Caddy(README 계약)로 실제 ChatOllama·`_chat_model`·KPG 계산 경로를 네트워크 없이 확인했다.
+  - 변이 **21/21** 검출. 첫 실행의 미검출 2건은 시험을 보강해 검출했다.
+  - CLI(연결 시도 0건): Dry Run DRY_RUN/WARN, Mock **10/10 PASS**, URL 없는 `--execute` exit 2.
+  - 전체 비브라우저 **1055 passed, 132 skipped**(직전 997/132 + 신규 58). `git diff --check` 통과, 실제 `.env` 인증 값 노출 0건.
+- 상세 결함·판정 규칙·실제 실행 준비사항: `docs/specs/PH4-02-INFRA-03_SMOKE_HARDENING.md`.
+
+## 보존된 작업: PH4-02C-2c — AI Run 콘솔 연결과 원자적 반영
 
 - 기준은 `aebf3d6`이며 별도 worktree에서 작업했다. 변경 파일은 `api-bridge.js`·`api-chat.js`·`api-analysis.js`와 신규 테스트, 문서다.
   서버·`web_app.py`·데이터·검증 해시·CSS는 그대로다.
@@ -47,7 +80,7 @@
   - C-2c Chrome **13 passed(검사 69)**. C-1 + `commit_contract` **11**, C-2b **1**, MAINT-03 **4**, PH4-01 + Phase 3 **26** passed. 정적 **39 passed**.
   - 비브라우저 **997 passed, 132 skipped**. IEEE39 309/310 변동은 재현되지 않았다.
 
-## 최근 작업: PH4-02-INFRA-02 — LLM Smoke Test 인수
+## 보존된 작업: PH4-02-INFRA-02 — LLM Smoke Test 인수
 
 - 기존 Gemini 구현·두 파일을 유지했다. Smoke 전용 기본 URL을 제거하고 실제 실행에는 명시된 HTTPS origin과 기존 인증 설정 계약을 요구한다.
   접속 확인 실패 시 후속 LLM 호출과 계통 계산을 건너뛰며, Tool 호출·선로 인자는 in-memory ToolMessage에서, receipt는 API 응답에서 검증한다.
@@ -57,6 +90,8 @@
   첫 검증 보강 중 ToolMessage import 누락으로 3개 실패했으며 수정 후 최종 실행에서 모두 통과했다. 실제 LLM `--execute` 미실행.
 - 기준 통합 HEAD는 `aebf3d6`까지 fast-forward했다. `git push --set-upstream origin feature/ph4-02-infra-real-llm-smoke`는
   `unable to get password from user`로 실패했다. 인증된 Push 후 `feature/kems-multi-grid` 대상 Draft PR을 생성하고 원격 diff/mergeability를 확인한다.
+- 현재 상태(INFRA-03 기록): 위 두 줄은 당시 기록이다. 커밋 `d3b32d5`·`226fd50`은 이후 통합 브랜치에 직접 반영됐으므로 이 Push·PR 후속은 필요 없다.
+  도구의 결함 보완은 INFRA-03에서 했다.
 
 ## 보존된 작업: PH4-02C-2b — Run 응답·Receipt 순수 검증
 
@@ -298,8 +333,13 @@
 - PR #23은 MAINT-03을 포함한 C-1 통합 검토 대상이다. Draft를 유지하고 Issue #14를 닫지 않는다. 최종 실행은 모두 통과했지만 과거 IEEE39 불안정성을 별도 항목으로 수용할지 판단한 뒤 병합한다.
 - 이번 IEEE39 비교는 일치했다. 과거 309/310 변동의 원인 확인·결정적 렌더링 검증은 별도 범위로 남는다. 기존 테스트를 skip/xfail하거나 단언을 완화하지 않는다.
 - F2 REST 오류 문구 범위 한정은 선택 사항이다. F4 브라우저 시계 의존과 F5 미확정 응답의 안내 없는 폐기 가능성도 후속 검토한다(이번 범위에서 새 결함으로 확정하지 않음).
-- C-2a·C-2b는 통합됐다. C-2c는 Draft PR #27로 검토하며 자동 병합하지 않는다.
-- C-3은 별도 요청 후 진행한다: 서버의 `console_analysis_run_available` 광고(단일 worker·예산·smoke 조건), 실제 LLM smoke, 운영 공개 결정.
+- C-2a·C-2b·C-2c는 통합됐다(C-2c merge `ad2c1f8`). INFRA-03은 Draft [PR #28](https://github.com/GangHyeokLee/ai-ems-agent/pull/28)로 검토하며 자동 병합하지 않는다.
+- 실제 LLM smoke는 사용자 승인 후 별도로 실행한다. 실행 전 확인:
+  - Tailscale HTTPS 8443 origin과 Caddy Bearer 설정, `OLLAMA_API_KEY` 미설정.
+  - 대상 모델이 `/api/tags`에 있고 Caddy·Ollama가 기동돼 있음.
+  - Dry Run 결과 DRY_RUN.
+  - 상세: INFRA-03 spec §4.
+- C-3은 별도 요청 후 진행한다: 서버의 `console_analysis_run_available` 광고(단일 worker·예산·smoke 조건), 운영 공개 결정.
   확정 v1 오류 시 세션 유지와 timeout 뒤 결과 재확인은 PM 결정 사항이다(C-2c spec의 제안 절).
 - C-2는 별도 요청 후 검증된 run receipt/update의 prepare→atomic commit, 실패/미실행/미평가 표시, 수동 분석 중재를 구현한다.
   `completed/not_evaluated/not_run/failed`와 사유 코드, 취소/timeout 결과 미확정, 같은 요청 자동 재시도 금지 조건을 보존한다. C-1 reference는 새 계산·지도 적용 없이 유지한다.
