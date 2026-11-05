@@ -1,10 +1,13 @@
+import dataclasses
 import json
+import time
+from contextlib import ExitStack, asynccontextmanager, contextmanager
 from pathlib import Path
 from typing import Any, Literal
 
 import pandas as pd
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Header, HTTPException, Response
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -13,8 +16,45 @@ from langchain_core.messages import (
 )
 from pydantic import BaseModel
 
-from ai_ems import load_network
-from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph
+from ai_ems.grid_catalog import (
+    KPG_GRID_ID, MONGOLIA_GRID_ID, KOREA_OSM_GRID_ID, KOREA_OSM_NOTE,
+    list_grids, load_mongolia_map, load_korea_map,
+)
+from ai_ems.pf_preview import load_mongolia_pf_preview
+from ai_ems.reference_layers import load_mongolia_reference_layers
+from ai_ems.mongolia_geometry import load_mongolia_display_geometry
+from ai_ems.kpg_pf_preview import (
+    KpgPreviewUnavailable,
+    get_kpg_pf_preview,
+    validate_kpg_pf_preview,
+)
+from ai_ems.analysis_context import (
+    SENSITIVITY_TOP_N,
+    AnalysisApiError,
+    AnalysisJob,
+    ExecutionLedger,
+    Verification,
+    VerifiedResult,
+    is_uuid4,
+    parse_analysis_request,
+    parse_receipt_opt_in,
+    verify_evidence,
+)
+from ai_ems.analysis_registry import RequestTracker, ResultRegistry, SessionGates
+from ai_ems.analysis_run import agent_failure, run_budget, run_chat_model, single_worker_confirmed
+from ai_ems.agent.formatters.analysis_reference import format_reference_answer, format_run_answer
+from ai_ems.network import load_identified_network
+from ai_ems.network_access import ModelIdentityUnavailable, NetworkBusy, access_for, guarded, network_access
+from ai_ems.agent.graph import SYSTEM_PROMPT, create_agent_graph, create_line_analysis_graph
+from ai_ems.agent.mongolia_graph import (
+    MONGOLIA_SYSTEM_PROMPT,
+    DisallowedMongoliaTool,
+    requests_analysis,
+    create_mongolia_agent_graph,
+    detect_unsupported_request,
+    unsupported_request_answer,
+)
+from ai_ems.agent.mongolia_tools import ANALYSIS_TOOL_TYPES, MONGOLIA_TOOL_NAMES
 from ai_ems.agent.tools import create_agent_tools
 from ai_ems.tools.security_tools import (
     get_limit_unit,
@@ -25,17 +65,83 @@ from ai_ems.tools.sensitivity_tools import rank_generator_sensitivities
 from ai_ems.config import (
     BUS_LOCATION_FILE,
     CASE_FILE,
+    MONGOLIA_POWSYBL_REPORTS_DIR,
+    MONGOLIA_XIIDM_FILE,
+    PROJECT_ROOT,
+    KOREA_MAP_FILE,
+    MONGOLIA_BUNDLE_DIR,
+    MONGOLIA_BUNDLE_MANIFEST_SHA256,
 )
+from ai_ems.mongolia_security import (
+    ExcludedOutageLine,
+    ModelFiles,
+    MongoliaModelUnavailable,
+    MongoliaSecurityService,
+    UnknownOutageLine,
+)
+from ai_ems.mongolia_sensitivity import InvalidMonitoredLine, SensitivityVerificationFailed
+from ai_ems.mongolia_runtime import MongoliaBundleRuntime
 
 UI_DIR = Path("ui")
+# Artifact console (served beside the existing UI). Only these files are exposed.
+CONSOLE_DIR = UI_DIR / "console"
+CONSOLE_ASSETS = frozenset({"app.css", "api-bridge.css", "models.js", "app.js", "api-map.js", "api-analysis.js", "api-chat.js", "api-bridge.js"})
+MONGOLIA_MAP_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-map.json"
+MONGOLIA_PF_PREVIEW_FILE = PROJECT_ROOT / "data" / "grids" / "mn35k-synthetic-pf-preview.json"
+# Reference-only display layers; deliberately separate from the hash-bound base map.
+MONGOLIA_REFERENCE_LAYERS_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-reference-layers.json"
+MONGOLIA_DISPLAY_GEOMETRY_FILE = PROJECT_ROOT / "data" / "grids" / "mn-osm-35k-display-geometry.json"
+KPG_GEOGRAPHY_FILE = PROJECT_ROOT / "data" / "grids" / "kr-geography.json"
+_mongolia_bundle_runtime = MongoliaBundleRuntime(MONGOLIA_BUNDLE_DIR, MONGOLIA_BUNDLE_MANIFEST_SHA256)
 
-network = load_network(CASE_FILE)
+network = load_identified_network(CASE_FILE)
 agent_graph = create_agent_graph(network)
 direct_agent_tools = {
     tool.name: tool
     for tool in create_agent_tools(network)
 }
 agent_sessions: dict[str, list[Any]] = {}
+
+
+def _load_validated_mongolia_pf() -> dict[str, Any]:
+    # Resolve module paths at call time so the configured assets are always re-validated.
+    if _mongolia_bundle_runtime.selected:
+        files = _mongolia_bundle_runtime.files()
+        result = load_mongolia_pf_preview(files.pf_preview, files.map)
+        _mongolia_bundle_runtime.guard()
+        return result
+    return load_mongolia_pf_preview(MONGOLIA_PF_PREVIEW_FILE, MONGOLIA_MAP_FILE)
+
+
+mongolia_agent_sessions: dict[str, list[Any]] = {}
+
+# PH4-02B3-1 v1 state: one process, memory only (lost on restart; single worker assumed).
+analysis_results = ResultRegistry()
+analysis_requests = RequestTracker()
+analysis_sessions = SessionGates()
+
+# Mongolia PyPowSyBl Security Analysis: separate model, never the KPG `network`.
+_mongolia_security_services: dict[tuple, MongoliaSecurityService] = {}
+
+
+def _mongolia_security() -> MongoliaSecurityService:
+    if _mongolia_bundle_runtime.selected:
+        return _mongolia_bundle_runtime
+    files = ModelFiles(
+        MONGOLIA_XIIDM_FILE,
+        MONGOLIA_POWSYBL_REPORTS_DIR,
+        MONGOLIA_PF_PREVIEW_FILE,
+        MONGOLIA_MAP_FILE,
+    )
+    key = (files.xiidm, files.reports_dir, files.pf_preview, files.map_file)
+    if key not in _mongolia_security_services:
+        _mongolia_security_services[key] = MongoliaSecurityService(files)
+    return _mongolia_security_services[key]
+
+# Resolve the service lazily; each domain call uses its own validated network.
+mongolia_agent_graph = create_mongolia_agent_graph(
+    _load_validated_mongolia_pf, load_security=_mongolia_security,
+)
 
 bus_locations = pd.read_csv(BUS_LOCATION_FILE)
 
@@ -49,24 +155,81 @@ bus_location_map = {
     for _, row in bus_locations.iterrows()
 }
 
-app = FastAPI(
-    title="AI-EMS Agent",
-)
+@asynccontextmanager
+async def _lifespan(app):
+    _mongolia_bundle_runtime.start()
+    yield
+
+
+app = FastAPI(title="AI-EMS Agent", lifespan=_lifespan)
+
+
+@app.exception_handler(NetworkBusy)
+async def _network_busy(request, exc):
+    return JSONResponse(status_code=409, content={"detail": "ANALYSIS_BUSY"})
+
+
+@app.middleware("http")
+async def _guard_mongolia_bundle(request, call_next):
+    scoped = (_mongolia_bundle_runtime.selected
+              and request.url.path.startswith("/api/grids/mn-osm-35k/")
+              and request.url.path not in {"/api/grids/mn-osm-35k/runtime-status", "/api/grids/mn-osm-35k/security-status"})
+    if scoped:
+        try:
+            _mongolia_bundle_runtime.guard()
+        except MongoliaModelUnavailable as exc:
+            return JSONResponse(status_code=503, content={"detail": str(exc)})
+    response = await call_next(request)
+    if scoped and response.status_code < 400:
+        try:
+            _mongolia_bundle_runtime.guard()
+        except MongoliaModelUnavailable as exc:
+            return JSONResponse(status_code=503, content={"detail": str(exc)})
+    return response
 
 
 class ChatRequest(BaseModel):
     session_id: str
     message: str
+    grid_id: str = KPG_GRID_ID
+    # PH4-02B3-1 v1 opt-in, validated by parse_analysis_request. Both absent/null
+    # keeps the legacy request and response contract unchanged.
+    request_id: Any = None
+    analysis_context: Any = None
 
 
 class GeneratorContingencyRequest(BaseModel):
     generator_id: str
     slack_mode: Literal["single", "distributed"] = "single"
+    grid_id: str = KPG_GRID_ID
+
+
+def _require_kpg_grid(grid_id: str) -> None:
+    if grid_id != KPG_GRID_ID:
+        raise HTTPException(status_code=409, detail="이 API는 KPG 시험계통 전용입니다. 지정한 계통의 계산·채팅을 지원하지 않습니다.")
 
 
 @app.get("/")
 def index():
     return FileResponse(UI_DIR / "index.html")
+
+
+@app.get("/console", include_in_schema=False)
+def console_redirect():
+    # Console assets use relative URLs, so the page is always served from /console/.
+    return RedirectResponse("/console/")
+
+
+@app.get("/console/", include_in_schema=False)
+def console_index():
+    return FileResponse(CONSOLE_DIR / "index.html")
+
+
+@app.get("/console/{asset}", include_in_schema=False)
+def console_asset(asset: str):
+    if asset not in CONSOLE_ASSETS:
+        raise HTTPException(status_code=404, detail="Not Found")
+    return FileResponse(CONSOLE_DIR / asset)
 
 
 @app.get("/api/health")
@@ -76,7 +239,161 @@ def health():
     }
 
 
+@app.get("/api/grids")
+def grid_catalog():
+    map_file, preview_file = (_mongolia_bundle_runtime.catalog_paths() if _mongolia_bundle_runtime.selected
+                              else (MONGOLIA_MAP_FILE, MONGOLIA_PF_PREVIEW_FILE))
+    return {
+        "grids": list_grids(
+            map_file,
+            preview_file,
+            _mongolia_security().status(),
+            KOREA_MAP_FILE,
+        ),
+        "default_grid_id": KPG_GRID_ID,
+    }
+
+
+@app.get("/api/grids/{grid_id}/map")
+def grid_map(grid_id: str):
+    if grid_id == KPG_GRID_ID:
+        return network_map()
+    if grid_id == MONGOLIA_GRID_ID:
+        try:
+            map_file = (_mongolia_bundle_runtime.files().map if _mongolia_bundle_runtime.selected else MONGOLIA_MAP_FILE)
+            return load_mongolia_map(map_file)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if grid_id == KOREA_OSM_GRID_ID:
+        try:
+            return load_korea_map(KOREA_MAP_FILE)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="한국 지도 데이터가 없습니다.") from exc
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=422, detail="한국 지도 데이터 검증에 실패했습니다.") from exc
+    raise HTTPException(status_code=404, detail="Unknown grid ID")
+
+
+@app.get("/api/grids/mn-osm-35k/display-geometry")
+def mongolia_display_geometry():
+    # Optional display data are bound to the selected map, including bundle
+    # mode. They never replace a manifest asset or a calculation input.
+    try:
+        map_file = (_mongolia_bundle_runtime.files().map if _mongolia_bundle_runtime.selected else MONGOLIA_MAP_FILE)
+        return load_mongolia_display_geometry(MONGOLIA_DISPLAY_GEOMETRY_FILE, map_file)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="몽골 GIS 표시 자료가 없습니다.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/grids/mn-osm-35k/pf-preview")
+def mongolia_pf_preview():
+    try:
+        return _load_validated_mongolia_pf()
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/grids/mn-osm-35k/reference-layers")
+def mongolia_reference_layers():
+    try:
+        if _mongolia_bundle_runtime.selected:
+            files = _mongolia_bundle_runtime.files()
+            return load_mongolia_reference_layers(files.reference, files.map)
+        return load_mongolia_reference_layers(MONGOLIA_REFERENCE_LAYERS_FILE, MONGOLIA_MAP_FILE)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.get("/api/grids/mn-osm-35k/runtime-status")
+def mongolia_runtime_status():
+    diagnostic = _mongolia_bundle_runtime.diagnostics()
+    if not _mongolia_bundle_runtime.selected:
+        status = _mongolia_security().status()
+        diagnostic.update(available=status["available"], validation_status="LEGACY",
+                          paths={"map": str(MONGOLIA_MAP_FILE), "pf_preview": str(MONGOLIA_PF_PREVIEW_FILE),
+                                 "reference": str(MONGOLIA_REFERENCE_LAYERS_FILE), "xiidm": str(MONGOLIA_XIIDM_FILE),
+                                 "reports": str(MONGOLIA_POWSYBL_REPORTS_DIR)})
+    return {"grid_id": MONGOLIA_GRID_ID, **diagnostic}
+
+
+@app.get("/api/grids/mn-osm-35k/security-status")
+def mongolia_security_status():
+    return {"grid_id": MONGOLIA_GRID_ID, **_mongolia_security().status()}
+
+
+@app.get("/api/grids/mn-osm-35k/security-analysis")
+def mongolia_security_analysis(
+    outage_line_id: str,
+    *,
+    x_ems_analysis_context_version: str | None = Header(default=None),
+    x_ems_session_id: str | None = Header(default=None),
+    x_ems_request_id: str | None = Header(default=None),
+):
+    _reject_receipt_opt_in(x_ems_analysis_context_version, x_ems_session_id, x_ems_request_id)
+    try:
+        return _mongolia_security().run_line_contingency(outage_line_id)
+    except MongoliaModelUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"몽골 Security Analysis를 사용할 수 없습니다: {exc}") from exc
+    except UnknownOutageLine as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ExcludedOutageLine as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"몽골 Security Analysis 실행 실패: {exc}") from exc
+
+
+@app.get("/api/grids/mn-osm-35k/sensitivity-analysis")
+def mongolia_sensitivity_analysis(
+    outage_line_id: str,
+    monitored_line_id: str | None = None,
+    top_n: int = 10,
+    *,
+    x_ems_analysis_context_version: str | None = Header(default=None),
+    x_ems_session_id: str | None = Header(default=None),
+    x_ems_request_id: str | None = Header(default=None),
+):
+    _reject_receipt_opt_in(x_ems_analysis_context_version, x_ems_session_id, x_ems_request_id)
+    try:
+        return _mongolia_security().run_line_sensitivity(
+            outage_line_id,
+            monitored_line_id or None,
+            top_n=top_n,
+        )
+    except MongoliaModelUnavailable as exc:
+        raise HTTPException(status_code=503, detail=f"몽골 Sensitivity Analysis를 사용할 수 없습니다: {exc}") from exc
+    except UnknownOutageLine as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (ExcludedOutageLine, InvalidMonitoredLine) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except SensitivityVerificationFailed as exc:
+        raise HTTPException(status_code=422, detail=f"민감도 검증 실패(결과를 반환하지 않음): {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"몽골 Sensitivity Analysis 실행 실패: {exc}") from exc
+
+
+@app.get("/api/grids/kr-kpg193/pf-preview")
+def kpg_pf_preview():
+    try:
+        return validate_kpg_pf_preview(get_kpg_pf_preview(), network_map())
+    except KpgPreviewUnavailable as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"KPG 기본 PF 미리보기를 사용할 수 없습니다: {exc}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @app.get("/api/network-summary")
+@guarded(lambda: network)
 def network_summary():
     return {
         "buses": len(network.get_buses()),
@@ -87,13 +404,20 @@ def network_summary():
 
 
 @app.get("/api/network-map")
+@guarded(lambda: network)
 def network_map():
     buses = []
+    voltage_levels = network.get_voltage_levels()
+    nominal_voltage_by_bus = {
+        _bus_number(voltage_level_id): _optional_float(row["nominal_v"])
+        for voltage_level_id, row in voltage_levels.iterrows()
+    }
 
     for bus_id, location in bus_location_map.items():
         buses.append(
             {
                 "bus_id": bus_id,
+                "voltage_kv": nominal_voltage_by_bus.get(bus_id),
                 **location,
             }
         )
@@ -116,8 +440,26 @@ def network_map():
                 "line_id": line_id,
                 "bus1_id": bus1_id,
                 "bus2_id": bus2_id,
+                "voltage_kv": nominal_voltage_by_bus.get(
+                    _bus_number(voltage_level1_id)
+                ),
             }
         )
+
+    transformers_df = network.get_2_windings_transformers()
+    transformers = []
+    for transformer_id, row in transformers_df.iterrows():
+        bus1_id = _bus_number(row["voltage_level1_id"])
+        bus2_id = _bus_number(row["voltage_level2_id"])
+        if bus1_id not in bus_location_map or bus2_id not in bus_location_map:
+            continue
+        transformers.append({
+            "transformer_id": transformer_id,
+            "bus1_id": bus1_id,
+            "bus2_id": bus2_id,
+            "bus1_voltage_kv": nominal_voltage_by_bus.get(bus1_id),
+            "bus2_voltage_kv": nominal_voltage_by_bus.get(bus2_id),
+        })
 
     generators_df = network.get_generators(all_attributes=True)
     generators = []
@@ -140,19 +482,44 @@ def network_map():
             }
         )
 
-    return {
+    result = {
         "buses": buses,
         "lines": lines,
+        "transformers": transformers,
         "generators": generators,
     }
+    if KPG_GEOGRAPHY_FILE.is_file():
+        try:
+            geography = json.loads(KPG_GEOGRAPHY_FILE.read_text(encoding="utf-8"))
+            if (
+                isinstance(geography, dict)
+                and isinstance(geography.get("country_polygons"), list)
+                and isinstance(geography.get("admin_regions"), list)
+            ):
+                result["country_polygons"] = geography["country_polygons"]
+                result["admin_regions"] = geography["admin_regions"]
+                result["geography_attribution"] = geography.get("attribution", "")
+        except (OSError, ValueError):
+            pass  # Missing/invalid optional basemap must not break KPG analysis.
+    return result
 
 
 @app.get("/api/security-analysis")
+@guarded(lambda: network)
 def security_analysis(
     outage_line_id: str,
     monitored_line_id: str | None = None,
+    grid_id: str = KPG_GRID_ID,
+    *,
+    response: Response,
+    x_ems_analysis_context_version: str | None = Header(default=None),
+    x_ems_session_id: str | None = Header(default=None),
+    x_ems_request_id: str | None = Header(default=None),
 ):
+    _require_kpg_grid(grid_id)
+    opt_in = _receipt_opt_in(x_ems_analysis_context_version, x_ems_session_id, x_ems_request_id)
     monitored_line_ids = [monitored_line_id] if monitored_line_id is not None else None
+    before = _identified_revision() if opt_in is not None else None
 
     result = run_line_contingency(
         network,
@@ -160,15 +527,42 @@ def security_analysis(
         monitored_line_ids=monitored_line_ids,
     )
 
-    return _security_result_for_ui(result)
+    payload = _security_result_for_ui(result)
+    if opt_in is None:
+        return payload
+    return _with_manual_receipt(response, opt_in, "security", payload, None, before)
 
 
 @app.get("/api/sensitivity-analysis")
+@guarded(lambda: network)
 def sensitivity_analysis(
     outage_line_id: str,
     monitored_line_id: str | None = None,
     top_n: int = 5,
+    grid_id: str = KPG_GRID_ID,
+    *,
+    response: Response,
+    x_ems_analysis_context_version: str | None = Header(default=None),
+    x_ems_session_id: str | None = Header(default=None),
+    x_ems_request_id: str | None = Header(default=None),
 ):
+    _require_kpg_grid(grid_id)
+    opt_in = _receipt_opt_in(x_ems_analysis_context_version, x_ems_session_id, x_ems_request_id)
+    if opt_in is None:
+        return _kpg_sensitivity_payload(outage_line_id, monitored_line_id, top_n)
+    if top_n != SENSITIVITY_TOP_N:
+        raise _v1_http_error(AnalysisApiError(
+            422, "ANALYSIS_CONTEXT_INVALID", "분석 결과 등록은 top_n=5만 지원합니다."), opt_in.request_id)
+    before = _identified_revision()
+    payload = _kpg_sensitivity_payload(outage_line_id, monitored_line_id, top_n)
+    return _with_manual_receipt(response, opt_in, "sensitivity", payload, monitored_line_id, before)
+
+
+def _kpg_sensitivity_payload(
+    outage_line_id: str,
+    monitored_line_id: str | None,
+    top_n: int,
+) -> dict[str, Any]:
     if monitored_line_id is None:
         security_result = run_line_contingency(
             network,
@@ -176,16 +570,7 @@ def sensitivity_analysis(
         )
 
         if security_result["post_status"] != "CONVERGED":
-            return {
-                "analysis_status": "SECURITY_NOT_CONVERGED",
-                "outage_line_id": outage_line_id,
-                "monitored_line_id": None,
-                "candidate_count": 0,
-                "candidates": [],
-                "message": (
-                    "상정사고 분석이 수렴하지 않아 " "민감도 분석을 수행할 수 없습니다."
-                ),
-            }
+            return _sensitivity_not_evaluated_for_ui(outage_line_id, "SECURITY_NOT_CONVERGED")
 
         selected = select_most_severe_violated_line(
             network,
@@ -193,14 +578,7 @@ def sensitivity_analysis(
         )
 
         if selected is None:
-            return {
-                "outage_line_id": outage_line_id,
-                "monitored_line_id": None,
-                "candidate_count": 0,
-                "candidates": [],
-                "analysis_status": "NO_OVERLOAD",
-                "message": "과부하 선로가 확인되지 않아 민감도 분석 대상을 선택할 수 없습니다.",
-            }
+            return _sensitivity_not_evaluated_for_ui(outage_line_id, "NO_OVERLOAD")
 
         monitored_line_id = selected["equipment_id"]
 
@@ -215,7 +593,9 @@ def sensitivity_analysis(
 
 
 @app.post("/api/generator-contingency-analysis")
-def generator_contingency_analysis(request: GeneratorContingencyRequest):
+def generator_contingency_analysis(request: GeneratorContingencyRequest, grid_id: str = KPG_GRID_ID):
+    _require_kpg_grid(grid_id)
+    _require_kpg_grid(request.grid_id)
     generator_id = request.generator_id.strip()
     if not generator_id:
         raise HTTPException(
@@ -247,7 +627,11 @@ def generator_contingency_analysis(request: GeneratorContingencyRequest):
 
 
 @app.post("/api/chat")
-def chat(request: ChatRequest):
+def chat(request: ChatRequest, grid_id: str = KPG_GRID_ID):
+    if _analysis_opt_in(request):
+        return _analysis_chat(grid_id, request, kpg_endpoint=True)
+    _require_kpg_grid(grid_id)
+    _require_kpg_grid(request.grid_id)
     session_id = request.session_id.strip()
     user_message = request.message.strip()
 
@@ -263,6 +647,12 @@ def chat(request: ChatRequest):
             detail="message is required.",
         )
 
+    with _legacy_session_gate(KPG_GRID_ID, session_id):
+        return _kpg_legacy_turn(session_id, user_message)
+
+
+def _kpg_legacy_turn(session_id: str, user_message: str) -> dict[str, Any]:
+    """Legacy KPG history read -> graph -> history write (PH4-02B3-2: under the session gate)."""
     messages = agent_sessions.get(session_id)
     if messages is None:
         messages = [
@@ -280,6 +670,8 @@ def chat(request: ChatRequest):
                 "messages": input_messages,
             }
         )
+    except NetworkBusy:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=500,
@@ -299,6 +691,174 @@ def chat(request: ChatRequest):
         "answer": answer,
         "ui_updates": ui_updates,
     }
+
+
+@app.post("/api/grids/{grid_id}/chat")
+def grid_chat(grid_id: str, request: ChatRequest):
+    if _analysis_opt_in(request):
+        return _analysis_chat(grid_id, request)
+    if "grid_id" in request.model_fields_set and request.grid_id != grid_id:
+        raise HTTPException(status_code=409, detail="URL과 요청의 계통 ID가 일치하지 않습니다.")
+    if grid_id == KPG_GRID_ID:
+        return {**chat(request), "grid_id": KPG_GRID_ID}
+    if grid_id == KOREA_OSM_GRID_ID:
+        raise HTTPException(status_code=409, detail=KOREA_OSM_NOTE)
+    if grid_id != MONGOLIA_GRID_ID:
+        raise HTTPException(status_code=404, detail="Unknown grid ID")
+    return mongolia_chat(request)
+
+
+@app.api_route("/api/grids/kr-osm-transmission/{operation}", methods=["GET", "POST"])
+def unsupported_korea_operation(operation: str):
+    raise HTTPException(status_code=409, detail=KOREA_OSM_NOTE)
+
+
+def mongolia_chat(request: ChatRequest) -> dict[str, Any]:
+    session_id = request.session_id.strip()
+    user_message = request.message.strip()
+    if not session_id:
+        raise HTTPException(status_code=400, detail="session_id is required.")
+    if not user_message:
+        raise HTTPException(status_code=400, detail="message is required.")
+
+    # Refuse to start a conversation when the validated PF data is unavailable,
+    # so the LLM is never asked to answer without verified numbers.
+    try:
+        _load_validated_mongolia_pf()
+    except MongoliaModelUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail=f"몽골 합성 PF 데이터를 사용할 수 없습니다: {exc}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"몽골 합성 PF 데이터 검증에 실패했습니다: {exc}",
+        ) from exc
+
+    with _legacy_session_gate(MONGOLIA_GRID_ID, session_id):
+        return _mongolia_legacy_turn(session_id, user_message)
+
+
+def _mongolia_legacy_turn(session_id: str, user_message: str) -> dict[str, Any]:
+    """Legacy MN history read -> graph -> history write (PH4-02B3-2: under the session gate)."""
+    messages = mongolia_agent_sessions.get(session_id) or [
+        SystemMessage(content=MONGOLIA_SYSTEM_PROMPT),
+    ]
+    input_messages = [*messages, HumanMessage(content=user_message)]
+
+    unsupported = detect_unsupported_request(user_message)
+    if unsupported:
+        answer = unsupported_request_answer(unsupported)
+        mongolia_agent_sessions[session_id] = [*input_messages, AIMessage(content=answer)]
+        return {
+            "session_id": session_id,
+            "grid_id": MONGOLIA_GRID_ID,
+            "answer": answer,
+            "ui_updates": [],
+            "tools_used": [],
+            "unsupported_requests": unsupported,
+        }
+
+    try:
+        result = mongolia_agent_graph.invoke({"messages": input_messages})
+    except DisallowedMongoliaTool as exc:
+        raise HTTPException(status_code=502, detail=f"몽골 Agent가 허용되지 않은 Tool 호출을 시도했습니다: {exc}") from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"몽골 AI Agent 실행 실패(LLM 연결 또는 응답 오류): {exc}",
+        ) from exc
+
+    output_messages = result["messages"]
+    generated_messages = output_messages[len(input_messages):]
+    tools_used = [
+        call["name"]
+        for message in generated_messages
+        if isinstance(message, AIMessage)
+        for call in message.tool_calls
+    ]
+    disallowed = sorted(set(tools_used) - MONGOLIA_TOOL_NAMES)
+    if disallowed:
+        raise HTTPException(
+            status_code=502,
+            detail=f"몽골 Agent가 허용되지 않은 Tool 호출을 시도했습니다: {', '.join(disallowed)}",
+        )
+    answer = _final_ai_answer(output_messages)
+    if not answer.strip():
+        raise HTTPException(status_code=502, detail="몽골 AI Agent가 빈 응답을 반환했습니다.")
+
+    ui_updates, analysis_notes = _mongolia_analysis_evidence(generated_messages)
+    if analysis_notes:
+        # Analysis statements and numbers are derived from actual tool artifacts only.
+        answer = "\n\n".join(analysis_notes) + "\n\n합성 모델 결과이며 실제 몽골 운영 데이터가 아닙니다."
+    elif requests_analysis(user_message) or ("분석" in user_message and not tools_used):
+        answer = "이번 요청에서 검증된 분석 Tool 결과가 없습니다. 계산 수행을 확인할 수 없습니다. 사고 선로의 원본 ID와 실행할 분석을 지정해 주세요."
+    output_messages[-1] = AIMessage(content=answer, id=output_messages[-1].id)
+    mongolia_agent_sessions[session_id] = output_messages
+    return {
+        "session_id": session_id,
+        "grid_id": MONGOLIA_GRID_ID,
+        "answer": answer,
+        "ui_updates": ui_updates,
+        "tools_used": tools_used,
+        "unsupported_requests": [],
+    }
+
+
+def _mongolia_analysis_evidence(messages: list[Any]) -> tuple[list[dict], list[str]]:
+    """Only paired, successful domain ToolMessage artifacts can update Mongolia UI.
+
+    Do not pass these results through the KPG network/generator adapters.
+    Failures override model claims even if it says the computation succeeded.
+    """
+    pending: dict[str, dict] = {}
+    updates, notes = [], []
+    for message in messages:
+        if isinstance(message, AIMessage):
+            pending.update({c["id"]: c for c in message.tool_calls if c["name"] in ANALYSIS_TOOL_TYPES})
+        elif isinstance(message, ToolMessage) and message.tool_call_id in pending:
+            call = pending.pop(message.tool_call_id)
+            kind = ANALYSIS_TOOL_TYPES[call["name"]]
+            payload = message.artifact
+            valid = (
+                message.name == call["name"] and message.status != "error"
+                and isinstance(payload, dict) and payload.get("grid_id") == MONGOLIA_GRID_ID
+                and payload.get("outage_line_id") == call["args"].get("outage_line_id", "").strip()
+                and not payload.get("error")
+            )
+            if valid and kind == "security" and "post_status" in payload:
+                updates.append({"type": kind, "grid_id": MONGOLIA_GRID_ID, "result": payload})
+                note = f"선로 {payload['outage_line_id']} N-1: {payload['post_status']}."
+                if payload.get("violation_assessment_available") is True:
+                    note += f" 위반 {payload['violated_equipment_count']}건(합성 스크리닝 기준)."
+                else:
+                    note += " 사고 후 PF 비수렴: 위반 판정 불가."
+                if payload.get("island_detected"):
+                    note += f" 분리 {payload['isolated_bus_count']}모선, 주 계통만 계산하며 분리 섬 PF는 미실행."
+                notes.append(note)
+            elif valid and kind == "sensitivity" and payload.get("analysis_status") in {
+                "COMPLETED", "NOT_EVALUATED_ISLANDING", "POST_CONTINGENCY_NOT_CONVERGED",
+            }:
+                updates.append({"type": kind, "grid_id": MONGOLIA_GRID_ID, "result": payload})
+                if payload["analysis_status"] == "COMPLETED":
+                    selection = payload["monitored_line_selection"]["mode"]
+                    note = (f"사고 선로 {payload['outage_line_id']}의 주입 민감도: 감시 선로 "
+                            f"{payload['monitored_line_id']} ({'자동 선택' if selection == 'auto' else '사용자 선택'}), "
+                            f"후보 {payload['candidate_count']}개.")
+                    for c in payload["candidates"]:
+                        note += f"\n{c['rank']}. {c['generator_id']} (모선 {c['bus_id']}): {c['sensitivity']:.6f} MW/MW"
+                    notes.append(note + "\n합성 발전기 주입 민감도이며 실제 발전소·재급전 권고가 아닙니다.")
+                else:
+                    notes.append(f"{payload['analysis_status']}: {payload['message']} 후보 0개, 순위 없음.")
+            else:
+                reason = payload.get("error") if isinstance(payload, dict) else "Tool 호출 또는 입력 검증 오류"
+                notes.append(f"{call['name']} 실패: {reason or '결과 검증 실패'}. 검증된 분석 결과를 제공하지 않습니다.")
+    if pending:
+        notes.append("분석 Tool의 실제 실행 결과가 없어 성공을 확인할 수 없습니다.")
+    return updates, notes
 
 
 def _security_result_for_ui(
@@ -379,16 +939,51 @@ def _agent_security_result_for_ui(
     }
 
 
+def _sensitivity_not_evaluated_for_ui(
+    outage_line_id: str,
+    status: str,
+) -> dict[str, Any]:
+    if status == "SECURITY_NOT_CONVERGED":
+        return {
+            "analysis_status": "SECURITY_NOT_CONVERGED",
+            "outage_line_id": outage_line_id,
+            "monitored_line_id": None,
+            "candidate_count": 0,
+            "candidates": [],
+            "message": (
+                "상정사고 분석이 수렴하지 않아 " "민감도 분석을 수행할 수 없습니다."
+            ),
+        }
+    if status == "NO_OVERLOAD":
+        return {
+            "outage_line_id": outage_line_id,
+            "monitored_line_id": None,
+            "candidate_count": 0,
+            "candidates": [],
+            "analysis_status": "NO_OVERLOAD",
+            "message": "과부하 선로가 확인되지 않아 민감도 분석 대상을 선택할 수 없습니다.",
+        }
+    raise ValueError(f"Unsupported sensitivity status: {status}")
+
+
+@guarded(lambda: network)
 def _sensitivity_result_for_ui(
     result: dict[str, Any],
 ) -> dict[str, Any]:
     generators = network.get_generators(all_attributes=True)
+    return _sensitivity_payload_for_ui(result, generators["voltage_level_id"])
+
+
+def _sensitivity_payload_for_ui(
+    result: dict[str, Any],
+    voltage_level_ids,
+) -> dict[str, Any]:
+    """Pure REST mapping from generator voltage levels captured with the result."""
     candidates = []
 
     for candidate in result.get("candidates", []):
         generator_id = candidate["generator_id"]
-        row = generators.loc[generator_id]
-        voltage_level_id = row["voltage_level_id"]
+        voltage_level_id = voltage_level_ids[generator_id]
         bus_id = _bus_number(voltage_level_id)
         location = bus_location_map.get(bus_id)
 
@@ -411,6 +1006,371 @@ def _sensitivity_result_for_ui(
         "target_selection": result.get("target_selection"),
         "analysis_status": "COMPLETED",
     }
+
+
+def _kpg_line_analysis_payload(result: VerifiedResult) -> dict[str, Any]:
+    """PH4-02B2: REST canonical payload of one ledger-verified KPG v1 execution.
+
+    Pure projection of the sealed artifact through the existing REST mappers.
+    No engine call and no live-model read; not exposed by any API in B2.
+    """
+    artifact = result.artifact()
+    if result.grid_id != KPG_GRID_ID or artifact.get("grid_id") != KPG_GRID_ID:
+        raise ValueError("Not a KPG line-analysis result")
+    raw = artifact["result"]
+    if result.kind == "security":
+        return _security_result_for_ui(raw)
+    if result.kind != "sensitivity":
+        raise ValueError(f"Unsupported analysis kind: {result.kind}")
+    if raw["ranking"] is None:
+        return _sensitivity_not_evaluated_for_ui(result.outage_line_id, result.reason_code)
+    voltage_level_ids = {generator_id: metadata["voltage_level_id"]
+                         for generator_id, metadata in raw["generator_metadata"].items()}
+    return _sensitivity_payload_for_ui(raw["ranking"], voltage_level_ids)
+
+
+# --- PH4-02B3-1: v1 reference chat and manual receipts (no run, nothing advertised) ---
+
+def _v1_http_error(error: AnalysisApiError, request_id: Any) -> HTTPException:
+    """v1 detail is {code, message, request_id}; legacy string details stay unchanged."""
+    return HTTPException(status_code=error.status, detail={
+        "code": error.code,
+        "message": error.message,
+        "request_id": request_id if is_uuid4(request_id) else None,
+    })
+
+
+def _receipt_opt_in(version: str | None, session_id: str | None, request_id: str | None):
+    try:
+        return parse_receipt_opt_in(version, session_id, request_id)
+    except AnalysisApiError as error:
+        raise _v1_http_error(error, request_id) from None
+
+
+def _reject_receipt_opt_in(version: str | None, session_id: str | None, request_id: str | None) -> None:
+    """Mongolia has no model identity yet: refuse, never silently ignore, an opt-in."""
+    if _receipt_opt_in(version, session_id, request_id) is not None:
+        raise _v1_http_error(AnalysisApiError(
+            409, "ANALYSIS_CONTEXT_UNSUPPORTED", "이 계통은 분석 결과 등록(v1)을 아직 지원하지 않습니다."),
+            request_id)
+
+
+def _identified_revision():
+    """Bound KPG model revision; the caller already holds the shared network guard."""
+    try:
+        return access_for(network).capture_revision()
+    except (ModelIdentityUnavailable, TypeError):
+        return None
+
+
+def _with_manual_receipt(
+    response: Response,
+    opt_in,
+    kind: str,
+    payload: dict[str, Any],
+    requested_monitored: str | None,
+    before,
+) -> dict[str, Any]:
+    """Register THIS calculation's canonical payload only if the model stayed identical."""
+    after = _identified_revision()
+    response.headers["Cache-Control"] = "no-store"
+    if before is None or after is None:
+        return {**payload, "analysis_receipt_error": {
+            "code": "MODEL_IDENTITY_UNAVAILABLE",
+            "message": "실제 로드 모델을 식별할 수 없어 결과를 등록하지 않았습니다.",
+        }}
+    if before.revision != after.revision:
+        # e.g. the first AC wrote the working state: no receipt and no hidden rerun.
+        return {**payload, "analysis_receipt_error": {
+            "code": "MODEL_REVISION_CHANGED",
+            "message": "계산 중 모델 상태가 바뀌어(예: 최초 AC) 결과를 근거로 등록하지 않았습니다. "
+                       "다시 실행하면 그 시점의 모델 상태로 등록됩니다.",
+        }}
+    sensitivity = kind == "sensitivity"
+    completed = payload.get("analysis_status") == "COMPLETED"
+    try:
+        receipt = analysis_results.register(
+            grid_id=KPG_GRID_ID,
+            session_id=opt_in.session_id,
+            kind=kind,
+            outage_line_id=payload["outage_line_id"],
+            monitored_line_id=payload.get("monitored_line_id") if sensitivity else None,
+            monitored_selection=(("auto" if requested_monitored is None else "explicit")
+                                 if sensitivity else None),
+            top_n=SENSITIVITY_TOP_N if sensitivity else None,
+            model_revision=after.revision,
+            producer="manual",
+            producer_request_id=opt_in.request_id,
+            tool_call_id=None,
+            assessment="completed" if completed else "not_evaluated",
+            reason_code=None if completed else payload.get("analysis_status"),
+            payload=payload,
+            evidence={
+                "model_revision_before": dataclasses.asdict(before),
+                "model_revision_after": dataclasses.asdict(after),
+                "request": {"monitored_line_id": requested_monitored,
+                            "top_n": SENSITIVITY_TOP_N if sensitivity else None},
+            },
+        )
+    except ValueError:
+        return {**payload, "analysis_receipt_error": {
+            "code": "RESULT_NOT_REGISTERED",
+            "message": "검증 가능한 형식이 아니어서 결과를 등록하지 않았습니다.",
+        }}
+    return {**payload, "analysis_receipt": receipt.as_dict()}
+
+
+def _analysis_opt_in(request: ChatRequest) -> bool:
+    return request.request_id is not None or request.analysis_context is not None
+
+
+def _analysis_chat(url_grid_id: str, request: ChatRequest, kpg_endpoint: bool = False) -> dict[str, Any]:
+    """v1 opt-in: reference explains registered results; run uses a request-scoped B2 Agent, never the legacy one."""
+    try:
+        parsed = parse_analysis_request(
+            request.request_id, request.analysis_context, request.session_id, request.message)
+        body_grid_id = request.grid_id if "grid_id" in request.model_fields_set else url_grid_id
+        if body_grid_id != url_grid_id or (kpg_endpoint and url_grid_id != KPG_GRID_ID):
+            raise AnalysisApiError(409, "GRID_MISMATCH", "요청 경로와 본문의 계통 ID가 일치하지 않습니다.")
+        if url_grid_id not in (KPG_GRID_ID, MONGOLIA_GRID_ID, KOREA_OSM_GRID_ID):
+            raise AnalysisApiError(404, "UNKNOWN_GRID", "알 수 없는 계통 ID입니다.")
+        if url_grid_id == KOREA_OSM_GRID_ID:
+            raise AnalysisApiError(409, "ANALYSIS_CONTEXT_UNSUPPORTED", KOREA_OSM_NOTE)
+        if url_grid_id != KPG_GRID_ID:
+            raise AnalysisApiError(409, "ANALYSIS_CONTEXT_UNSUPPORTED",
+                                   "이 계통은 분석 문맥 v1을 아직 지원하지 않습니다.")
+        if parsed.context.mode == "run":
+            return _run_envelope(url_grid_id, parsed)
+        return _reference_envelope(url_grid_id, parsed)
+    except AnalysisApiError as error:
+        raise _v1_http_error(error, request.request_id) from None
+
+
+def _current_model_revision() -> str:
+    try:
+        return access_for(network).capture_revision().revision
+    except NetworkBusy as exc:
+        raise AnalysisApiError(409, "ANALYSIS_BUSY", "모델에서 다른 계산이 진행 중입니다.") from exc
+    except (ModelIdentityUnavailable, TypeError) as exc:
+        raise AnalysisApiError(503, "MODEL_IDENTITY_UNAVAILABLE",
+                               "실제 로드 모델을 식별할 수 없어 저장된 결과를 확인할 수 없습니다.") from exc
+
+
+def _reference_envelope(grid_id: str, parsed) -> dict[str, Any]:
+    """No LLM, Tool or physics: registry lookup, current-revision check, fixed text."""
+    key = (grid_id, parsed.session_id, parsed.request_id)
+    fingerprint = parsed.fingerprint(grid_id)
+    cached = analysis_requests.begin(key, fingerprint)
+    if cached is not None:
+        _require_fresh_replay(cached)
+        return cached
+    try:
+        # Lock order: v1 session gate -> short registry lock (released) -> network guard.
+        with analysis_sessions.hold(grid_id, parsed.session_id):
+            entries = analysis_results.resolve(
+                grid_id=grid_id, session_id=parsed.session_id, context=parsed.context)
+            current = _current_model_revision()
+            if any(entry.receipt.model_revision != current for entry in entries):
+                raise AnalysisApiError(409, "ANALYSIS_REFERENCE_STALE",
+                                       "참조한 결과를 계산한 뒤 모델 상태가 바뀌었습니다. 자동으로 다시 계산하지 않았습니다.")
+            receipts = [entry.receipt.as_dict() for entry in entries]
+            unevaluated = [receipt for receipt in receipts if receipt["assessment"] != "completed"]
+            envelope = {
+                "session_id": parsed.session_id,
+                "grid_id": grid_id,
+                "request_id": parsed.request_id,
+                "analysis_context": parsed.context.echo(),
+                "answer": format_reference_answer(
+                    [(receipt, entry.payload()) for receipt, entry in zip(receipts, entries)]),
+                "ui_updates": [],
+                "analysis": {
+                    "status": "referenced",
+                    "source": "server_reference",
+                    "results": receipts,
+                    "reason_code": unevaluated[0]["reason_code"] if unevaluated else None,
+                    "message": "저장된 서버 결과를 설명합니다. 새 계산은 수행하지 않았습니다.",
+                },
+            }
+    except BaseException:
+        analysis_requests.abandon(key, fingerprint)
+        raise
+    analysis_requests.complete(key, fingerprint, envelope)
+    return envelope
+
+
+# --- PH4-02B3-2: v1 run through the request-scoped B2 graph; legacy session gate ---
+
+RUN_MESSAGES = {
+    "completed": "이번 요청에서 검증된 Tool 실행 결과입니다.",
+    "not_evaluated": "검증된 실행 결과이며 미평가 항목이 있습니다.",
+    "not_run": "실제 분석 Tool이 실행되지 않아 결과가 없습니다.",
+    "failed": "실행 근거를 승인하지 못해 결과를 공개하지 않습니다.",
+}
+_run_clock = time.monotonic
+
+
+@contextmanager
+def _legacy_session_gate(grid_id: str, session_id: str):
+    """Legacy chat shares the v1 (grid, session) gate: only an overlap gets 409 (string detail)."""
+    with ExitStack() as stack:
+        try:
+            stack.enter_context(analysis_sessions.hold(grid_id, session_id))
+        except AnalysisApiError:
+            raise HTTPException(status_code=409, detail="SESSION_BUSY") from None
+        yield
+
+
+def _analysis_run_model(budget):
+    """Provider model with explicit transport timeouts; tests inject a scripted model here."""
+    return run_chat_model(budget)
+
+
+def _require_fresh_replay(envelope: dict[str, Any]) -> None:
+    """Fail closed: a replayed success must still be registered and match the current model."""
+    receipts = envelope["analysis"]["results"]
+    if not receipts:
+        return  # A failure or not-run notice carries no result that could become stale.
+    stale = AnalysisApiError(409, "REQUEST_REPLAY_STALE",
+                             "이전 응답의 결과가 만료되었거나 현재 모델 상태와 달라 다시 보내지 않습니다. "
+                             "새 request_id로 요청하세요.")
+    for receipt in receipts:
+        entry = analysis_results.lookup(receipt["result_id"])
+        if entry is None or entry.receipt.as_dict() != receipt:
+            raise stale
+    current = _current_model_revision()
+    if any(receipt["model_revision"] != current for receipt in receipts):
+        raise stale
+
+
+def _run_envelope(grid_id: str, parsed) -> dict[str, Any]:
+    if not single_worker_confirmed():
+        raise AnalysisApiError(409, "ANALYSIS_RUN_NOT_READY",
+                               "단일 worker 실행이 확인되지 않아 새 분석 실행(run)을 허용하지 않습니다. "
+                               "지원 launcher(run_agent.sh)로 서버를 실행하세요.")
+    try:
+        budget = run_budget()
+    except ValueError as exc:
+        raise AnalysisApiError(409, "ANALYSIS_RUN_NOT_READY",
+                               "실행 예산 설정이 올바르지 않아 새 분석 실행(run)을 허용하지 않습니다.") from exc
+    key = (grid_id, parsed.session_id, parsed.request_id)
+    fingerprint = parsed.fingerprint(grid_id)
+    cached = analysis_requests.begin(key, fingerprint)
+    if cached is not None:
+        _require_fresh_replay(cached)
+        return cached
+    try:
+        # The gate spans history read -> graph -> publish -> history write; only this
+        # request's own completion releases it (HTTP cancellation does not).
+        with analysis_sessions.hold(grid_id, parsed.session_id):
+            envelope = _execute_run(grid_id, parsed, budget)
+    except BaseException:
+        analysis_requests.abandon(key, fingerprint)
+        raise
+    analysis_requests.complete(key, fingerprint, envelope)
+    return envelope
+
+
+def _execute_run(grid_id: str, parsed, budget) -> dict[str, Any]:
+    """Request-scoped B2 graph -> ledger verification -> atomic publish -> history (PH4-02B3-2)."""
+    context = parsed.context
+    ledger = ExecutionLedger(AnalysisJob(
+        grid_id, context.operation, context.outage_line_id, context.monitored_line_id))
+    clock = _run_clock
+    deadline = clock() + budget.deadline_seconds
+    history = agent_sessions.get(parsed.session_id) or [SystemMessage(content=SYSTEM_PROMPT)]
+    input_messages = [*history, HumanMessage(content=parsed.message)]
+    try:
+        graph = create_line_analysis_graph(network, ledger, model=_analysis_run_model(budget),
+                                           deadline=deadline, clock=clock)
+        output = graph.invoke({"messages": input_messages},
+                              config={"recursion_limit": budget.recursion_limit})["messages"]
+    except Exception as exc:  # Nothing is published and the history is left unchanged.
+        code, message = agent_failure(exc)
+        raise AnalysisApiError(500, code, message) from exc
+    generated = output[len(input_messages):]
+    verification, published = _publish_run(ledger, generated, parsed)
+    receipts = [receipt.as_dict() for receipt, _ in published]
+    payloads = [payload for _, payload in published]
+    answer = format_run_answer(list(zip(receipts, payloads)), verification.status,
+                               verification.reason_code, context.operation)
+    agent_sessions[parsed.session_id] = [*input_messages, *_history_messages(generated),
+                                         AIMessage(content=answer)]
+    return {
+        "session_id": parsed.session_id,
+        "grid_id": grid_id,
+        "request_id": parsed.request_id,
+        "analysis_context": context.echo(),
+        "answer": answer,
+        "ui_updates": [{"type": receipt["kind"], "grid_id": grid_id, "result_id": receipt["result_id"],
+                        "result": payload} for receipt, payload in zip(receipts, payloads)],
+        "analysis": {
+            "status": verification.status,
+            "source": "tool_execution" if receipts else "none",
+            "results": receipts,
+            "reason_code": verification.reason_code,
+            "message": RUN_MESSAGES[verification.status],
+        },
+    }
+
+
+def _publish_run(ledger: ExecutionLedger, generated: list[Any], parsed):
+    """Approve only ledger-verified results and register them inside one network-guard boundary."""
+    executed = next((record.revision_after for record in reversed(ledger.snapshot().records)
+                     if record.revision_after), None)
+    verification = verify_evidence(ledger, generated, current_revision=executed)
+    if verification.status not in ("completed", "not_evaluated"):
+        return verification, []
+    try:
+        # No model access can interleave between this revision check and registration.
+        with network_access(network):
+            try:
+                current = access_for(network).capture_revision().revision
+            except (ModelIdentityUnavailable, TypeError):
+                return Verification("failed", "MODEL_IDENTITY_UNAVAILABLE"), []
+            verification = verify_evidence(ledger, generated, current_revision=current)
+            if verification.status not in ("completed", "not_evaluated"):
+                return verification, []
+            payloads = [_kpg_line_analysis_payload(result) for result in verification.results]
+            receipts = _register_published(verification, payloads, parsed)
+            return verification, list(zip(receipts, payloads))
+    except NetworkBusy:
+        return Verification("failed", "ANALYSIS_BUSY"), []
+    except ValueError:  # Registry validation or strict JSON; nothing was stored.
+        return Verification("failed", "RESULT_NOT_REGISTERED"), []
+
+
+def _register_published(verification: Verification, payloads: list[dict[str, Any]], parsed):
+    return analysis_results.register_all([{
+        "grid_id": result.grid_id,
+        "session_id": parsed.session_id,
+        "kind": result.kind,
+        "outage_line_id": result.outage_line_id,
+        "monitored_line_id": result.monitored_line_id,
+        "monitored_selection": result.monitored_selection,
+        "top_n": result.top_n,
+        "model_revision": result.model_revision,
+        "producer": "agent_tool",
+        "producer_request_id": parsed.request_id,
+        "tool_call_id": result.tool_call_id,
+        "assessment": result.assessment,
+        "reason_code": result.reason_code,
+        "payload": payload,
+        "evidence": {"job_id": result.job_id, "execution_id": result.execution_id,
+                     "artifact_sha256": result.artifact_sha256,
+                     "operation": parsed.context.operation},
+    } for result, payload in zip(verification.results, payloads)])
+
+
+def _history_messages(generated: list[Any]) -> list[Any]:
+    """Tool exchanges for conversational context only: artifacts dropped, never evidence."""
+    kept = []
+    for message in generated:
+        if isinstance(message, ToolMessage):
+            kept.append(ToolMessage(content=message.content, tool_call_id=message.tool_call_id,
+                                    name=message.name, status=message.status))
+        elif isinstance(message, AIMessage) and message.tool_calls:
+            kept.append(message)
+    return kept
 
 
 def _generator_contingency_result_for_ui(

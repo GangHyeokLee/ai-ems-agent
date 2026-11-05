@@ -3,12 +3,17 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-class SecurityAnalysisRequest(BaseModel):
+class KpgAnalysisRequest(BaseModel):
+    """This physics service serves only KPG; never silently ignore a different grid."""
+    grid_id: Literal["kr-kpg193"] = "kr-kpg193"
+
+
+class SecurityAnalysisRequest(KpgAnalysisRequest):
     outage_line_id: str
     monitored_line_id: str | None = None
 
 
-class ContingencyResponseRequest(BaseModel):
+class ContingencyResponseRequest(KpgAnalysisRequest):
     outage_line_id: str
     monitored_line_id: str | None = None
     delta_mw: float = Field(default=10.0, gt=0)
@@ -87,13 +92,13 @@ class ContingencyResponseResponse(BaseModel):
     best_candidate: RedispatchCandidateResponse | None
 
 
-class SensitivityAnalysisRequest(BaseModel):
+class SensitivityAnalysisRequest(KpgAnalysisRequest):
     outage_line_id: str
     monitored_line_id: str | None = None
     top_n: int = Field(default=5, ge=1)
 
 
-class RedispatchValidationRequest(BaseModel):
+class RedispatchValidationRequest(KpgAnalysisRequest):
     outage_line_id: str
     monitored_line_id: str
     up_generator_id: str
@@ -147,7 +152,7 @@ class RedispatchValidationResponse(BaseModel):
     remaining_violation_ids: list[str]
 
 
-class GeneratorContingencyAnalysisRequest(BaseModel):
+class GeneratorContingencyAnalysisRequest(KpgAnalysisRequest):
     generator_id: str
     slack_mode: Literal["single", "distributed"] = "single"
     balance_type: str | None = None

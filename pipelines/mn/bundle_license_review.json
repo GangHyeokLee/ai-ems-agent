@@ -1,0 +1,38 @@
+{
+  "schema": "mn-bundle-license-review-1",
+  "reviewed_on": "2026-10-29",
+  "purpose": "LOCAL_INTERNAL_POC_VERIFICATION_ONLY",
+  "external_distribution_approved": false,
+  "internal_commercial_permission_verified": false,
+  "sources": [
+    {
+      "name": "OpenStreetMap contributors / Geofabrik Mongolia extract",
+      "applies_to": ["OSM topology", "reference lines and substations"],
+      "license": "ODbL-1.0",
+      "attribution": "© OpenStreetMap contributors",
+      "terms": "Attribution and applicable derivative-database/share-alike obligations must be fulfilled for public distribution. This notice does not grant permission for other data in the bundle.",
+      "urls": ["https://www.openstreetmap.org/copyright", "https://opendatacommons.org/licenses/odbl/1-0/", "https://osmfoundation.org/wiki/Attribution_Guidelines"]
+    },
+    {
+      "name": "Powerplantmatching / GEM / WRI GPD / GEO candidate records",
+      "applies_to": ["27 public map plant records; estimated mapped_bus_id is not verified connectivity"],
+      "license": "SOURCE_VERSION_AND_ATTRIBUTION_REVIEW_REQUIRED",
+      "terms": "The current PPM repository states software MIT and default output CC BY 4.0; these do not by themselves establish the rights for this custom Mongolia extract. WRI v1.3.0 and GEM publish CC BY 4.0 terms; GEO's AboutUs states CC BY 3.0 US. Local 27 rows have GEM/GPD/GEO source references in 19/7/7 rows respectively (overlapping). Exact source releases, SQLite extract rights, record lineage, notices and upstream exceptions still need review; duplicates and multiple units are retained.",
+      "urls": ["https://github.com/PyPSA/powerplantmatching", "https://github.com/wri/global-power-plant-database", "https://globalenergymonitor.org/creative-commons-license", "https://globalenergyobservatory.org/geo/docs/AboutUs.php"]
+    },
+    {
+      "name": "GADM administrative/country shapes via PyPSA-Earth",
+      "applies_to": ["map country_polygons", "map admin_regions", "reference region names and filtering"],
+      "license": "PRIOR_PERMISSION_REQUIRED_FOR_REDISTRIBUTION_OR_COMMERCIAL_USE",
+      "terms": "GADM permits academic and other non-commercial use; redistribution or commercial use requires prior permission. No permission evidence was found. Internal commercial PoC rights are also unconfirmed. This bundle is not cleared for workstation transfer, export, sale, or external distribution.",
+      "urls": ["https://gadm.org/license.html"]
+    },
+    {
+      "name": "Synthetic PF, assumed electrical constants, generated models/reports",
+      "applies_to": ["XIIDM", "PF preview", "conversion and validation reports"],
+      "license": "DERIVED_DATA_AND_OWNERSHIP_REVIEW_REQUIRED",
+      "terms": "Synthetic/estimated parameters are not validated Mongolia operating data. Generation does not remove upstream OSM/GADM/plant-source obligations. Company ownership and the software/data-specific notices require review before distribution; PyPSA-Earth source/environment is not included.",
+      "urls": []
+    }
+  ]
+}

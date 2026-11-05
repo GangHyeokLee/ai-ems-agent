@@ -1,0 +1,197 @@
+[
+  {
+    "name": "MN Security: stale A not applied",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "MN Security: no result kept",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "MN Security: no outage/island overlays from A",
+    "pass": true,
+    "detail": 0
+  },
+  {
+    "name": "MN Security: panel asks for a new run",
+    "pass": true,
+    "detail": "사고 선로가 변경되었습니다. Analyze를 실행하세요."
+  },
+  {
+    "name": "MN Security: B applied once",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "MN Security: B outage highlighted",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "MN Security: B has no island overlay",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "MN Security: B panel",
+    "pass": true,
+    "detail": "Outage: 751261406-1_0 (10–25, 220 kV)Status: CONVERGEDViolations: 0합성 시나리오 · 실제 몽골 운영 데이터가 아닙니다.상세 결과사고 후 주 계통전압 범위: 0.9"
+  },
+  {
+    "name": "MN Security: Sensitivity enabled for B",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "MN Sensitivity(monitored edit): stale ranking not applied",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "MN Sensitivity(monitored edit): no monitored/generator markers",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "MN Sensitivity(monitored edit): no ranking text",
+    "pass": true,
+    "detail": "감시 선로가 변경되었습니다. Sensitivity Analysis를 다시 실행하세요."
+  },
+  {
+    "name": "MN Sensitivity(monitored edit): Security overlay kept",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "MN Sensitivity: new request applied once",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "MN Sensitivity: new monitored line highlighted",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "MN Sensitivity: generator rank markers drawn",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "MN Sensitivity: ranking + FD in details",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "MN Sensitivity(outage edit): stale ranking not applied",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "MN Sensitivity(outage edit): all overlays cleared",
+    "pass": true,
+    "detail": 0
+  },
+  {
+    "name": "MN Sensitivity(outage edit): Sensitivity disabled until new Security",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "Switch MN→KPG: no Mongolia apply after switch",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "Switch MN→KPG: no Mongolia overlays on KPG map",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "Switch MN→KPG: KPG panels show defaults",
+    "pass": true,
+    "detail": "사고 선로를 입력하고 분석하세요."
+  },
+  {
+    "name": "Switch MN→KPG: KPG default outage restored",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "KPG Security: stale A not applied",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "KPG Security: no outage/violation highlight",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "KPG Security: new run applied once",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "KPG Security: LINE-16-28 outage + LINE-16-22 violation",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "KPG Security: Sensitivity enabled",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "KPG Sensitivity: newer result applied",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "KPG Sensitivity: shared candidate markers + monitored ring drawn",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "KPG Sensitivity: late failure ignored",
+    "pass": true,
+    "detail": "Target Line: LINE-16-22Top Candidates: 51. GEN-19#0Bus 19 · 마포용산민감도: 0.42112. GE"
+  },
+  {
+    "name": "KPG Sensitivity: markers unchanged by late failure",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "KPG Security overlay unchanged",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "KPG Generator contingency: result rendered",
+    "pass": true,
+    "detail": "\n        Generator: GEN-124#1\n        Bus: 124 · 영광\n        Slack Mode: single\n        Base LF: CONVERGED\n        Post L"
+  },
+  {
+    "name": "Switch KPG→MN: no KPG apply after switch",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "Switch KPG→MN: no KPG overlays/markers on Mongolia map",
+    "pass": true,
+    "detail": null
+  },
+  {
+    "name": "Switch KPG→MN: Mongolia panels show defaults",
+    "pass": true,
+    "detail": "대표 사고를 고르거나 지도에서 선로를 클릭한 뒤 분석하세요. (합성 시나리오)"
+  },
+  {
+    "name": "Switch KPG→MN: Mongolia Security works afterwards",
+    "pass": true,
+    "detail": null
+  }
+]

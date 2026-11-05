@@ -1,0 +1,35 @@
+{
+  "schema": "kems-phase2-code-change-audit-1",
+  "basis": "K-EMS Console Phase 2 final verification. Extends docs/validation/mongolia-pipeline-stage3c-code-hashes.json without modifying it or the original Stage 1 contract: 'before' is the Stage 3C 'after' pin and 'after' is the Phase 2 tree. The web_app.py delta since Stage 3C spans every commit listed below, not only the Phase 2 CONSOLE_ASSETS change. This is review evidence, not replacement model approval.",
+  "stage1_contract_sha256": "bde2dbd9f55fc6eef6efdfee1cb5ff1a84dd05500b7deda28c96ff910456ff73",
+  "stage3c_record_sha256": "beac4ee73856a7d60d33e523348369974e215d2fae1b14092852ac127cf10194",
+  "files": {
+    "ems_code.web_app.py": {
+      "path": "web_app.py",
+      "before": "715c19742c19408f609c3b64b8fc4a23f8b7b55e2bf11a0cfaca392eebef83d7",
+      "after": "392b7afcc0c24f90b73430007776b4128544a8d4f04f493730e327a81b20a5d9",
+      "commits": [
+        {
+          "commit": "41c86896ea9217deda0e698532394b9030d22fdc",
+          "sha256": "715c19742c19408f609c3b64b8fc4a23f8b7b55e2bf11a0cfaca392eebef83d7",
+          "change": "Stage 3C bundle-based EMS runtime (Stage 3C 'after' pin)"
+        },
+        {
+          "commit": "b15ed38c81d054b544a6835360daf14dd2a9a5a8",
+          "sha256": "502a528c5083558c4d17dc681f0d11cfae5a8e171cee26c9884e9e0ded491ea4",
+          "change": "Adds GET /api/grids/mn-osm-35k/display-geometry (Mongolia GIS display only)"
+        },
+        {
+          "commit": "672c56b23f433f4f55e20d0e6c79cf3fe3137649",
+          "sha256": "051b48ebc4050be1858f38c7ce3af93a87de00c75964e04e2adff5efed5cd867",
+          "change": "Adds /console routes and the CONSOLE_ASSETS allowlist"
+        },
+        {
+          "commit": "257b95c2d926c3eccb17da765ddfc5b6c29fb1d3",
+          "sha256": "392b7afcc0c24f90b73430007776b4128544a8d4f04f493730e327a81b20a5d9",
+          "change": "Phase 2: CONSOLE_ASSETS allows api-map.js"
+        }
+      ]
+    }
+  }
+}

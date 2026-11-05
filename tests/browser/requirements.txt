@@ -1,0 +1,2 @@
+# Only needed for the opt-in real Chrome input/performance test.
+websocket-client>=1.8,<2

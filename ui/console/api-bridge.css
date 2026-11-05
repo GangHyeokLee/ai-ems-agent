@@ -1,0 +1,234 @@
+/* K-EMS console bridge: EMS API grids inside the Artifact 관제 layout. Uses the app.css design tokens. */
+
+/* Data source badges (header) */
+.kems-src{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap;flex:none}
+.kems-src-demo{background:var(--bg);color:var(--ink-2);box-shadow:inset 0 0 0 1px var(--rule)}
+.kems-src-sim{background:var(--warn-bg);color:var(--warn)}
+.kems-src-api{background:var(--sel-bg);color:var(--sel)}
+.tw-api{background:var(--sel-bg);color:var(--sel)}
+.kems-retry{font-size:12px;border-color:var(--alarm);color:var(--alarm)}
+.kems-retry[hidden]{display:none}  /* app.css .btn sets display, which would override [hidden] */
+.mtog button:disabled,#apBtn:disabled{opacity:.45;cursor:not-allowed}
+/* Long status options (e.g. a catalog error) stay in the open list instead of widening the header;
+   app.css lifts the cap with .ctxr #model{max-width:none!important;min-width:210px}. */
+.ctxr #model{max-width:250px!important}
+
+/* API grid selected: demo-only parts of the layout are hidden, never repurposed */
+.kems-only,.kems-gate{display:none!important}
+body[data-kems-src="api"] main>.view:not(#v-ops)>:not(.vhead):not(.kems-gate),
+body[data-kems-src="api"] #sld,
+body[data-kems-src="api"] #v-ops .msbox:not(.kems-search),
+body[data-kems-src="api"] #mapCard,
+body[data-kems-src="api"] #v-ops .vtop,
+body[data-kems-src="api"] #liveBtn,
+body[data-kems-src="api"] #legend,
+body[data-kems-src="api"] #tlbar,
+body[data-kems-src="api"] #v-ops .kpis:not(.kems-kpis),
+body[data-kems-src="api"] #modelDesc,
+body[data-kems-src="api"] #inj,
+body[data-kems-src="api"] #injBtn,
+body[data-kems-src="api"] #resetBtn,
+body[data-kems-src="api"] #lvTog,
+body[data-kems-src="api"] #msgs,
+body[data-kems-src="api"] #chips,
+body[data-kems-src="api"] #form,
+body[data-kems-src="api"] .panel.chat>.ph .hbtns,
+body[data-kems-src="api"] .panel.chat>.ph .sub,
+body[data-kems-src="api"] #almBtn,
+body[data-kems-src="api"] #almPop,
+body[data-kems-src="api"] .kems-demo-only{display:none!important}
+body[data-kems-src="api"] .kems-gate{display:block!important}
+body[data-kems-src="api"] #kemsDesc{display:block!important}
+body[data-kems-src="api"] #kemsMode{display:inline-flex!important}
+body[data-kems-src="api"] #kemsMapHost{display:block!important}
+body[data-kems-src="api"] #kemsLegend{display:flex!important}
+body[data-kems-src="api"] #kemsKpis{display:grid!important}
+body[data-kems-src="api"] #kemsSide{display:block!important}
+
+.kems-gate{padding:18px 20px;max-width:760px}
+.kems-gate b{font-size:14px}
+.kems-gate p{margin:6px 0 14px;color:var(--ink-2);font-size:13px}
+
+/* 계통도 header */
+.kems-desc{font-size:12px;color:var(--ink-3);max-width:100%}
+.kems-descmain{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kems-descmain b{color:var(--ink-2);font-weight:600}
+.kems-descsub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kems-descsub[data-gis="error"],.kems-descsub[data-gis="invalid"]{color:var(--warn)}
+#kemsMode button:disabled{opacity:.45;cursor:not-allowed}
+
+/* Map */
+.kems-maphost{position:relative;width:100%;height:100%;min-height:360px;overflow:hidden}
+.kems-svg{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;touch-action:none;user-select:none}
+.kems-svg.dragging{cursor:grabbing}
+.kems-svg path{vector-effect:non-scaling-stroke;fill:none;stroke-linecap:round;stroke-linejoin:round}
+.kems-svg .k-land{fill:color-mix(in srgb,var(--steel) 8%,transparent);stroke:color-mix(in srgb,var(--steel) 34%,transparent);stroke-width:.8}
+.kems-svg .k-region{stroke:color-mix(in srgb,var(--steel) 20%,transparent);stroke-width:.6}
+.kems-svg .k-line{stroke:var(--steel);stroke-width:1.2}
+.kems-svg .k-line.k-v1{stroke:var(--ink);stroke-width:2.4;opacity:.8}
+.kems-svg .k-line.k-v2{stroke:var(--steel);stroke-width:1.4}
+.kems-svg .k-line.k-v3{stroke:var(--ink-3);stroke-width:.9}
+.kems-svg .k-line.k-vu{stroke:var(--ink-3);stroke-width:.8;stroke-dasharray:3 3}
+.kems-svg .k-line.k-straight{stroke-dasharray:5 4}
+.kems-svg .k-line.k-ld-ok{stroke:var(--steel);opacity:.6}
+.kems-svg .k-line.k-ld-high{stroke:var(--warn);opacity:1}
+.kems-svg .k-line.k-ld-over{stroke:var(--alarm);opacity:1}
+.kems-svg .k-line.k-ld-none{stroke:var(--ink-3);opacity:.7;stroke-dasharray:2 4}
+.kems-svg .k-bus{stroke-width:5}
+.kems-svg .k-bus.k-v1{stroke-width:7}
+.kems-svg .k-bus.k-v2{stroke-width:5.5}
+.kems-svg .k-bus.k-v3,.kems-svg .k-bus.k-vu{stroke-width:4}
+.kems-svg .k-bus.k-feed{stroke:var(--ink)}
+.kems-svg .k-bus.k-ring{stroke:var(--ink-2)}
+.kems-svg .k-bus.k-hole{stroke:var(--panel)}
+.kems-svg .k-bus.k-hole.k-v1{stroke-width:4.2}
+.kems-svg .k-bus.k-hole.k-v2{stroke-width:3}
+.kems-svg .k-bus.k-hole.k-v3,.kems-svg .k-bus.k-hole.k-vu{stroke-width:1.8}
+.kems-svg .k-plant{stroke:var(--ok);stroke-width:6;stroke-linecap:square}
+.kems-svg .k-trafo{stroke:var(--sel);stroke-width:5;stroke-linecap:square}
+.kems-svg .k-trafo-link{stroke:var(--sel);stroke-width:1;stroke-dasharray:3 3}
+.kems-svg .k-alert{stroke:var(--alarm);stroke-width:13;opacity:.55}
+.kems-svg .k-sel-line{stroke:var(--sel);stroke-width:5;opacity:.9}
+.kems-svg .k-sel-dot{stroke:var(--sel);stroke-width:15;opacity:.6}
+.kems-svg .k-label{fill:var(--ink-2);font-family:var(--sans);font-weight:600;paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round;pointer-events:none}
+.kems-mapmsg{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);z-index:4;max-width:min(520px,calc(100% - 32px));padding:10px 16px;border-radius:12px;background:var(--panel-2);border:1px solid var(--rule);box-shadow:var(--sh-md);font-size:13px;color:var(--ink-2);text-align:center}
+.kems-mapmsg[hidden]{display:none}
+.kems-mapmsg[data-tone="err"]{color:var(--alarm);border-color:color-mix(in srgb,var(--alarm) 45%,var(--rule))}
+.kems-card .kems-cardhead{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.kems-card .kems-cardhead b{font-size:13px;word-break:break-all}
+.kems-card .kems-cardsrc{font-size:11px;color:var(--ink-3);margin:2px 0 6px}
+.kems-kv{display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:2px 0;border-top:1px dashed color-mix(in srgb,var(--rule) 70%,transparent)}
+.kems-kv span{color:var(--ink-3);flex:none}
+.kems-kv b{font-weight:500;text-align:right;word-break:break-all}
+
+/* Legend */
+.kems-lgline{width:18px;height:0;border-top:1.4px solid var(--steel)}
+.kems-lgline.k-v1{border-top:2.4px solid var(--ink);opacity:.8}
+.kems-lgline.k-v2{border-top:1.4px solid var(--steel)}
+.kems-lgline.k-v3{border-top:1px solid var(--ink-3)}
+.kems-lgline.dashed{border-top:1.4px dashed var(--steel)}
+.kems-lgline.ld-ok{border-top:2px solid var(--steel);opacity:.6}
+.kems-lgline.ld-high{border-top:2px solid var(--warn)}
+.kems-lgline.ld-over{border-top:2px solid var(--alarm)}
+.kems-lgline.ld-none{border-top:2px dotted var(--ink-3)}
+.kems-lgdot{width:7px;height:7px;border-radius:50%;border:1px solid var(--ink-2)}
+.kems-lgdot.feed{background:var(--ink);border-color:var(--ink)}
+.kems-lgdot.alert{background:color-mix(in srgb,var(--alarm) 55%,transparent);border-color:var(--alarm)}
+.kems-lgsq{width:7px;height:7px}
+.kems-lgsq.plant{background:var(--ok)}
+.kems-lgsq.trafo{background:var(--sel)}
+.kems-lgsrc{margin-left:auto;color:var(--ink-3)}
+
+/* KPI tiles */
+.kems-kpis .kpi em{display:block;font-style:normal;font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kems-kpis .kpi.kems-muted b{color:var(--ink-3)}
+.kems-kpis .kpi.kems-err b{color:var(--alarm)}
+.kems-kpis .kpi.kems-err em{color:var(--alarm)}
+.kems-kpis .kpi.kems-warn b{color:var(--warn)}
+
+/* 의사결정지원 panel for an API grid */
+.kems-side{flex:1;min-height:0;overflow:auto;padding:4px 16px 14px}
+.kems-sidehead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 0 4px}
+.kems-sidehead b{font-size:13.5px}
+.kems-sidehead code{font-family:var(--mono);font-size:11.5px;color:var(--ink-3)}
+.kems-sidehead .btn{margin-left:auto;font-size:12px}
+.kems-sec{border-top:1px solid var(--rule);padding:10px 0 4px}
+.kems-sec h3{margin:0 0 6px;font-size:12.5px;font-weight:650;color:var(--ink-2)}
+.kems-badges{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
+.kems-facts{display:grid;gap:0}
+.kems-rank{display:flex;justify-content:space-between;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:transparent;border-radius:8px;padding:5px 6px}
+.kems-rank:hover{background:var(--sel-bg)}
+.kems-rank span{display:flex;flex-direction:column;min-width:0}
+.kems-rank b{font-size:12.5px;font-weight:600;font-family:var(--mono);word-break:break-all}
+.kems-rank em{font-style:normal;font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kems-rank i{font-style:normal;font-size:12.5px;font-weight:600;flex:none}
+.kems-rank i.kems-err,.kems-err{color:var(--alarm)}
+.kems-rank i.kems-warnt{color:var(--warn)}
+.kems-notwired a{font-size:12.5px;color:var(--sel)}
+.kems-sub{font-size:11px;color:var(--ink-3);margin-top:4px}
+.kems-cap{min-width:0}
+.kems-cap code{font-family:var(--mono);font-size:11px}
+.kems-y{color:var(--ok);font-weight:600}
+.kems-n,.kems-u{color:var(--ink-3)}
+.kems-w{color:var(--warn);font-weight:600}
+.kems-capnote{color:var(--warn)}
+.kems-msg{margin:4px 0;font-size:12.5px;color:var(--ink-2)}
+.kems-note{padding:8px 0 0;border-top:1px solid var(--rule)}
+.kems-pill{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.kems-pill-loading{background:var(--bg);color:var(--ink-2)}
+.kems-pill-ok{background:var(--ok-bg);color:var(--ok)}
+.kems-pill-err{background:var(--alarm-bg);color:var(--alarm)}
+
+/* Phase 3: N-1 Security Analysis and Sensitivity Analysis (api-analysis.js) */
+.kems-card{max-height:calc(100% - 24px);overflow:auto}
+.kems-pill-warn{background:var(--warn-bg);color:var(--warn)}
+.kems-an-stat.kems-warnt,.kems-msg.kems-warnt{color:var(--warn)}
+.kems-an-block{margin-top:8px;padding-top:8px;border-top:1px solid var(--rule)}
+.kems-an-head{font-size:11.5px;font-weight:600;color:var(--ink-2);margin-bottom:6px}
+.kems-an-run{width:100%}
+.kems-an-stat{margin:6px 0 0;font-size:11.5px;color:var(--ink-3)}
+.kems-an-spin{display:inline-block;width:10px;height:10px;margin-right:6px;border:1.5px solid var(--sel);border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-1px}
+.kems-an-loading{color:var(--sel)}
+.kems-an-h4{margin:10px 0 4px;font-size:12px;font-weight:600;color:var(--ink-2)}
+.kems-an-list{display:grid}
+.kems-an-list .kems-rank i{max-width:58%;text-align:right;white-space:normal;font-size:11.5px}
+.kems-an-nomap{cursor:default}
+.kems-an-nomap:hover{background:transparent}
+.kems-an-actions{display:flex;justify-content:flex-end;margin-top:6px}
+.kems-an-controls{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-bottom:2px}
+.kems-an-field{display:flex;flex-direction:column;gap:3px;font-size:11.5px;color:var(--ink-3);flex:1;min-width:180px}
+.kems-an-field select{width:100%}
+.kems-an-cand{min-width:0;font-size:12px;margin:6px 0}
+.kems-an-cand td,.kems-an-cand th{padding:5px 6px}
+.kems-an-val b{font-family:var(--mono);font-weight:600}
+.kems-an-bus{border:0;background:transparent;color:var(--sel);padding:0;text-align:left;font-size:12px;cursor:pointer}
+.kems-an-bus:hover{text-decoration:underline}
+.kems-an-ul{margin:6px 0;padding-left:18px;font-size:11.5px;color:var(--ink-2)}
+.kems-an-ul li{margin:2px 0}
+.kems-an-more{margin-top:8px;font-size:12px}
+.kems-an-more summary{cursor:pointer;color:var(--ink-2)}
+
+/* Map overlay: only the features named in the analysis response */
+.kems-svg .k-an-isoline{stroke:var(--warn);stroke-width:2.4;stroke-dasharray:1 4;opacity:.95}
+.kems-svg .k-an-isobus{stroke:var(--warn);stroke-width:12;opacity:.45}
+.kems-svg .k-an-mon{stroke:var(--sel);stroke-width:9;opacity:.35}
+.kems-svg .k-an-viol{stroke:var(--alarm);stroke-width:4.2;opacity:.95}
+.kems-svg .k-an-violdot{stroke:var(--alarm);stroke-width:13;opacity:.6}
+.kems-svg .k-an-outhalo{stroke:var(--panel);stroke-width:9;opacity:.9}
+.kems-svg .k-an-outage{stroke:var(--ink);stroke-width:3.6;stroke-dasharray:7 5}
+.kems-svg .k-an-cand{stroke:var(--ok);stroke-width:12;stroke-linecap:square;opacity:.85}
+.kems-svg .k-an-text{fill:var(--ink);font-family:var(--sans);font-weight:700;paint-order:stroke;stroke:var(--bg);stroke-width:3px;stroke-linejoin:round;pointer-events:none}
+.kems-svg .k-an-rank{fill:var(--ok)}
+.kems-lgline.an-outage{border-top:2.6px dashed var(--ink)}
+.kems-lgline.an-viol{border-top:3px solid var(--alarm)}
+.kems-lgline.an-iso{border-top:2.4px dotted var(--warn)}
+.kems-lgline.an-mon{border-top:5px solid color-mix(in srgb,var(--sel) 45%,transparent)}
+.kems-lgdot.an-viol{background:color-mix(in srgb,var(--alarm) 60%,transparent);border-color:var(--alarm)}
+.kems-lgdot.an-iso{background:color-mix(in srgb,var(--warn) 45%,transparent);border-color:var(--warn)}
+.kems-lgsq.an-cand{background:var(--ok)}
+
+/* PH4-01: persistent chat and independently scrollable analysis in one panel. */
+body[data-kems-src="api"] #kemsChat{display:flex!important}
+body[data-kems-src="api"] #kemsSide{flex:1 1 45%;min-height:100px}
+.kems-chat{flex:1 1 55%;min-height:260px;flex-direction:column;border-top:1px solid var(--rule);padding:10px 14px;gap:8px;overflow:hidden}
+.kems-chathead{display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none}
+.kems-chathead h3{margin:0;font-size:13px;font-weight:600}
+.kems-chathead .btn{font-size:11px;white-space:nowrap}
+.kems-chatmessages{flex:1;min-height:60px;overflow:auto;overscroll-behavior:contain}
+.kems-chatmessage{margin-bottom:10px;padding:8px 10px;border-radius:8px;background:var(--bg);font-size:12.5px;line-height:1.6;overflow-wrap:anywhere}
+.kems-chatmessage>b{font-size:11px;color:var(--ink-3)}
+.kems-chatmessage>div{white-space:pre-wrap}
+.kems-chat-user{margin-left:22px;background:var(--sel-bg)}
+.kems-chat-assistant{margin-right:12px}
+.kems-chat-system{border-left:2px solid var(--warn);font-size:11.5px}
+.kems-chatstatus{margin:0;font-size:11px;color:var(--ink-3);flex:none}
+.kems-chatstatus.kems-err{color:var(--alarm)}
+.kems-chatinput{display:flex;align-items:flex-end;gap:8px;flex:none;margin:0}
+.kems-chatinput textarea{flex:1;min-width:0;min-height:48px;max-height:100px;resize:vertical;font:12.5px/1.5 var(--sans);border:1px solid var(--rule);border-radius:7px;background:var(--panel);color:var(--ink);padding:7px 9px}
+.kems-chatinput textarea:focus{outline:2px solid var(--sel);outline-offset:1px}
+.kems-chatinput :disabled{opacity:.55;cursor:not-allowed}
+.kems-reference{display:flex;gap:6px;flex-wrap:wrap;flex:none;font-size:11.5px}
+.kems-reference[hidden],.kems-reference [hidden]{display:none}
+.kems-reference select{min-width:0;max-width:100%;font:inherit;background:var(--panel);color:var(--ink);border:1px solid var(--rule);border-radius:4px;padding:4px}
+.kems-reference p{flex-basis:100%;margin:0;color:var(--ink-3);overflow-wrap:anywhere}
+@media(max-width:700px){.kems-chat{min-height:320px}.kems-chathead{flex-wrap:wrap}}

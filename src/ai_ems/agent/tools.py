@@ -1,9 +1,10 @@
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from langchain_core.tools import tool
+from langchain_core.tools import InjectedToolCallId, tool
 
 from ai_ems.config import CASE_FILE
+from ai_ems.network_access import ModelIdentityUnavailable, access_for, guarded, network_access
 from ai_ems.tools.control_tools import validate_balanced_redispatch
 from ai_ems.tools.network_tools import get_line, get_network_summary, list_generators, list_lines
 from ai_ems.tools.security_tools import get_limit_unit, run_line_contingency, select_most_severe_violated_line, select_primary_violation
@@ -12,6 +13,36 @@ from ai_ems.tools.workflow_tools import analyze_contingency_response, analyze_ge
 from ai_ems.tools.generator_contingency_tools import analyze_generator_contingency
 from ai_ems.tools.generator_screening_tools import run_generator_contingency_screening
 from ai_ems.tools.generator_risk_tools import analyze_generator_risk_response
+
+
+def summarize_line_contingency(result: dict[str, Any]) -> dict[str, Any]:
+    """Legacy compact Agent summary of one full Security result (pure, no engine call)."""
+    equipment = select_primary_violation(result)
+    branch = result["monitored_branches"][0] if result["monitored_branches"] else None
+    return {
+        "analysis_type": "AC Security Analysis",
+        "outage_line_id": result["outage_line_id"],
+        "base_converged": result["base_converged"],
+        "post_status": result["post_status"],
+        "violated_equipment_count": result["violated_equipment_count"],
+        "violation": ({
+            "equipment_id": equipment["equipment_id"],
+            "limit_type": equipment.get("limit_type"),
+            "unit": equipment.get("unit") or get_limit_unit(equipment.get("limit_type")),
+            "limit": equipment.get("limit"),
+            "post_value": equipment.get("value"),
+            "violation_amount": equipment.get("violation_amount"),
+            "violation_direction": equipment.get("violation_direction"),
+            "loading_percent": equipment.get("loading_percent"),
+        } if equipment is not None else None),
+        "monitored_branch": ({
+            "line_id": branch["line_id"],
+            "base_apparent_power_flow_mva": branch["base"]["apparent_power_mva"],
+            "post_apparent_power_flow_mva": branch["apparent_power_mva"],
+        } if branch is not None else None),
+        "pre_violated_equipment_count": result["pre_violated_equipment_count"],
+        "violation_comparison": result["violation_comparison"],
+    }
 
 
 def create_agent_tools(network, case_path: str | Path = CASE_FILE):
@@ -48,56 +79,36 @@ def create_agent_tools(network, case_path: str | Path = CASE_FILE):
         }
 
     @tool
+    @guarded(lambda: network)
     def network_summary() -> dict[str, Any]:
         """Get a summary of the current power network."""
         return get_network_summary(network)
 
     @tool
+    @guarded(lambda: network)
     def line_list(limit: int = 10) -> list[dict[str, Any]]:
         """List transmission lines in the current power network."""
         return list_lines(network, limit=limit)
 
     @tool
+    @guarded(lambda: network)
     def line_detail(line_id: str) -> dict[str, Any]:
         """Get detailed information for one transmission line."""
         return get_line(network, line_id)
 
     @tool
+    @guarded(lambda: network)
     def generator_list(limit: int = 10, connected_only: bool = True) -> list[dict[str, Any]]:
         """List generators in the current power network."""
         return list_generators(network, limit=limit, connected_only=connected_only)
 
     @tool
+    @guarded(lambda: network)
     def line_contingency(outage_line_id: str, monitored_line_id: str | None = None) -> dict[str, Any]:
         """Analyze a transmission line outage and optionally monitor one line."""
         monitored_line_ids = [monitored_line_id] if monitored_line_id is not None else None
         result = run_line_contingency(network, outage_line_id=outage_line_id, monitored_line_ids=monitored_line_ids)
-        equipment = select_primary_violation(result)
-        branch = result["monitored_branches"][0] if result["monitored_branches"] else None
-        return {
-            "analysis_type": "AC Security Analysis",
-            "outage_line_id": result["outage_line_id"],
-            "base_converged": result["base_converged"],
-            "post_status": result["post_status"],
-            "violated_equipment_count": result["violated_equipment_count"],
-            "violation": ({
-                "equipment_id": equipment["equipment_id"],
-                "limit_type": equipment.get("limit_type"),
-                "unit": equipment.get("unit") or get_limit_unit(equipment.get("limit_type")),
-                "limit": equipment.get("limit"),
-                "post_value": equipment.get("value"),
-                "violation_amount": equipment.get("violation_amount"),
-                "violation_direction": equipment.get("violation_direction"),
-                "loading_percent": equipment.get("loading_percent"),
-            } if equipment is not None else None),
-            "monitored_branch": ({
-                "line_id": branch["line_id"],
-                "base_apparent_power_flow_mva": branch["base"]["apparent_power_mva"],
-                "post_apparent_power_flow_mva": branch["apparent_power_mva"],
-            } if branch is not None else None),
-            "pre_violated_equipment_count": result["pre_violated_equipment_count"],
-            "violation_comparison": result["violation_comparison"],
-        }
+        return summarize_line_contingency(result)
 
     @tool
     def generator_contingency_analysis(generator_id: str, slack_mode: Literal["single", "distributed"] = "single", balance_type: str | None = None, top_n_overloads: int = 5) -> dict[str, Any]:
@@ -139,6 +150,7 @@ def create_agent_tools(network, case_path: str | Path = CASE_FILE):
         )
 
     @tool
+    @guarded(lambda: network)
     def generator_sensitivity(outage_line_id: str, monitored_line_id: str | None = None, top_n: int = 5) -> dict[str, Any]:
         """Rank generators by post-contingency branch-flow sensitivity."""
         auto_selected = monitored_line_id is None
@@ -197,3 +209,112 @@ def create_agent_tools(network, case_path: str | Path = CASE_FILE):
         contingency_response_analysis,
         generator_outage_response_analysis,
     ]
+
+
+def _capture_revision(network):
+    """Bound model revision; callers hold the engine guard around it."""
+    try:
+        return access_for(network).capture_revision()
+    except TypeError as exc:  # Not a native model: nothing can be attributed.
+        raise ModelIdentityUnavailable("MODEL_IDENTITY_UNAVAILABLE") from exc
+
+
+def _outcome(assessment: str, reason_code: str | None, outage_line_id: str,
+             monitored_line_id: str | None = None, monitored_selection: str | None = None,
+             top_n: int | None = None) -> dict[str, Any]:
+    return {"assessment": assessment, "reason_code": reason_code,
+            "outage_line_id": outage_line_id, "monitored_line_id": monitored_line_id,
+            "monitored_selection": monitored_selection, "top_n": top_n}
+
+
+def create_line_analysis_tools(network, ledger):
+    """PH4-02B2 v1 KPG line-analysis Tools bound to one validated job ledger.
+
+    Separate from ``create_agent_tools``, whose Tools, schemas and returns stay
+    unchanged. A call runs only after the job guard authorized its exact
+    ToolCall. It computes once under the shared network guard and returns the
+    legacy compact content plus a full artifact sealed in ``ledger``. There is
+    no hidden preparation, re-execution or projection-time calculation.
+    """
+
+    def execute(tool_call_id, name, arguments, compute):
+        ledger.begin(tool_call_id, name, arguments)  # Unauthorized calls compute nothing.
+        try:
+            with network_access(network):
+                before = _capture_revision(network)  # Unidentified model: fail before computing.
+                content, outcome, result = compute()
+                try:
+                    after = _capture_revision(network)
+                except ModelIdentityUnavailable:
+                    after = None
+            artifact = ledger.complete(tool_call_id, revision_before=before,
+                                       revision_after=after, outcome=outcome, result=result)
+        except BaseException as exc:
+            ledger.fail(tool_call_id, exc)
+            raise
+        return content, artifact
+
+    @tool("line_contingency", response_format="content_and_artifact")
+    def line_contingency(outage_line_id: str, monitored_line_id: str | None = None, *,
+                         tool_call_id: Annotated[str, InjectedToolCallId]) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Analyze a transmission line outage and optionally monitor one line."""
+
+        def compute():
+            monitored_line_ids = [monitored_line_id] if monitored_line_id is not None else None
+            result = run_line_contingency(network, outage_line_id=outage_line_id,
+                                          monitored_line_ids=monitored_line_ids)
+            evaluated = result["base_converged"] is True and result["post_status"] == "CONVERGED"
+            outcome = _outcome("completed" if evaluated else "not_evaluated",
+                               None if evaluated else "SECURITY_NOT_CONVERGED", result["outage_line_id"])
+            return summarize_line_contingency(result), outcome, result
+
+        return execute(tool_call_id, "line_contingency",
+                       {"outage_line_id": outage_line_id, "monitored_line_id": monitored_line_id}, compute)
+
+    @tool("generator_sensitivity", response_format="content_and_artifact")
+    def generator_sensitivity(outage_line_id: str, monitored_line_id: str | None = None, top_n: int = 5, *,
+                              tool_call_id: Annotated[str, InjectedToolCallId]) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Rank generators by post-contingency branch-flow sensitivity."""
+
+        def compute():
+            security = selected = status = None
+            if monitored_line_id is None:
+                # The REST automatic-target decision; the legacy Tool keeps its ValueError.
+                security = run_line_contingency(network, outage_line_id=outage_line_id)
+                if security["post_status"] != "CONVERGED":
+                    status = "SECURITY_NOT_CONVERGED"
+                else:
+                    selected = select_most_severe_violated_line(network, security)
+                    status = None if selected is not None else "NO_OVERLOAD"
+                target = selected["equipment_id"] if selected is not None else None
+            else:
+                target = monitored_line_id
+            selection = "auto" if monitored_line_id is None else "explicit"
+            ranking, metadata = None, {}
+            if target is not None:
+                ranking = rank_generator_sensitivities(network, outage_line_id=outage_line_id,
+                                                       monitored_line_id=target, top_n=top_n)
+                generators = network.get_generators(all_attributes=True)
+                # Metadata of THIS execution: mapping never re-reads the live model later.
+                metadata = {item["generator_id"]: {
+                    "voltage_level_id": str(generators.loc[item["generator_id"]]["voltage_level_id"]),
+                } for item in ranking["candidates"]}
+                content = {**ranking, "target_selection": ("most_severe_violation" if selection == "auto"
+                                                           else "user_specified")}
+            else:
+                # Actual unevaluated domain outcome; no candidate is invented.
+                content = {"outage_line_id": outage_line_id, "monitored_line_id": None,
+                           "candidate_count": 0, "candidates": [],
+                           "target_selection": "most_severe_violation", "analysis_status": status}
+            outcome = _outcome("completed" if ranking is not None else "not_evaluated", status,
+                               outage_line_id, target, selection, top_n)
+            result = {"selection": {"mode": selection, "status": status, "security": security,
+                                    "selected": selected},
+                      "ranking": ranking, "generator_metadata": metadata}
+            return content, outcome, result
+
+        return execute(tool_call_id, "generator_sensitivity",
+                       {"outage_line_id": outage_line_id, "monitored_line_id": monitored_line_id,
+                        "top_n": top_n}, compute)
+
+    return [line_contingency, generator_sensitivity]

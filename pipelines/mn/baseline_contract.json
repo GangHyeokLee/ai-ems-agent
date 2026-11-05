@@ -1,0 +1,889 @@
+{
+  "schema": "mn-stage1-contract-1",
+  "baseline_id": "mn-existing-20261027",
+  "ems_anchor": "846ff55530544f7b3dd0bec7d1bb7872e27f2791",
+  "repositories": {
+    "source": "748c0811854b959f9df09377317499056a51601e",
+    "earth": "23fa6edf021f8b37c1783949891feb0a804c1959"
+  },
+  "scenario_id": "reduced_27_q_limited_with_reactor",
+  "map_counts": {
+    "Bus": 173,
+    "Line": 159,
+    "Transformer": 27,
+    "PlantRecord": 27
+  },
+  "analysis_counts": {
+    "Bus": 166,
+    "Line": 156,
+    "Transformer": 27,
+    "Generator": 45,
+    "Load": 166,
+    "Shunt": 1
+  },
+  "reference_counts": {
+    "Line": 33,
+    "Substation": 88
+  },
+  "slack_bus": "25",
+  "loadflow_parameters": {
+    "voltage_init_mode": "UNIFORM_VALUES",
+    "transformer_voltage_control_on": false,
+    "use_reactive_limits": false,
+    "phase_shifter_regulation_on": false,
+    "twt_split_shunt_admittance": false,
+    "shunt_compensator_voltage_control_on": false,
+    "read_slack_bus": false,
+    "write_slack_bus": false,
+    "distributed_slack": false,
+    "component_mode": "MAIN_CONNECTED",
+    "provider_parameters": {
+      "slackBusSelectionMode": "NAME",
+      "slackBusesIds": "VL_25",
+      "referenceBusSelectionMode": "FIRST_SLACK",
+      "newtonRaphsonConvEpsPerEq": "1e-08",
+      "newtonRaphsonStoppingCriteriaType": "UNIFORM_CRITERIA",
+      "maxNewtonRaphsonIterations": "30"
+    }
+  },
+  "sensitivity_definition": {
+    "fd_step_mw": 0.1,
+    "fd_abs_tol": 0.0001,
+    "fd_rel_tol": 0.01,
+    "self_check": [
+      "751261406-1_0",
+      "303374638-1_0"
+    ]
+  },
+  "files": [
+    {
+      "role": "config.mn35k_acpf.json",
+      "root": "source",
+      "path": "configs/mn35k_acpf.json",
+      "sha256": "8ed6f3bd6354fe2cb874babc0a37434e884256453e4d127edb8376b0a7747631",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "config.mn35k_data_informed_scenario.json",
+      "root": "source",
+      "path": "configs/mn35k_data_informed_scenario.json",
+      "sha256": "5c6e3694935b763f2ffe4a0f32d56a92b23dec37bd0a6f067710ad727b0cedcc",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "config.mn35k_poc.json",
+      "root": "source",
+      "path": "configs/mn35k_poc.json",
+      "sha256": "b1012793c473039daf5e2ef1d600f501e1e35b0065f7a2a8a4b7e80f1be56e5a",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "config.mn35k_powsybl_conversion.json",
+      "root": "source",
+      "path": "configs/mn35k_powsybl_conversion.json",
+      "sha256": "960421a5b5bf69242190491a38a75204a02e89f82a8a2098791ef646b2592182",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "config.mn35k_reactive_diagnostics.json",
+      "root": "source",
+      "path": "configs/mn35k_reactive_diagnostics.json",
+      "sha256": "9c884b6afff9bcbf13855a4fd722d3e6dab1f334ad73c9c5cdf5b5c0ef35140d",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "config.mn35k_reactive_support.json",
+      "root": "source",
+      "path": "configs/mn35k_reactive_support.json",
+      "sha256": "d8fcf32ee708ff8d74165816818a7b79c5ff286d0894991d9a5fe86b7981d091",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "conversion.conversion_parameters.csv",
+      "root": "source",
+      "path": "reports/pypowsybl_conversion/conversion_parameters.csv",
+      "sha256": "5f3bd194708abf273413cdb2ceea651e01b68fe66f6c03a69993a79361144248",
+      "scopes": [
+        "baseline"
+      ]
+    },
+    {
+      "role": "conversion.conversion_validation.json",
+      "root": "source",
+      "path": "reports/pypowsybl_conversion/conversion_validation.json",
+      "sha256": "a5d91177da1de0c7c638686233e9a6653644b55d20221599d64ccf6b9073f8b9",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "conversion.element_mapping.csv",
+      "root": "source",
+      "path": "reports/pypowsybl_conversion/element_mapping.csv",
+      "sha256": "02d09a38a5919693ac1cb46d77061bbf3a0025fce061a957c1bec0513c4f211c",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "conversion.input_hashes.json",
+      "root": "source",
+      "path": "reports/pypowsybl_conversion/input_hashes.json",
+      "sha256": "30077bcc264a84baaf73248da40767a3c3aebb2b9e210d3a8582b0dead28941e",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "conversion.n1_feasibility_results.csv",
+      "root": "source",
+      "path": "reports/pypowsybl_conversion/n1_feasibility_results.csv",
+      "sha256": "8dd36a4089cb50a7a230bd06c716c1a2fbcff69bb5894b19371674ace9ea52f4",
+      "scopes": [
+        "baseline"
+      ]
+    },
+    {
+      "role": "conversion.n1_ui_compatible_results.json",
+      "root": "source",
+      "path": "reports/pypowsybl_conversion/n1_ui_compatible_results.json",
+      "sha256": "576bd7ed75ad87e6c8b041f5d3252020920387e7ca55c94edf2f0043fb3f0932",
+      "scopes": [
+        "baseline"
+      ]
+    },
+    {
+      "role": "conversion.pf_bus_comparison.csv",
+      "root": "source",
+      "path": "reports/pypowsybl_conversion/pf_bus_comparison.csv",
+      "sha256": "f7438d70b8fc911559420363333aee39329f19afcd54ca03a93f505f987d94e1",
+      "scopes": [
+        "baseline"
+      ]
+    },
+    {
+      "role": "conversion.pf_generator_comparison.csv",
+      "root": "source",
+      "path": "reports/pypowsybl_conversion/pf_generator_comparison.csv",
+      "sha256": "dce83871dedb54354bb3a25375468badd0c22ad8927c62a2ec9260a79c360e29",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "conversion.pf_line_comparison.csv",
+      "root": "source",
+      "path": "reports/pypowsybl_conversion/pf_line_comparison.csv",
+      "sha256": "303577b198ead327e45384ef844be12831407025b70f26c491a514129e56ba5d",
+      "scopes": [
+        "baseline"
+      ]
+    },
+    {
+      "role": "conversion.pf_shunt_comparison.csv",
+      "root": "source",
+      "path": "reports/pypowsybl_conversion/pf_shunt_comparison.csv",
+      "sha256": "70b07e753949089019ad68fae53348a4e3bb3135b3481178ef5718d93aa652c9",
+      "scopes": [
+        "baseline"
+      ]
+    },
+    {
+      "role": "conversion.pf_summary.json",
+      "root": "source",
+      "path": "reports/pypowsybl_conversion/pf_summary.json",
+      "sha256": "7acfb47ef5884f49248ad27734d7c1982a6537dddb872901a8c98a12c52d459b",
+      "scopes": [
+        "baseline"
+      ]
+    },
+    {
+      "role": "conversion.pf_transformer_comparison.csv",
+      "root": "source",
+      "path": "reports/pypowsybl_conversion/pf_transformer_comparison.csv",
+      "sha256": "2443804d8523efc2ab670018975a8ca8f09dc0116ec3596901f31ad7a658c88b",
+      "scopes": [
+        "baseline"
+      ]
+    },
+    {
+      "role": "conversion.pypowsybl_conversion_report.md",
+      "root": "source",
+      "path": "reports/pypowsybl_conversion/pypowsybl_conversion_report.md",
+      "sha256": "9d8cbf1f3da32cba2079c8c0a4a55575a0823ded327a51ba77c0071808639e21",
+      "scopes": [
+        "baseline"
+      ]
+    },
+    {
+      "role": "earth.Snakefile",
+      "root": "earth",
+      "path": "Snakefile",
+      "sha256": "b08a82e42f5e5e81499a0a690cee48cab5d5dd90437354c8daaf0f762a43da71",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "earth.config.MN_35k.yaml",
+      "root": "earth",
+      "path": "config.MN_35k.yaml",
+      "sha256": "666f7d5c9dc81089bb476c70a592e8e0439bb284391046f8d5a70d803802f897",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "earth.config.yaml",
+      "root": "earth",
+      "path": "config.yaml",
+      "sha256": "4cd6b489828627115d8bf1398b16453e809cd3d9c09cd879335b35aa0dc1bc14",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "earth.pixi.lock",
+      "root": "earth",
+      "path": "pixi.lock",
+      "sha256": "da981a88a7f4c7d4cf317db80aec0117b0ca8cca1f5c388c98a54ff3debc9328",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "earth.pixi.toml",
+      "root": "earth",
+      "path": "pixi.toml",
+      "sha256": "e8cf1c6a4d25bae6e8cf762d1b93a03ceecb556748df42283c9ef9c00af6f4c5",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "earth.powerplantmatching_config",
+      "root": "earth",
+      "path": "configs/powerplantmatching_config.yaml",
+      "sha256": "f11793d5d751e6c3aa1fdfdcfb77384a3df8531c68717d0e03886606c89a2ad5",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "earth_code.base_network.py",
+      "root": "earth",
+      "path": "scripts/base_network.py",
+      "sha256": "292161a86545ac832476a35cf8bc239bd0f8ab4b49f56d331e807ee9e57ebcc9",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "earth_code.build_osm_network.py",
+      "root": "earth",
+      "path": "scripts/build_osm_network.py",
+      "sha256": "625feb84537e25144cfb35801e0d6d3d0545499418501230074659995d60aaf0",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "earth_code.build_powerplants.py",
+      "root": "earth",
+      "path": "scripts/build_powerplants.py",
+      "sha256": "56e4083f190a28038caa253ffe82928584668f3e686a667727d32b4fae3b80df",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "earth_code.clean_osm_data.py",
+      "root": "earth",
+      "path": "scripts/clean_osm_data.py",
+      "sha256": "b53d9184c611cdfdc70988df1ce802d6325fdc0416d3cf9068e6667e35475c87",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "ems_code.requirements.txt",
+      "root": "ems",
+      "path": "requirements.txt",
+      "sha256": "234eebc5b10a5b4dd33c35e229fa81103e6a987d86339cedf12f16cd10afd6d4",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "ems_code.scripts/build_mn_reference_layers.py",
+      "root": "ems",
+      "path": "scripts/build_mn_reference_layers.py",
+      "sha256": "48a45b80cf932e1872b121062fc2097201156aef2e06c680566dfd563f5d27b0",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "ems_code.scripts/export_mn35k_pf_preview.py",
+      "root": "ems",
+      "path": "scripts/export_mn35k_pf_preview.py",
+      "sha256": "4fe218a97813b2401afb71bc7fa775afabe34e479d0c3cce2b1369cfa25c5755",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "ems_code.scripts/export_pypsa_map.py",
+      "root": "ems",
+      "path": "scripts/export_pypsa_map.py",
+      "sha256": "0f7d6d74d7e102051c2e3c260405b54339c77353f827126c2e24e8f112846228",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "ems_code.src/ai_ems/agent/mongolia_graph.py",
+      "root": "ems",
+      "path": "src/ai_ems/agent/mongolia_graph.py",
+      "sha256": "fed4b26428db39a19a0564fceed8857b26a4e903579898f2722c592352649dbd",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "ems_code.src/ai_ems/agent/mongolia_tools.py",
+      "root": "ems",
+      "path": "src/ai_ems/agent/mongolia_tools.py",
+      "sha256": "43f58eebf7fdbc8ab0b21cc35bc12e239f07b0ec65cddd9e952378d1b188c070",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "ems_code.src/ai_ems/config.py",
+      "root": "ems",
+      "path": "src/ai_ems/config.py",
+      "sha256": "4beae767c720b5d26d7b1816ca314f564731dedfc8a4899824e786bcbd1a13f0",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "ems_code.src/ai_ems/grid_catalog.py",
+      "root": "ems",
+      "path": "src/ai_ems/grid_catalog.py",
+      "sha256": "12d49b8421d49688674b5edb8e1856100afb3053c3ed9c0ffc0b815435e9abe4",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "ems_code.src/ai_ems/mongolia_security.py",
+      "root": "ems",
+      "path": "src/ai_ems/mongolia_security.py",
+      "sha256": "1fa78c4c13e192f744eed460273e2940f1547cc19e234ec7d39ed5ffc21c558c",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "ems_code.src/ai_ems/mongolia_sensitivity.py",
+      "root": "ems",
+      "path": "src/ai_ems/mongolia_sensitivity.py",
+      "sha256": "e3864968f8480ef7c5383e902503e506c7d12202181a88e7b5129cd2fa7d75da",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "ems_code.src/ai_ems/pf_preview.py",
+      "root": "ems",
+      "path": "src/ai_ems/pf_preview.py",
+      "sha256": "3178bddae6ec81e57d6c7b423908c6361d96cb4732d33c5f02a9b6fb2234e673",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "ems_code.src/ai_ems/reference_layers.py",
+      "root": "ems",
+      "path": "src/ai_ems/reference_layers.py",
+      "sha256": "8a483807b7eea1bf27b8290159c8d37dfbaf1c7ff7d2c1f7f87457885d9bff07",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "ems_code.web_app.py",
+      "root": "ems",
+      "path": "web_app.py",
+      "sha256": "7596544bbc58d7beb6dfbc64c09a0007a2c2b53ade3bb98803960b9749b54125",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "initial_pf",
+      "root": "earth",
+      "path": "networks/MN_35k_poc/scenarios/synthetic_pf_base.nc",
+      "sha256": "8637b68ddade7a6d4a2a378143be0881d1fc41a8d52315634f8d94a92e406086",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "legacy_model",
+      "root": "earth",
+      "path": "networks/MN/base.nc",
+      "sha256": "bc62f45b392959050c51fb36cba6e49275f60361ac4692d28a7d8024116e96c0",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "map",
+      "root": "ems",
+      "path": "data/grids/mn-osm-35k-map.json",
+      "sha256": "f530d88e789250ffff8d6a1cd9e27345bbf02cc53368ae601f77e74c6bb177ba",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "map_model",
+      "root": "earth",
+      "path": "networks/MN_35k/base.nc",
+      "sha256": "0c94f9b998af724c4b4417eff973349405233d5edb9f7a95655a2c59c7cd6644",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "passive_model",
+      "root": "earth",
+      "path": "networks/MN_35k_poc/base.nc",
+      "sha256": "27dc5d25639fc2ccd7b04c6d255e3add3335e04390303b3783fbda919a0b1484",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "pf",
+      "root": "ems",
+      "path": "data/grids/mn35k-synthetic-pf-preview.json",
+      "sha256": "44b6f4567100ef6e03f999246be4122c962361404f5e1a1fc26901e0a364ad06",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "pf_input.branch_loading_results",
+      "root": "source",
+      "path": "reports/reactive_support/branch_loading_results.csv",
+      "sha256": "34b994645bda38e09a5f5831bf12204fb5e736c4d6b4b318e8ecc1001636d345",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "pf_input.bus_voltage_results",
+      "root": "source",
+      "path": "reports/reactive_support/bus_voltage_results.csv",
+      "sha256": "1c981f3c5a1baa0159cafe09f7c76a853d262ca76d1083370cbc99a2749e7b1c",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "pf_input.generator_reactive_results",
+      "root": "source",
+      "path": "reports/reactive_support/generator_reactive_results.csv",
+      "sha256": "003a8c48e963b24abb862bd6782336bb1dd5b09a52349445c7859393c30426d2",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "pf_input.nodal_balance_validation",
+      "root": "source",
+      "path": "reports/reactive_support/nodal_balance_validation.csv",
+      "sha256": "42d38ebe792ce53aec60d5128bd4f3e2c4d24ceabe5aaf3f04b5c41ee4aa3711",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "pf_input.power_balance_validation",
+      "root": "source",
+      "path": "reports/reactive_support/power_balance_validation.csv",
+      "sha256": "0a560081b8d9d645f4867899a024b409f605c30f65b23f4f068ffab44074092b",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "pf_input.result_validation",
+      "root": "source",
+      "path": "reports/reactive_support/result_validation.json",
+      "sha256": "f742bc627d7baa2784a4b545c87143e33a365898ccaa47ee5502d37a252cf26d",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "pf_input.scenario_comparison",
+      "root": "source",
+      "path": "reports/reactive_support/scenario_comparison.csv",
+      "sha256": "c94562203bddad086b4ba25c8ebfc0c02a0ebc210589c6e141f8d67dd6641565",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "pf_input.shunt_reactor_results",
+      "root": "source",
+      "path": "reports/reactive_support/shunt_reactor_results.csv",
+      "sha256": "f8547bf48df59058ac1c392a16f369e29eb666072e2b375c26828a153419fcdd",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "pf_input.source_preservation",
+      "root": "source",
+      "path": "reports/reactive_support/source_preservation.json",
+      "sha256": "419796b2041392a52d089b15adcc11bec99398a62515715e38c6593daf2c1f77",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "pf_model",
+      "root": "earth",
+      "path": "networks/MN_35k_poc/scenarios/synthetic_reactive_support_base.nc",
+      "sha256": "21bd0d90426970b2f7f22114cb63ac3e6b194e9c3d5af365e6299185735b88c4",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "powerplants",
+      "root": "earth",
+      "path": "resources/MN/powerplants.csv",
+      "sha256": "d4880a55cec7945cd888bd11605c54a9870da9487609fe4c11c98c96bfd9a071",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "raw_cables",
+      "root": "earth",
+      "path": "resources/MN_35k/osm/raw/all_raw_cables.geojson",
+      "sha256": "62f1dd705ff7b7e6fc44b2d8a8f7cb577095d303b7fbdcb944d0559aae315603",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "raw_generators",
+      "root": "earth",
+      "path": "resources/MN_35k/osm/raw/all_raw_generators.geojson",
+      "sha256": "195ea27c0a9343b024c4fdd2e16eb10d86a25a8dcb218a2a126f1fadbb766593",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "raw_pbf",
+      "root": "earth",
+      "path": "data/osm/pbf/mongolia-latest.osm.pbf",
+      "sha256": "396dd71c8e14000fbc6a28bbe3c14017898cdf691a4ae52f597ff28a6fe48122",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "reference",
+      "root": "ems",
+      "path": "data/grids/mn-osm-35k-reference-layers.json",
+      "sha256": "fd17e894b18508d811f433eddade6115c58fa13423999eae015dc27531ed7582",
+      "scopes": [
+        "runtime"
+      ]
+    },
+    {
+      "role": "reference_input.build_lines",
+      "root": "earth",
+      "path": "resources/MN_35k/base_network/all_lines_build_network.geojson",
+      "sha256": "c29eec53c4feabb3d9082d7b6f937147df35482431f2f51375d0bc9fabf55b0a",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "reference_input.collapsed_lines",
+      "root": "source",
+      "path": "docs/audits/2026-10-20/collapsed_lines.csv",
+      "sha256": "3f3cb670be3b729a90f3d1903eb3b61c4bb01b6abe473edd7bde43c75c4b22ed",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "reference_input.country_shapes",
+      "root": "earth",
+      "path": "resources/MN_35k/shapes/country_shapes.geojson",
+      "sha256": "a7661d02e3e9a7e491a64520031c56ffa2d3fa99ba6bdb221f73eb530b470dfa",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "reference_input.gadm_shapes",
+      "root": "earth",
+      "path": "resources/MN/shapes/gadm_shapes.geojson",
+      "sha256": "e5f40cf63d5e683c9a527682ebb6b8acbe116429085db45afc11e93325bd02d1",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "reference_input.osm_line_lineage",
+      "root": "source",
+      "path": "docs/audits/2026-10-20/osm_line_lineage.csv",
+      "sha256": "3264ca9a5722708fe4da87b864ca1b0b9660ef286cf9c282f9c0214a3380db2b",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "reference_input.osm_substation_lineage",
+      "root": "source",
+      "path": "docs/audits/2026-10-20/osm_substation_lineage.csv",
+      "sha256": "8da1abe0b2c57118faede70ac4a5de4010c88222442abccd4cc20491fc1c4d9a",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "reference_input.raw_lines",
+      "root": "earth",
+      "path": "resources/MN_35k/osm/raw/all_raw_lines.geojson",
+      "sha256": "141ed8e8ef474d0901e08b2382c058d7ab5da3c0e88b7e2dc2927a004627eb15",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "reference_input.raw_substations",
+      "root": "earth",
+      "path": "resources/MN_35k/osm/raw/all_raw_substations.geojson",
+      "sha256": "dea916689bc6f1ee537e1b00707fdd228f1c3761138c3825749405a3cb488d72",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "reference_input.region_names",
+      "root": "source",
+      "path": "docs/audits/2026-10-20/region_names.csv",
+      "sha256": "36d357bd66dd0b5919aa0aee34c418b11abdca860aa8ff87ee5d06db1fc915fa",
+      "scopes": [
+        "build"
+      ]
+    },
+    {
+      "role": "source_code.audit_mn35k_220kv_lines.py",
+      "root": "source",
+      "path": "scripts/audit_mn35k_220kv_lines.py",
+      "sha256": "00f856ba565f9fd7241998375289ae78ed5e9735708a1e15017f6735a20182da",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "source_code.audit_mn35k_parameters.py",
+      "root": "source",
+      "path": "scripts/audit_mn35k_parameters.py",
+      "sha256": "e0fb4ad10ad7c357414b289c8116e4b9d9dd45b5b7ab8248b84b26d99fc8dd6e",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "source_code.audit_mn35k_plants.py",
+      "root": "source",
+      "path": "scripts/audit_mn35k_plants.py",
+      "sha256": "8b837203efb2238b7a6125b5bddd31db1b078c72417bbe588b16e68ddfed207b",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "source_code.build_mn35k_poc.py",
+      "root": "source",
+      "path": "scripts/build_mn35k_poc.py",
+      "sha256": "f299f9a747e2063a74da54a5562999c9f9171fe6b051c371ff8f6da559734f9c",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "source_code.convert_mn35k_to_powsybl.py",
+      "root": "source",
+      "path": "scripts/convert_mn35k_to_powsybl.py",
+      "sha256": "867430ad80d6936806c519a6902a14b4748bdbe38b0b6e16322384094dafb370",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "source_code.diagnose_mn35k_reactive.py",
+      "root": "source",
+      "path": "scripts/diagnose_mn35k_reactive.py",
+      "sha256": "47eb94019d135805150d9079a12120404b1aa0d1cdcd53adabdba3bddf65ad01",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "source_code.mn35k_lengths.py",
+      "root": "source",
+      "path": "scripts/mn35k_lengths.py",
+      "sha256": "0c34e435d61295c8db529d62258f029723f830d69f93644d5959456259051d8c",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "source_code.mn35k_powsybl.py",
+      "root": "source",
+      "path": "scripts/mn35k_powsybl.py",
+      "sha256": "95e602dd7f910c48c54fed92cd66b8fc8dfbdd9ec13ec87a431d3194dca7feb3",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "source_code.mn35k_refinement.py",
+      "root": "source",
+      "path": "scripts/mn35k_refinement.py",
+      "sha256": "8ba55253b9da3eeee922c25c48445ae89edbd53872b39370459f4ce96ef86940",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "source_code.run_mn35k_acpf.py",
+      "root": "source",
+      "path": "scripts/run_mn35k_acpf.py",
+      "sha256": "c035e7c59493ae7f4554cde1906e9327c26f59e8536a017fceba1c8021224733",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "source_code.run_mn35k_data_informed_pf.py",
+      "root": "source",
+      "path": "scripts/run_mn35k_data_informed_pf.py",
+      "sha256": "b620e286aebb6d915e23949cde5adcdca2fabba8c659a9abfb6b435bdf832fa3",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "source_code.run_mn35k_reactive_support.py",
+      "root": "source",
+      "path": "scripts/run_mn35k_reactive_support.py",
+      "sha256": "67fb550f439bf3ad478a6902615f9456bda22ea4ab2f8f723450d9b5ed60c89c",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "source_code.validate_mn35k_poc.py",
+      "root": "source",
+      "path": "scripts/validate_mn35k_poc.py",
+      "sha256": "8f05736ad6ebaea9535356ca66dbc2edaa908b0172d797c1cfa9fa9f5db611c0",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "source_code.validate_mn_grid.py",
+      "root": "source",
+      "path": "scripts/validate_mn_grid.py",
+      "sha256": "b065be1a4a2ed6f78fb11611c1260f214ecf1c37710d453dc46692de6930059f",
+      "scopes": [
+        "build",
+        "conversion"
+      ]
+    },
+    {
+      "role": "xiidm",
+      "root": "earth",
+      "path": "networks/MN_35k_poc/powsybl/mn35k_synthetic_powsybl.xiidm",
+      "sha256": "f639b6d48014ba8d1415b1aecf461bc16026d7172fbe12c7684b08a9b2b26650",
+      "scopes": [
+        "runtime"
+      ]
+    }
+  ],
+  "scenario_values": {
+    "snapshot": "2013-01-01 00:00:00",
+    "load_mw": 25.6,
+    "reactor_mvar": 20.0,
+    "generator_count": 45,
+    "reactor_count": 1
+  },
+  "bus_controls": {
+    "PV": 43,
+    "PQ": 122,
+    "Slack": 1
+  }
+}

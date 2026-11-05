@@ -6,6 +6,8 @@ from typing import Any
 import numpy as np
 import pypowsybl as pp
 
+from ai_ems.network_access import guarded_network, identified_parameters, identified_provider
+
 from ai_ems.network import LOADFLOW_PARAMETERS
 
 
@@ -24,6 +26,7 @@ def get_limit_unit(
     return units.get(limit_type)
 
 
+@guarded_network
 def run_line_contingency(
     network,
     outage_line_id: str,
@@ -44,7 +47,9 @@ def run_line_contingency(
 
     base_result = pp.loadflow.run_ac(
         network,
-        parameters=LOADFLOW_PARAMETERS,
+        parameters=identified_parameters(network, "loadflow") or LOADFLOW_PARAMETERS,
+        **({"provider": identified_provider(network, "loadflow")}
+           if identified_provider(network, "loadflow") else {}),
     )
     base_converged = bool(base_result) and all(
         component.status.name == "CONVERGED" for component in base_result
@@ -89,7 +94,9 @@ def run_line_contingency(
 
     result = analysis.run_ac(
         network,
-        parameters=LOADFLOW_PARAMETERS,
+        parameters=identified_parameters(network, "security") or LOADFLOW_PARAMETERS,
+        **({"provider": identified_provider(network, "security")}
+           if identified_provider(network, "security") else {}),
     )
 
     pre = result.pre_contingency_result
@@ -157,6 +164,7 @@ def select_primary_violation(
     return max(violations, key=severity)
 
 
+@guarded_network
 def select_most_severe_violated_line(
     network,
     security_result: dict[str, Any],
@@ -422,6 +430,7 @@ def _is_missing(value: Any) -> bool:
         return value is None
 
 
+@guarded_network
 def run_generator_contingency_security(
     network,
     outage_generator_id: str,

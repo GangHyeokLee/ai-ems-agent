@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from ai_ems.network_access import guarded
+from typing import Literal
 
 from ai_ems.api.adapters import (
     to_contingency_response,
@@ -42,15 +44,20 @@ def create_physics_router(
     network,
     case_path: str,
 ) -> APIRouter:
+    def require_kpg_query(grid_id: Literal["kr-kpg193"] = "kr-kpg193"):
+        return grid_id
+
     router = APIRouter(
         prefix="/api/v1",
         tags=["physics"],
+        dependencies=[Depends(require_kpg_query)],
     )
 
     @router.post(
         "/security-analysis",
         response_model=SecurityAnalysisResponse,
     )
+    @guarded(lambda: network)
     def security_analysis(
         request: SecurityAnalysisRequest,
     ):
@@ -78,6 +85,7 @@ def create_physics_router(
         "/sensitivity-analysis",
         response_model=SensitivityAnalysisResponse,
     )
+    @guarded(lambda: network)
     def sensitivity_analysis(
         request: SensitivityAnalysisRequest,
     ):

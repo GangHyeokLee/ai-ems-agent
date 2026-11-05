@@ -1,0 +1,197 @@
+{
+  "results": [
+    {
+      "name": "KPG: reference toggles hidden + no reference elements",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "KPG: wheel does not zoom",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN: reference data loaded via separate API",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN: toggles shown, labelled, default OFF",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN OFF: no reference elements drawn",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN OFF: base map counts unchanged (173 buses / 159 lines)",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN ON: every reference line drawn",
+      "pass": true,
+      "detail": 33
+    },
+    {
+      "name": "MN ON: every reference substation drawn",
+      "pass": true,
+      "detail": 17
+    },
+    {
+      "name": "MN ON: base map counts unchanged",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN ON: reference lines are not model lines",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN ON: reference lines are straight, thin, dashed",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN ON: base lines stay solid",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN ON: substations use a separate square symbol",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN ON: model buses drawn above reference layers",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Dedup: no reference substation within 1 km of a map bus",
+      "pass": true,
+      "detail": "1.082"
+    },
+    {
+      "name": "Dedup: no two reference substations within 0.2 km",
+      "pass": true,
+      "detail": "0.354"
+    },
+    {
+      "name": "Dedup: no reference line coincides with a model line",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "name": "Dedup: no two coincident reference lines",
+      "pass": true,
+      "detail": []
+    },
+    {
+      "name": "MN ON: reference lines keep voltage colour in light theme",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "MN OFF again: SVG identical to the default map",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Ref line click: tooltip only, outage input untouched",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Ref line click: Security panel untouched",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Ref substation click: tooltip only",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "API: reference line rejected as N-1 outage",
+      "pass": true,
+      "detail": 404
+    },
+    {
+      "name": "API: reference line rejected as monitored line",
+      "pass": true,
+      "detail": [
+        422,
+        "몽골 PF 해석 대상에 없는 감시 선로 ID입니다: REF-L-175562900"
+      ]
+    },
+    {
+      "name": "Security with layers ON: outage highlight on the model line only",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Sensitivity with layers ON: candidates and monitored-line options exclude reference IDs",
+      "pass": true,
+      "detail": 5
+    },
+    {
+      "name": "PF line-loading mode: reference lines keep their own colour",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Zoom: UB view zoomed with reset button",
+      "pass": true,
+      "detail": {
+        "x": 705.1329846014092,
+        "y": 266.1950326556808,
+        "w": 13.58244362535694,
+        "h": 7.357156963735009,
+        "zoom": 88.34934516199507
+      }
+    },
+    {
+      "name": "Zoom: bus markers keep their screen size",
+      "pass": true,
+      "detail": 5.305908203125
+    },
+    {
+      "name": "Zoom reset: original viewBox restored",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Dark: reference lines redrawn with the dark tint",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Dark: reference substations filled with the dark surface",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Dark: toggles still on after theme change",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Back to KPG: no reference elements, toggles hidden, no zoom",
+      "pass": true,
+      "detail": null
+    },
+    {
+      "name": "Back to MN: layers default OFF again",
+      "pass": true,
+      "detail": null
+    }
+  ],
+  "counts": {
+    "lines": 33,
+    "substations": 17
+  }
+}
