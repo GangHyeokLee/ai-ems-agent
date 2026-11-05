@@ -22,7 +22,7 @@
   로컬 커밋 `d3b32d5`는 있으나 Push가 인증 오류로 실패해 Draft PR은 생성되지 않았다. 원격 diff/mergeability 확인도 남아 있다.
   (C-2c 병합 시 확인: INFRA-02 커밋 `d3b32d5`·`226fd50`은 통합 브랜치 `feature/kems-multi-grid`에 있다. 위 원 기록은 그대로 둔다.)
 - PH4-02C-2c: 콘솔 AI run 연결과 원자적 화면 반영을 `feature/ph4-02c2c-console-run`([PR #27](https://github.com/GangHyeokLee/ai-ems-agent/pull/27), Draft)에 구현했다. 운영 노출은 없다.
-- 다음은 PH4-02-DEMO-01 Draft PR 검토다. C-3(run capability 광고·실제 LLM smoke·운영 공개 결정)는 별도 승인 전 착수하지 않는다.
+- 다음은 Push 인증 복구 후 `feature/kems-multi-grid` 대상 Draft PR 생성·검토다. C-3(run capability 광고·실제 LLM smoke·운영 공개 결정)는 별도 승인 전 착수하지 않는다.
 
 ## 최근 작업: PH4-02-DEMO-01 — AI EMS 콘솔 시연 점검
 
@@ -32,7 +32,7 @@
 - KPG Security/Sensitivity/연쇄·receipt/reference, 결과 반영, 평가 불가/실패, capability gating, 몽골/한국 OSM 제한을 테스트와 화면으로 확인했다. 운영 콘솔은 run capability를 광고하지 않으므로 AI Run은 fixture 전용이다.
 - 캡처는 `.local/demo-review/screenshots/`; JSON/PNG 원본은 `.local/browser-tests/{logs,screenshots}/console_run_c2c/7ae88b7ea050/`. 한국어 폰트 부재로 headless 이미지 일부 글리프가 깨진다. 기능 결함으로 단정하지 않는다.
 - 전체 동선·미확인 범위·UI/UX 개선 우선순위·실제 LLM 시연 전 조건: `docs/demos/PH4-02-DEMO-01.md`.
-- 실제 LLM 실행 및 C-3 착수 없음. 작업 종료 전 커밋/Push/Draft PR 여부를 확인한다. `data/grids` untracked symlink는 작업 범위 밖으로 남겨 두고 stage하지 않는다.
+- 실제 LLM 실행 및 C-3 착수 없음. 문서 커밋은 로컬 브랜치에 남아 있다. Push는 `unable to get password from user`로 실패했고 원격 head branch가 없어 Draft PR은 만들지 않았다. 인증 후 명시적 Push와 Draft PR 생성·diff 확인이 남아 있다. `data/grids` untracked symlink는 작업 범위 밖으로 남겨 두고 stage하지 않는다.
 
 ## 최근 작업: PH4-02C-2c — AI Run 콘솔 연결과 원자적 반영
 
