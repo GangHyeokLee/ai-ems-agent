@@ -443,10 +443,98 @@
       && !byId('kemsChatStatus').classList.contains('kems-err'));
   }
 
+  /* C-2a: the shared prepare -> commit path keeps every C-1 manual step (results, epochs, receipts, sessions
+   * and one bridge render per state change). It is written to pass on the pre-refactor build as well. */
+  async function commit_contract() {
+    await choose(); await readySecurity();
+    const side = byId('kemsSide');
+    let renders = 0;  // render() rebuilds #kemsSide once (replaceChildren): one childList record per render
+    new MutationObserver((records) => { renders += records.filter((record) => record.target === side).length; })
+      .observe(side, {childList: true});
+    const settle = () => pause(60);
+    const rev = () => refState().revision;
+    const shape = (entry) => entry && {kind: entry.receipt.kind, outage: entry.receipt.outage_line_id, monitored: entry.receipt.monitored_line_id,
+      selection: entry.receipt.monitored_selection, assessment: entry.receipt.assessment, producer: entry.receipt.producer};
+    const snapshot = () => ({analysis: state().view.analysis, mode: state().view.mode, overlay: window.kemsConsole.map.overlay(),
+      receipts: {security: shape(refState().receipts.security), sensitivity: shape(refState().receipts.sensitivity)},
+      notices: refState().notices, side: text('kemsSide').replace(/\d{1,2}:\d{2}(:\d{2})?/g, '<time>')});
+    const settled = (kind, label) => until(() => !['idle', 'loading'].includes(state().view.analysis[kind].status), label);
+
+    selectLine('LINE-16-28'); await settle();
+    let r0 = rev(); renders = 0;
+    byId('kemsCard').querySelector('.kems-an-run').click();
+    await settled('security', 'manual Security'); await settle();
+    const sec = refState().receipts.security;
+    check('manual Security: start and commit are two epochs and two renders', rev() === r0 + 2 && renders === 2, {revision: rev() - r0, renders});
+    check('manual Security: ready VM, analysis mode, owned receipt and no stale notice', state().view.analysis.security.status === 'ready'
+      && state().view.mode === 'analysis' && sec?.receipt.kind === 'security' && sec.receipt.outage_line_id === 'LINE-16-28'
+      && !refState().receipts.sensitivity && Object.keys(refState().notices).length === 0, snapshot());
+
+    r0 = rev(); renders = 0;
+    document.querySelector('#kemsSide [data-action="sensitivity"]').click();
+    await settled('sensitivity', 'manual Sensitivity'); await settle();
+    const sens = refState().receipts.sensitivity;
+    check('manual Sensitivity: two epochs and two renders', rev() === r0 + 2 && renders === 2, {revision: rev() - r0, renders});
+    check('manual Sensitivity keeps the N-1 receipt and shares its session and model', JSON.stringify(refState().receipts.security) === JSON.stringify(sec)
+      && sens?.sessionId === sec.sessionId && sens.receipt.model_revision === sec.receipt.model_revision
+      && state().view.analysis.security.status === 'ready' && state().view.analysis.sensitivity.status === 'ready', snapshot());
+
+    const kept = JSON.stringify(refState().receipts);
+    r0 = rev(); renders = 0;
+    choice('sensitivity', 'reference'); choice('security', 'basic'); choice('security_then_sensitivity', 'reference');
+    await settle();
+    check('mode/operation choices are epochs only: receipts, VMs and the side panel stay', rev() === r0 + 6 && renders === 0
+      && JSON.stringify(refState().receipts) === kept, {revision: rev() - r0, renders});
+    await send();
+    const body = (await api('state')).hits.at(-1).body;
+    check('the same session still explains the chain after those epochs', lastAnswer().includes('기존 결과 설명 · 새 계산 없음')
+      && body.session_id === sec.sessionId && body.analysis_context.revision === rev()
+      && JSON.stringify(Object.values(body.analysis_context.references)) === JSON.stringify([sec.receipt.result_id, sens.receipt.result_id]));
+
+    choice('security');
+    const reference = hold((url) => url.endsWith('/chat'));
+    try {
+      submit(); await reference.arrived;
+      r0 = rev(); renders = 0;
+      const select = document.querySelector('.kems-an-mon');
+      select.value = 'LINE-16-22'; select.dispatchEvent(new Event('change'));
+      await settle();
+      const messages = text('kemsChatMessages');
+      reference.release(); await pause(60);
+      check('a pending reference is still cancelled by a monitored change (C-1 session policy)', rev() === r0 + 2 && renders === 1
+        && !refState().receipts.security && !refState().receipts.sensitivity && (refState().notices.security || '').includes('세션')
+        && state().view.analysis.security.status === 'ready' && state().view.analysis.sensitivity.status === 'idle'
+        && messages === text('kemsChatMessages') && byId('kemsChat').dataset.busy === 'false', {revision: rev() - r0, renders});
+    } finally { reference.restore(); }
+
+    await security(); await sensitivity();
+    const inflight = hold((url) => url.includes('sensitivity-analysis'));
+    try {
+      r0 = rev(); renders = 0;
+      document.querySelector('#kemsSide [data-action="sensitivity"]').click();
+      await inflight.arrived;
+      document.querySelector('.kems-an-clear').click();
+      inflight.release(); await pause(60);
+      check('clear supersedes an in-flight manual Sensitivity: no late commit, epoch or receipt', rev() === r0 + 2 && renders === 2
+        && state().view.analysis.security.status === 'idle' && state().view.analysis.sensitivity.status === 'idle'
+        && state().view.analysis.line === null && refState().selectedOutageLineId === null
+        && !refState().receipts.security && !refState().receipts.sensitivity, {revision: rev() - r0, renders});
+    } finally { inflight.restore(); }
+
+    selectLine('LINE-16-28'); await settle();
+    await control({rule: {patches: [[['analysis_status'], '']]}});
+    r0 = rev(); renders = 0;
+    byId('kemsCard').querySelector('.kems-an-run').click();
+    await settled('security', 'invalid N-1'); await settle();
+    check('an invalid canonical payload never reaches commit: one epoch, no receipt, no analysis mode',
+      state().view.analysis.security.status === 'invalid' && rev() === r0 + 1 && renders === 2
+      && !refState().receipts.security && state().view.mode !== 'analysis', {revision: rev() - r0, renders, snapshot: snapshot()});
+  }
+
   try {
     await window.kemsConsole.ready;
     await ({receipts, gating, invalid_receipts, invalid_envelopes, races, lifetime, errors, pending_manual,
-      selection_lock, expiry_in_flight})[mode]();
+      selection_lock, expiry_in_flight, commit_contract})[mode]();
   } catch (error) {
     check('probe exception', false, String(error.stack || error));
   } finally {

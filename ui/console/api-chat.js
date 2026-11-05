@@ -1,5 +1,7 @@
 /* Grid-scoped basic chat and opt-in C-1 reference transport.
  * The bridge owns analysis context and validates reference envelopes; this module never applies map updates.
+ * C-2a: a v1 request keeps its frozen bridge snapshot in request.analysis (context.mode says which kind;
+ * only 'reference' exists so far). Pending-request locks and cancellation use that one field.
  * Sessions live in this page only. Aborting HTTP does not cancel the server Agent:
  * every abandoned/failed request retires its session before another turn is sent.
  */
@@ -47,7 +49,7 @@ const KemsApiChat = (() => {
   class ChatError extends Error {}
   async function post(gridId, message, request) {
     const body = {session_id: request.sessionId, message, grid_id: gridId};
-    if (request.reference) Object.assign(body, {request_id: request.id, analysis_context: request.reference.context});
+    if (request.analysis) Object.assign(body, {request_id: request.id, analysis_context: request.analysis.context});
     const response = await fetch(ENDPOINTS[gridId], {
       method: 'POST', signal: request.controller.signal, cache: 'no-store',
       headers: {'Content-Type': 'application/json', Accept: 'application/json'},
@@ -116,9 +118,9 @@ const KemsApiChat = (() => {
       operation.value = reference?.operation || 'security';
       operation.hidden = modes.value !== 'reference';
       for (const option of operation.options) option.disabled = !reference?.options?.[option.value]?.ok;
-      // A choice moves the analysis context and would cancel a pending explanation (retiring the
+      // A choice moves the analysis context and would cancel a pending v1 request (retiring the
       // session and its receipts), so both selectors wait for its success, failure or timeout.
-      modes.disabled = operation.disabled = Boolean(state?.pending?.reference);
+      modes.disabled = operation.disabled = Boolean(state?.pending?.analysis);
       referenceStatus.textContent = reference?.reason || '';
       if (Number.isFinite(reference?.expiresAt) && reference.expiresAt > Date.now()) {
         expiryTimer = setTimeout(render, Math.min(reference.expiresAt - Date.now() + 1, 600001));
@@ -168,7 +170,7 @@ const KemsApiChat = (() => {
       if (hooks.referenceState?.().mode === 'reference') {
         try {
           if (message.length > 8000) throw new Error('기존 결과 설명은 8000자 이내로 입력하세요.');
-          request.reference = hooks.captureReference();
+          request.analysis = hooks.captureReference();
           request.id = uuid();
         } catch (error) {
           state.error = error.message;
@@ -185,7 +187,7 @@ const KemsApiChat = (() => {
         }, TIMEOUT_MS);
       });
       const current = () => context?.gridId === gridId && context.enabled && state.pending === request && state.id === request.sessionId
-        && (!request.reference || hooks.referenceCurrent(request.reference));
+        && (!request.analysis || hooks.referenceCurrent(request.analysis));
       state.pending = request;
       state.error = '';
       state.draft = '';
@@ -194,7 +196,7 @@ const KemsApiChat = (() => {
       try {
         const payload = await Promise.race([post(gridId, message, request), deadline]);
         if (!current()) return;
-        if (request.reference) {
+        if (request.analysis) {  // a reference today; C-2 adds the run envelope check beside it
           try { hooks.validateReference(payload, request); }
           catch (error) {
             // Both are rejections; only a receipt that expired in flight (checked after the full contract) is named as such.
@@ -202,7 +204,7 @@ const KemsApiChat = (() => {
               : '기존 결과 설명 응답이 요청 문맥·Receipt 계약과 일치하지 않습니다.');
           }
         }
-        const answer = request.reference ? `기존 결과 설명 · 새 계산 없음\n${payload.answer}` : payload.answer;
+        const answer = request.analysis ? `기존 결과 설명 · 새 계산 없음\n${payload.answer}` : payload.answer;
         state.messages.push({role: 'assistant', text: answer});
       } catch (error) {
         if (!current()) return;
@@ -257,7 +259,7 @@ const KemsApiChat = (() => {
       getSessionId: (gridId) => gridId === context?.gridId ? currentSession()?.id : null,
       invalidateAnalysisContext: () => {
         const state = currentSession();
-        if (state?.pending?.reference) retire(state, '분석 문맥 변경으로 기존 결과 설명 대기를 취소했습니다.');
+        if (state?.pending?.analysis) retire(state, '분석 문맥 변경으로 기존 결과 설명 대기를 취소했습니다.');
       },
     });
   }

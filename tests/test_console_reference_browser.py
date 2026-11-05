@@ -24,7 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 RUN_ID = uuid.uuid4().hex[:12]
 SUITE = f"console_reference_c1/{RUN_ID}"
 CASES = ("receipts", "gating", "invalid_receipts", "invalid_envelopes", "races", "lifetime", "errors", "pending_manual",
-         "selection_lock", "expiry_in_flight")  # the last two reproduce review findings F1 and F3
+         "selection_lock", "expiry_in_flight",  # reproduce review findings F1 and F3
+         "commit_contract")  # C-2a: shared prepare/commit keeps every C-1 manual step
 pytestmark = pytest.mark.skipif(os.environ.get("AI_EMS_BROWSER_TESTS") != "1", reason="Chrome regression is opt-in")
 
 

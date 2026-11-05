@@ -20,6 +20,8 @@
  * PH4-01: api-chat.js owns a persistent, grid-scoped chat panel and calls the existing Agent APIs.
  * C-1: opt-in manual receipts and reference snapshots live here. Basic chat keeps its old contract;
  * reference validates a server explanation and never applies map updates. No console run mode yet.
+ * C-2a: revision epochs (bumpRevision) are separate from request cancellation (advanceAnalysis), and
+ * verified results reach the screen only through prepareAnalysisResults -> commitAnalysisResults.
  * Everything lives in this IIFE so no app.js global lexical name can collide.
  */
 (() => {
@@ -621,12 +623,20 @@
       && view.entry.console_analysis_context_versions.includes(1));
   }
 
-  function advanceAnalysis(view) {
-    apiChat.invalidateAnalysisContext();  // retires a session only if a reference was actually pending
+  // C-2a: the epoch step alone. It never cancels a request and never touches receipts or sessions, so a
+  // request that commits its own verified result (a future C-2 run) cannot retire itself through it.
+  function bumpRevision(view) {
     if (view.analysisRevision === Number.MAX_SAFE_INTEGER) {
       view.viewId = KemsApiChat.uuid();
       view.analysisRevision = 0;
     } else view.analysisRevision += 1;
+  }
+
+  // A user change of the analysis context: cancel a pending v1 chat request (retiring its session only
+  // if one was actually pending, the C-1 policy), then start a new epoch.
+  function advanceAnalysis(view) {
+    apiChat.invalidateAnalysisContext();
+    bumpRevision(view);
   }
 
   function sessionRetired(gridId) {
@@ -636,10 +646,7 @@
     view.reference.notices = {security: '대화 세션이 변경되었습니다. 다시 분석해야 참조 가능합니다.',
       sensitivity: '대화 세션이 변경되었습니다. 다시 분석해야 참조 가능합니다.'};
     // No recursion through advanceAnalysis, and no change to visible manual VMs.
-    if (view.analysisRevision === Number.MAX_SAFE_INTEGER) {
-      view.viewId = KemsApiChat.uuid();
-      view.analysisRevision = 0;
-    } else view.analysisRevision += 1;
+    bumpRevision(view);
   }
 
   function manualOptIn(view, kind, line, monitored = null) {
@@ -651,25 +658,34 @@
       headers: {'X-EMS-Analysis-Context-Version': '1', 'X-EMS-Session-ID': sessionId, 'X-EMS-Request-ID': requestId}};
   }
 
+  // The single writer of one kind's receipt slot: an accepted {receipt, sessionId}, or none. A missing
+  // receipt keeps the existing notice unless a reason is given; an accepted one clears it.
+  function storeReceipt(view, kind, entry, notice = null) {
+    view.reference.receipts[kind] = entry;
+    if (entry) delete view.reference.notices[kind];
+    else if (notice) view.reference.notices[kind] = notice;
+  }
+
   function acceptManualReceipt(view, kind, payload, optIn) {
-    view.reference.receipts[kind] = null;
+    storeReceipt(view, kind, null);
     if (!optIn) return;
     if (apiChat.getSessionId(view.gridId) !== optIn.sessionId) {
-      view.reference.notices[kind] = '대화 세션이 변경되었습니다. 다시 분석해야 참조 가능합니다.';
+      storeReceipt(view, kind, null, '대화 세션이 변경되었습니다. 다시 분석해야 참조 가능합니다.');
       return;
     }
     if (payload.analysis_receipt_error !== undefined || !payload.analysis_receipt) {
-      view.reference.notices[kind] = KemsApiChat.errorText(payload.analysis_receipt_error)
-        || '참조할 분석 결과 없음 · AI 참조용 결과가 등록되지 않았습니다.';
+      storeReceipt(view, kind, null, KemsApiChat.errorText(payload.analysis_receipt_error)
+        || '참조할 분석 결과 없음 · AI 참조용 결과가 등록되지 않았습니다.');
       return;
     }
+    let receipt;
     try {
-      const receipt = KemsApiAnalysis.manualReceipt(payload, kind, optIn);
-      view.reference.receipts[kind] = Object.freeze({receipt, sessionId: optIn.sessionId});
-      delete view.reference.notices[kind];
+      receipt = KemsApiAnalysis.manualReceipt(payload, kind, optIn);
     } catch (_) {
-      view.reference.notices[kind] = 'Receipt가 요청·분석 결과와 일치하지 않습니다. 다시 분석해야 참조 가능합니다.';
+      storeReceipt(view, kind, null, 'Receipt가 요청·분석 결과와 일치하지 않습니다. 다시 분석해야 참조 가능합니다.');
+      return;
     }
+    storeReceipt(view, kind, Object.freeze({receipt, sessionId: optIn.sessionId}));
   }
 
   const referenceKinds = (operation) => ({security: ['security'], sensitivity: ['sensitivity'],
@@ -764,6 +780,51 @@
     }
   }
 
+  // Every N-1 and Sensitivity response of this view still under way fails its sequence check after this.
+  function supersedeAnalysisRequests(a) {
+    abortAnalysis(a);
+    a.seq += 1;
+    a.sensSeq += 1;
+  }
+
+  /* C-2a: one path from a verified response to the screen, used by the manual runs now and meant for
+   * verified C-2 run results later: prepare (pure) -> the caller's own current() check -> commit (sync). */
+
+  /** Validated view models of canonical payloads for the map on screen; throws KemsApiAnalysis.Invalid
+   *  and writes nothing. items: [{kind: 'security'|'sensitivity', payload, line, monitored}]. */
+  function prepareAnalysisResults(view, items) {
+    const ctx = analysisCtx(view);
+    const prepared = {};
+    for (const item of items) {
+      if (item.kind === 'security') {
+        prepared.security = Object.freeze({vm: KemsApiAnalysis.security(view.gridId, item.payload, {line: item.line}, ctx)});
+      } else if (item.kind === 'sensitivity') {
+        const monitored = item.monitored ?? null;
+        prepared.sensitivity = Object.freeze({requested: monitored,
+          vm: KemsApiAnalysis.sensitivity(view.gridId, item.payload, {line: item.line, monitored}, ctx)});
+      } else {
+        throw new Error(`Unknown analysis kind: ${item.kind}`);
+      }
+    }
+    return Object.freeze(prepared);
+  }
+
+  /** Applies prepared results in one synchronous step: nothing awaits and nothing left can fail validation.
+   *  epoch: advanceAnalysis for the result of a user-started manual request (the C-1 behavior), or
+   *  bumpRevision for a result committed by the pending chat request itself, which must not retire its
+   *  own session. storeReceipts runs after the epoch, so it sees the session the epoch left in place.
+   *  The caller renders once afterwards (analysisChanged). */
+  function commitAnalysisResults(view, prepared, {epoch, storeReceipts}) {
+    const a = view.analysis;
+    if (prepared.security) a.security = {status: 'ready', vm: prepared.security.vm, at: new Date()};
+    if (prepared.sensitivity) {
+      a.sensitivity = {status: 'ready', vm: prepared.sensitivity.vm, requested: prepared.sensitivity.requested, at: new Date()};
+    }
+    epoch(view);
+    storeReceipts();
+    view.mode = 'analysis';
+  }
+
   // Re-renders the open card (its analysis block follows the state) without moving the map.
   function refreshCard() {
     const view = state.view;
@@ -805,14 +866,16 @@
       return;
     }
     if (!current()) return;
+    let prepared = null;
     try {
-      a.security = {status: 'ready', vm: KemsApiAnalysis.security(view.gridId, payload, {line}, analysisCtx(view)), at: new Date()};
-      advanceAnalysis(view);
-      acceptManualReceipt(view, 'security', payload, optIn);
-      view.mode = 'analysis';
+      prepared = prepareAnalysisResults(view, [{kind: 'security', payload, line}]);
     } catch (error) {
       if (!(error instanceof KemsApiAnalysis.Invalid)) throw error;
       a.security = {status: 'invalid', error: error.message};
+    }
+    if (prepared) {
+      commitAnalysisResults(view, prepared, {epoch: advanceAnalysis,
+        storeReceipts: () => acceptManualReceipt(view, 'security', payload, optIn)});
     }
     analysisChanged();
   }
@@ -847,14 +910,17 @@
       return;
     }
     if (!current()) return;
+    let prepared = null;
     try {
-      a.sensitivity = {status: 'ready', vm: KemsApiAnalysis.sensitivity(view.gridId, payload, {line, monitored}, analysisCtx(view)), requested: monitored, at: new Date()};
-      advanceAnalysis(view);
-      acceptManualReceipt(view, 'sensitivity', payload, optIn);
-      view.mode = 'analysis';  // the monitored line and candidates are drawn with the N-1 result
+      prepared = prepareAnalysisResults(view, [{kind: 'sensitivity', payload, line, monitored}]);
     } catch (error) {
       if (!(error instanceof KemsApiAnalysis.Invalid)) throw error;
       a.sensitivity = {status: 'invalid', error: error.message, requested: monitored};
+    }
+    if (prepared) {
+      // The analysis mode draws the monitored line and candidates with the N-1 result.
+      commitAnalysisResults(view, prepared, {epoch: advanceAnalysis,
+        storeReceipts: () => acceptManualReceipt(view, 'sensitivity', payload, optIn)});
     }
     analysisChanged();
   }
@@ -867,9 +933,7 @@
     view.selectedOutageLineId = null;
     view.reference.receipts = {security: null, sensitivity: null};
     view.reference.notices = {};
-    abortAnalysis(a);
-    a.seq += 1;
-    a.sensSeq += 1;
+    supersedeAnalysisRequests(a);
     Object.assign(a, {line: null, security: {status: 'idle'}, sensitivity: {status: 'idle'}, monitored: ''});
     if (view.mode === 'analysis') view.mode = defaultMode(view);
     analysisChanged();
@@ -937,7 +1001,7 @@
   const chatHost = h('section', {class: 'kems-only kems-chat', id: 'kemsChat'});
   side.after(chatHost);
   const apiChat = KemsApiChat.create(chatHost, {referenceState, referenceChoice, captureReference, referenceCurrent, sessionRetired,
-    validateReference: (payload, request) => KemsApiAnalysis.referenceResponse(payload, request.reference, request.id, request.sessionId)});
+    validateReference: (payload, request) => KemsApiAnalysis.referenceResponse(payload, request.analysis, request.id, request.sessionId)});
 
   // The Artifact zoom buttons drive the API map while an API grid is shown (their own handlers move the demo map).
   mapPanel.querySelector('.ph .zoom').addEventListener('click', (event) => {
