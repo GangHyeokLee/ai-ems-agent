@@ -1,20 +1,40 @@
 # AI-EMS 작업 인수인계 상태
 
-갱신일: 2026-11-04 (Asia/Seoul). 최근 작업과 다음 작업만 유지한다.
+갱신일: 2026-11-05 (Asia/Seoul). 최근 작업과 다음 작업만 유지한다.
 
 ## 현재 단계
 
 - Phase 3 완료. Phase 4의 PH4-01 AI 채팅 통합 구현·로컬 검증 완료.
 - DOC-01: 개발 규칙과 출처·해시를 갖춘 개발팀 키트/Artifact 참고 자료를 정리하여 통합 브랜치에 반영했다.
 - PH4-02A·B0·B1·B2(+MAINT-02)·B3-1은 PR #17·#18·#19·#20·#21로 통합됐다(B3-1 squash `00f6edc`).
-- PH4-02B3-2: KPG `mode=run`을 요청별 B2 Agent·ledger·`verify_evidence`에 연결하고, 검증된 결과만 `producer=agent_tool` receipt로
-  한 network guard 안에서 원자 등록한다. legacy 채팅의 세션 gate 공유, provider timeout·실행 예산·단일 worker 단언까지 구현·로컬 검증 완료
-  (`feature/ph4-02b32-agent-run-api`, [Draft PR #22](https://github.com/GangHyeokLee/ai-ems-agent/pull/22) 검토 대상). 실제 LLM smoke는 endpoint HTTP 502로 **미실행**이다.
-- v1 capability(`console_analysis_context_versions`)는 여전히 어떤 계통에도 광고하지 않는다. 몽골·한국 OSM v1은 409로 거부하고 콘솔 UI는 바꾸지 않았다.
+- PH4-02B3-2는 [PR #22](https://github.com/GangHyeokLee/ai-ems-agent/pull/22)로 통합됐다(squash `15f634c`). 서버 reference/run과 검증 receipt 경로가 있다.
+- PH4-02C-1: KPG 수동 receipt와 기존 결과 설명(reference) UI를 구현했다. 실제 FastAPI/registry/계산을 사용하는 신규 Chrome 검증을 마쳤다.
+  **전체 회귀 통과 상태는 아니다:** 기존 Phase 3 Chrome 5개 실패를 기준 `15f634c`에서도 재현했다. KPG map/PF 병렬 읽기 경합 해결이 남아 있다.
+- v1 capability는 어떤 계통에도 광고하지 않는다. C-1 UI는 광고가 있는 테스트 fixture에서만 활성화된다. MN v1·한국 OSM AI는 차단을 유지한다.
 - 실시간 브랜치·HEAD·커밋 여부·staged/unstaged/untracked 상태는 `dev_handoff.py` 출력으로 확인한다.
-- 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C(콘솔) 단계이며 자동 착수하지 않는다.
+- 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C-2(run 콘솔 연결)이며 자동 착수하지 않는다.
 
-## 최근 완료 작업: PH4-02B3-2
+## 최근 작업: PH4-02C-1
+
+- 기능 수정은 `api-chat.js`, `api-bridge.js`, `api-analysis.js`, `api-bridge.css` 4개뿐이다. 서버·기존 테스트·원본 UI·계통 데이터·검증 해시는 그대로다.
+- bridge가 view UUID/revision/선택 사고·감시/receipt owner를 소유한다. 정상 수동 Security→Sensitivity는 같은 세션을 유지하고, pending reference 취소·대화 초기화·실패 시 세션과 이전 receipt를 폐기한다.
+- 기본 채팅은 기존 본문을 유지한다. reference는 receipt ID만 보내며 전체 echo/세션/요청/현재 view·revision/receipt/빈 update를 확인하고 텍스트만 표시한다. 지도·패널·revision을 바꾸지 않는다.
+- 등록 실패·최초 AC·만료·모델 변경은 안내하며 자동 재계산하지 않는다. run 모드·결과 지도 적용·capability 공개는 구현하지 않았다.
+- 상세 결정·함수·테스트·남은 문제: `docs/specs/PH4-02C1_CONSOLE_REFERENCE.md`.
+
+## PH4-02C-1 실제 검증
+
+- 최종 신규 Chrome **8 passed (35.14s), 187개 브라우저 검사**, 정적/원본/라우트 **19 passed, 1 warning (0.89s)**.
+- 전체 비브라우저(B1/B2/B3 포함): **965 passed, 111 skipped, 1 warning (93.64s)**. 기존 opt-in 등 103 + 신규 Chrome 8 skip이며 실패를 skip으로 바꾼 것이 아니다.
+- 기존 PH4-01 + Phase 3 Chrome: **5 failed, 21 passed, 1 deselected (81.16s)**. PH4-01 6개 통과. 중복 스크린샷 일괄 생성만 제외했다.
+- 동일 실패 5개를 기준 `15f634c` 격리 사본에서도 **5 failed, 16 deselected (18.27s)**로 재현했다. KPG map/PF-preview의 공유 guard 경합(409 ANALYSIS_BUSY)과 후속 KPI/선로 선택 실패다.
+- 신규 C-1 fixture만 초기 KPG 지도/PF 읽기 순서를 제어해 위 기존 경합을 준비 단계에서 격리한다. 실제 응답·계산·registry·잠금은 그대로다. 별도 기존 회귀의 실패를 숨기거나 통과로 취급하지 않는다.
+- 초기 fixture import 오류 8 setup errors, 정적 sandbox 180초 timeout, 보강 중 Chrome 1 failed/7 passed(기준 읽기 경합)는 로그를 보존했다.
+- 증거: `.local/ph4-02c1/20261104-222056/`. 최종 Chrome JSON/PNG: `.local/browser-tests/{logs,screenshots}/console_reference_c1/23e909585c6b/`.
+- 실제 LLM 호출 없음. reference 전후 graph/도메인/PyPowSyBl 호출 수 불변을 확인했다. 각 신규 테스트 210초·Chrome 150초·서버 기동 60초·HTTP 5초, 기존 테스트 240초·명령 180~1200초+kill 제한.
+- 스크린샷은 생성됐으나 Linux Chrome의 한국어 폰트 부재로 일부 글리프가 네모로 표시된다. 한국어 내용은 DOM 문자열 검사로 확인했다.
+
+## 보존된 구현: PH4-02B3-2
 
 - `web_app.py`: run = 단일 worker 단언·예산 확인 → 중복 확인 → 세션 gate → 요청별 `AnalysisJob`/`ExecutionLedger`/graph(기한·recursion 12)
   → `verify_evidence` → network guard 안에서 현재 revision 재검증·REST canonical 변환·`register_all` → 결정적 답변·`ui_updates`·artifact 없는 이력.
@@ -27,7 +47,7 @@
 - 해시 체인: `kems-console-ph402b32-code-hashes.json`(B3-1 기록 `104ecf38…`을 잇고 `web_app.py` `13c0e2cb…`→`f7bcaa61…`, edits 9개)과
   `tests/test_mn_pipeline.py` 확장(B3-1 테스트는 HEAD 대신 복원한 B3-1 바이트 사용, 단언 유지). 상세: `docs/specs/PH4-02B3-2_AGENT_RUN_API.md`.
 
-## PH4-02B3-2 실제 검증
+## 보존된 검증: PH4-02B3-2 (이번 실행 결과 아님)
 
 - 신규 run API: 최초 39개 통과 → 보강 후 **46 passed (12.00s)**. 신규 + 기존 관련 20개 파일: **443 passed (40.87s)**. 해시 체인 관련: **101 passed** (기존 75 + 신규 26).
 - 전체 비브라우저: 변경 전 `00f6edc` **893 passed, 103 skipped**, 최종 **965 passed, 103 skipped, 1 warning (80.23s)**, 실패 0.
@@ -142,14 +162,11 @@
 
 ## 다음 작업과 다음 담당자에게
 
-- PH4-02C(콘솔)는 별도 요청으로 진행한다. run 응답의 `completed/not_evaluated/not_run/failed`·사유 코드 표시, 성공 run의 `ui_updates`만 반영,
-  v1 오류(`AGENT_*`, `ANALYSIS_RUN_NOT_READY`, `REQUEST_REPLAY_STALE`, `SESSION_BUSY`)·legacy 문자열 오류·`analysis_receipt_error` 처리,
-  Security 감시 ID null·Sensitivity top_n=5, 취소/timeout은 결과 미확정으로 다루고 같은 `request_id`를 자동 재시도하지 않는다.
-- C 이전/병행 확인: 실제 LLM smoke(고정 Tool·인자 준수, 지연)와 예산 재조정, 배포 환경의 지원 launcher·단일 worker. MN v1은 model identity가 별도로 필요하다.
-- 위 연결과 Chrome 회귀를 마친 뒤에만 `console_analysis_context_versions: [1]`을 광고한다.
-- B3-2는 base=`feature/kems-multi-grid`인 `feature/ph4-02b32-agent-run-api`·Draft PR #22로 검토한다. 상위 #14는 완료 처리하지 않으며 C는 자동 착수하지 않는다.
-- 통합된 작업 브랜치(DOC-01, PH4-02A·B0·B1·B2·B3-1)는 이력 보존상 삭제 후보이며 실제 삭제와 PR/main 병합은 별도 승인 후 판단한다.
-- 다음 담당자는 `AGENTS.md`와 이 문서를 읽고 실시간 Git 상태와 기존 변경을 확인·보존한 뒤 지정된 범위만 수행한다.
-- 시작: `python3 scripts/dev_handoff.py`
-- 종료: 이 문서를 갱신한 후 `python3 scripts/dev_handoff.py --write`
-- 실제 테스트 로그가 있을 때만 `--test-log PATH`를 추가한다. 로그 요약은 현재 HEAD의 성공을 자동 증명하지 않는다.
+- C-1 구현·검증은 `feature/ph4-02c1-console-reference`의 Draft PR 검토 대상이다. Issue #14를 닫거나 C-2/C-3를 자동 시작하지 않는다.
+- 기존 KPG map/PF 병렬 조회가 non-blocking network guard에서 경합하는 문제를 별도 범위로 해결하고, 기존 Phase 3 Chrome 5개 실패를 재확인한다. 현재 전체 회귀를 green으로 보고하지 않는다.
+- C-2는 검증된 run receipt/update의 prepare→atomic commit, 실패/미실행/미평가 표시, 수동 분석과의 중재를 구현한다. C-1 reference는 새 계산·지도 적용 없이 유지한다.
+- 실제 LLM smoke(고정 Tool/인자 준수·지연), provider 예산, 지원 launcher·단일 worker 검증과 Chrome 회귀를 마친 뒤에만 capability 공개를 별도로 결정한다. MN v1에는 model identity가 별도로 필요하다.
+- 서버 변경이 없다면 기존 `web_app.py` 해시 체인을 불필요하게 늘리지 않는다. 이후 서버 변경 시 기존 기록을 잇는 새 기록이 필요하다.
+- Git 현재 상태는 `python3 scripts/dev_handoff.py`로 확인한다. 작업 시작 때 기존 변경을 보존한다.
+- 종료 시 STATE를 갱신하고 `python3 scripts/dev_handoff.py --write`를 실행한다. 실제 테스트 로그가 있을 때만 `--test-log PATH`를 사용한다.
+- 로그 요약은 전체 검증 성공을 자동 증명하지 않는다. C-1 통과 로그와 기존 Phase 3 실패/기준 재현 로그를 함께 전달한다.

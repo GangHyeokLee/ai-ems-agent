@@ -18,7 +18,8 @@
  * (grid switch, re-run on another outage line) and the per-view analysis state; api-analysis.js
  * owns the per-grid API contracts, response validation, the result display and the map overlay.
  * PH4-01: api-chat.js owns a persistent, grid-scoped chat panel and calls the existing Agent APIs.
- * Chat does not receive analysis context or apply map updates (reserved for PH4-02).
+ * C-1: opt-in manual receipts and reference snapshots live here. Basic chat keeps its old contract;
+ * reference validates a server explanation and never applies map updates. No console run mode yet.
  * Everything lives in this IIFE so no app.js global lexical name can collide.
  */
 (() => {
@@ -85,19 +86,20 @@
   class ApiError extends Error {}
   class Aborted extends Error {}
 
-  async function fetchJson(url, timeoutMs, outer) {
+  async function fetchJson(url, timeoutMs, outer, headers = {}) {
     const controller = new AbortController();
     const abort = () => controller.abort();
     if (outer) outer.addEventListener('abort', abort);
     let timedOut = false;
     const timer = setTimeout(() => { timedOut = true; controller.abort(); }, timeoutMs);
     try {
-      const response = await fetch(url, {signal: controller.signal, cache: 'no-store', headers: {Accept: 'application/json'}});
+      const response = await fetch(url, {signal: controller.signal, cache: 'no-store', headers: {Accept: 'application/json', ...headers}});
       const text = await response.text();
       let payload = null;
       try { payload = JSON.parse(text); } catch (error) { payload = null; }
       if (!response.ok) {
-        const detail = payload && typeof payload.detail === 'string' ? ` · ${payload.detail}` : '';
+        const known = KemsApiChat.errorText(payload?.detail);
+        const detail = known ? ` · ${known}` : payload && typeof payload.detail === 'string' ? ` · ${payload.detail}` : '';
         throw new ApiError(`HTTP ${response.status}${detail}`);
       }
       if (payload === null) throw new ApiError('응답 형식 오류 (JSON 아님)');
@@ -238,6 +240,8 @@
     loadController = new AbortController();
     const view = {
       gridId,
+      viewId: KemsApiChat.uuid(), analysisRevision: 0, selectedOutageLineId: null,
+      reference: {mode: 'basic', operation: 'security', receipts: {security: null, sensitivity: null}, notices: {}},
       status: 'loading',            // catalog check: loading | ready | error | missing
       entry: cachedEntry(gridId),
       error: null,
@@ -604,6 +608,133 @@
     });
   }
 
+  // C-1: the bridge alone owns selection, epochs and receipt provenance.
+  function referenceSupported(view) {
+    return Boolean(view && view.status === 'ready' && view.map.status === 'ready' && view.gridId === 'kr-kpg193'
+      && KemsApiChat.supported(view.gridId, view.entry) && Array.isArray(view.entry.console_analysis_context_versions)
+      && view.entry.console_analysis_context_versions.includes(1));
+  }
+
+  function advanceAnalysis(view) {
+    apiChat.invalidateAnalysisContext();  // retires a session only if a reference was actually pending
+    if (view.analysisRevision === Number.MAX_SAFE_INTEGER) {
+      view.viewId = KemsApiChat.uuid();
+      view.analysisRevision = 0;
+    } else view.analysisRevision += 1;
+  }
+
+  function sessionRetired(gridId) {
+    const view = state.view;
+    if (!view || view.gridId !== gridId) return;
+    view.reference.receipts = {security: null, sensitivity: null};
+    view.reference.notices = {security: '대화 세션이 변경되었습니다. 다시 분석해야 참조 가능합니다.',
+      sensitivity: '대화 세션이 변경되었습니다. 다시 분석해야 참조 가능합니다.'};
+    // No recursion through advanceAnalysis, and no change to visible manual VMs.
+    if (view.analysisRevision === Number.MAX_SAFE_INTEGER) {
+      view.viewId = KemsApiChat.uuid();
+      view.analysisRevision = 0;
+    } else view.analysisRevision += 1;
+  }
+
+  function manualOptIn(view, kind, line, monitored = null) {
+    if (!referenceSupported(view) || !analysisSupport(view)[kind].ok) return null;
+    const sessionId = apiChat.getSessionId(view.gridId);
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(sessionId || '')) return null;
+    const requestId = KemsApiChat.uuid();
+    return {gridId: view.gridId, sessionId, requestId, line, monitored,
+      headers: {'X-EMS-Analysis-Context-Version': '1', 'X-EMS-Session-ID': sessionId, 'X-EMS-Request-ID': requestId}};
+  }
+
+  function acceptManualReceipt(view, kind, payload, optIn) {
+    view.reference.receipts[kind] = null;
+    if (!optIn) return;
+    if (apiChat.getSessionId(view.gridId) !== optIn.sessionId) {
+      view.reference.notices[kind] = '대화 세션이 변경되었습니다. 다시 분석해야 참조 가능합니다.';
+      return;
+    }
+    if (payload.analysis_receipt_error !== undefined || !payload.analysis_receipt) {
+      view.reference.notices[kind] = KemsApiChat.errorText(payload.analysis_receipt_error)
+        || '참조할 분석 결과 없음 · AI 참조용 결과가 등록되지 않았습니다.';
+      return;
+    }
+    try {
+      const receipt = KemsApiAnalysis.manualReceipt(payload, kind, optIn);
+      view.reference.receipts[kind] = Object.freeze({receipt, sessionId: optIn.sessionId});
+      delete view.reference.notices[kind];
+    } catch (_) {
+      view.reference.notices[kind] = 'Receipt가 요청·분석 결과와 일치하지 않습니다. 다시 분석해야 참조 가능합니다.';
+    }
+  }
+
+  const referenceKinds = (operation) => ({security: ['security'], sensitivity: ['sensitivity'],
+    security_then_sensitivity: ['security', 'sensitivity']})[operation];
+
+  function referenceOption(view, operation) {
+    const no = (reason) => ({ok: false, reason});
+    const kinds = referenceKinds(operation);
+    if (!referenceSupported(view) || !kinds) return no('기존 결과 설명 미지원');
+    const a = view.analysis;
+    if (a.security.status === 'loading' || a.sensitivity.status === 'loading') return no('수동 분석이 끝난 뒤 설명할 수 있습니다.');
+    const owner = apiChat.getSessionId(view.gridId);
+    const receipts = [];
+    for (const kind of kinds) {
+      if (!analysisSupport(view)[kind].ok) return no('해당 분석 기능을 사용할 수 없습니다.');
+      const saved = view.reference.receipts[kind];
+      if (!saved) return no(view.reference.notices[kind] || '참조할 분석 결과 없음');
+      const r = saved.receipt;
+      if (saved.sessionId !== owner || r.grid_id !== view.gridId || r.outage_line_id !== view.selectedOutageLineId
+          || a[kind].status !== 'ready' || a[kind].vm.line !== r.outage_line_id) return no('분석 조건이나 세션이 변경되었습니다. 다시 분석해야 참조 가능합니다.');
+      if (Date.parse(r.expires_at) <= Date.now()) return no('분석 결과 만료 · 다시 분석해야 참조 가능');
+      if (kind === 'sensitivity' && (r.monitored_selection !== (a.monitored ? 'explicit' : 'auto')
+          || (a.monitored && r.monitored_line_id !== a.monitored))) return no('감시 선로 조건이 일치하지 않습니다.');
+      receipts.push(r);
+    }
+    if (receipts.some((r) => r.model_revision !== receipts[0].model_revision)) return no('서로 다른 모델 상태의 결과는 함께 설명할 수 없습니다. 다시 분석해야 참조 가능합니다.');
+    return {ok: true, receipts, expiresAt: Math.min(...receipts.map((r) => Date.parse(r.expires_at)))};
+  }
+
+  function referenceState() {
+    const view = state.view;
+    if (!referenceSupported(view)) return {supported: false, mode: 'basic'};
+    const options = Object.fromEntries(['security', 'sensitivity', 'security_then_sensitivity'].map((op) => [op, referenceOption(view, op)]));
+    const selected = options[view.reference.operation];
+    return {supported: true, mode: view.reference.mode, operation: view.reference.operation, options, ready: selected.ok,
+      expiresAt: Math.min(...Object.values(options).filter((item) => item.ok).map((item) => item.expiresAt)),
+      reason: selected.ok ? `기존 결과 설명 가능 · 사고 ${view.selectedOutageLineId} · 감시 ${view.reference.operation === 'security' ? '해당 없음' : view.analysis.monitored || '자동 선정'} · 새 계산 없음`
+        : selected.reason};
+  }
+
+  function referenceChoice(mode, operation) {
+    const view = state.view;
+    if (!referenceSupported(view) || !['basic', 'reference'].includes(mode) || !referenceKinds(operation)) return;
+    if (view.reference.mode === mode && view.reference.operation === operation) return;
+    advanceAnalysis(view);
+    Object.assign(view.reference, {mode, operation});
+  }
+
+  function captureReference() {
+    const view = state.view;
+    const option = referenceOption(view, view?.reference.operation);
+    if (!option.ok) throw new Error(option.reason);
+    const references = {security: null, sensitivity: null};
+    for (const r of option.receipts) references[r.kind] = r.result_id;
+    const context = Object.freeze({version: 1, view_id: view.viewId, revision: view.analysisRevision, mode: 'reference',
+      operation: view.reference.operation, outage_line_id: view.selectedOutageLineId,
+      monitored_line_id: view.reference.operation === 'security' ? null : view.analysis.monitored || null,
+      references: Object.freeze(references)});
+    return Object.freeze({view, gridId: view.gridId, sessionId: apiChat.getSessionId(view.gridId), context,
+      monitored: view.analysis.monitored, receipts: Object.freeze(option.receipts.slice())});
+  }
+
+  function referenceCurrent(snapshot) {
+    const view = state.view;
+    return state.source === 'api' && view === snapshot.view && referenceSupported(view)
+      && view.viewId === snapshot.context.view_id && view.analysisRevision === snapshot.context.revision
+      && view.selectedOutageLineId === snapshot.context.outage_line_id && view.analysis.monitored === snapshot.monitored
+      && apiChat.getSessionId(view.gridId) === snapshot.sessionId && view.reference.mode === 'reference'
+      && view.reference.operation === snapshot.context.operation;
+  }
+
   // Lookups of the map on screen, used to check a response and to label it.
   function analysisCtx(view) {
     const model = view.map.model;
@@ -645,6 +776,11 @@
     if (state.source !== 'api' || !view || view.map.status !== 'ready' || !view.map.model.lineById.has(line)) return;
     if (!analysisSupport(view).security.ok) return;  // a false or missing flag is never forced, nor sent to another grid's API
     const a = view.analysis;
+    advanceAnalysis(view);
+    view.selectedOutageLineId = line;
+    view.reference.receipts = {security: null, sensitivity: null};
+    view.reference.notices = {};
+    const optIn = manualOptIn(view, 'security', line);
     abortAnalysis(a);
     const seq = ++a.seq;
     const controller = new AbortController();
@@ -655,7 +791,7 @@
     const current = () => state.source === 'api' && state.view === view && a.seq === seq && !controller.signal.aborted;
     let payload;
     try {
-      payload = await fetchJson(KemsApiAnalysis.adapter(view.gridId).securityUrl(line), KemsApiAnalysis.TIMEOUT_MS.security, controller.signal);
+      payload = await fetchJson(KemsApiAnalysis.adapter(view.gridId).securityUrl(line), KemsApiAnalysis.TIMEOUT_MS.security, controller.signal, optIn?.headers);
     } catch (error) {
       if (error instanceof Aborted || !current()) return;
       a.security = {status: 'error', error: error.message};
@@ -665,6 +801,8 @@
     if (!current()) return;
     try {
       a.security = {status: 'ready', vm: KemsApiAnalysis.security(view.gridId, payload, {line}, analysisCtx(view)), at: new Date()};
+      advanceAnalysis(view);
+      acceptManualReceipt(view, 'security', payload, optIn);
       view.mode = 'analysis';
     } catch (error) {
       if (!(error instanceof KemsApiAnalysis.Invalid)) throw error;
@@ -679,6 +817,9 @@
     if (state.source !== 'api' || !view) return;
     const a = view.analysis;
     if (a.security.status !== 'ready' || !analysisSupport(view).sensitivity.ok) return;
+    advanceAnalysis(view);
+    view.reference.receipts.sensitivity = null;
+    delete view.reference.notices.sensitivity;
     if (a.sensController) a.sensController.abort();
     const controller = new AbortController();
     a.sensController = controller;
@@ -686,12 +827,13 @@
     const sensSeq = ++a.sensSeq;
     const line = a.line;
     const monitored = a.monitored || null;
+    const optIn = manualOptIn(view, 'sensitivity', line, monitored);
     a.sensitivity = {status: 'loading', requested: monitored};
     analysisChanged();
     const current = () => state.source === 'api' && state.view === view && a.seq === seq && a.sensSeq === sensSeq && !controller.signal.aborted;
     let payload;
     try {
-      payload = await fetchJson(KemsApiAnalysis.adapter(view.gridId).sensitivityUrl(line, monitored), KemsApiAnalysis.TIMEOUT_MS.sensitivity, controller.signal);
+      payload = await fetchJson(KemsApiAnalysis.adapter(view.gridId).sensitivityUrl(line, monitored), KemsApiAnalysis.TIMEOUT_MS.sensitivity, controller.signal, optIn?.headers);
     } catch (error) {
       if (error instanceof Aborted || !current()) return;
       a.sensitivity = {status: 'error', error: error.message, requested: monitored};
@@ -701,6 +843,8 @@
     if (!current()) return;
     try {
       a.sensitivity = {status: 'ready', vm: KemsApiAnalysis.sensitivity(view.gridId, payload, {line, monitored}, analysisCtx(view)), requested: monitored, at: new Date()};
+      advanceAnalysis(view);
+      acceptManualReceipt(view, 'sensitivity', payload, optIn);
       view.mode = 'analysis';  // the monitored line and candidates are drawn with the N-1 result
     } catch (error) {
       if (!(error instanceof KemsApiAnalysis.Invalid)) throw error;
@@ -713,6 +857,10 @@
     const view = state.view;
     if (!view) return;
     const a = view.analysis;
+    advanceAnalysis(view);
+    view.selectedOutageLineId = null;
+    view.reference.receipts = {security: null, sensitivity: null};
+    view.reference.notices = {};
     abortAnalysis(a);
     a.seq += 1;
     a.sensSeq += 1;
@@ -728,6 +876,9 @@
     if (state.source !== 'api' || !view) return;
     const a = view.analysis;
     if (value === a.monitored) return;  // re-selecting the same line is not a change
+    advanceAnalysis(view);
+    view.reference.receipts.sensitivity = null;
+    delete view.reference.notices.sensitivity;
     if (a.sensController) a.sensController.abort();
     a.sensController = null;
     a.sensSeq += 1;  // a response already under way fails its sequence check
@@ -779,7 +930,8 @@
   chatPanel.querySelector('#msgs').before(side);
   const chatHost = h('section', {class: 'kems-only kems-chat', id: 'kemsChat'});
   side.after(chatHost);
-  const apiChat = KemsApiChat.create(chatHost);
+  const apiChat = KemsApiChat.create(chatHost, {referenceState, referenceChoice, captureReference, referenceCurrent, sessionRetired,
+    validateReference: (payload, request) => KemsApiAnalysis.referenceResponse(payload, request.reference, request.id, request.sessionId)});
 
   // The Artifact zoom buttons drive the API map while an API grid is shown (their own handlers move the demo map).
   mapPanel.querySelector('.ph .zoom').addEventListener('click', (event) => {
@@ -1163,6 +1315,7 @@
     const view = api ? state.view : null;
     apiChat.setContext(view ? {
       gridId: view.gridId, name: API_ALIASES[view.gridId] || view.gridId,
+      viewId: view.viewId, analysisRevision: view.analysisRevision,
       enabled: view.status === 'ready' && KemsApiChat.supported(view.gridId, view.entry),
       reason: view.status !== 'ready' ? '계통의 채팅 지원 상태를 확인하지 못했습니다.'
         : view.gridId === 'kr-osm-transmission' ? '한국 OSM은 지도 전용 계통으로 AI 채팅을 지원하지 않습니다.'
@@ -1206,6 +1359,9 @@
         grids: state.catalog ? state.catalog.grids.map((grid) => grid.id) : null,
         view: view ? {
           gridId: view.gridId, status: view.status, error: view.error || null, mode: view.mode, selection: view.selection,
+          reference: {viewId: view.viewId, revision: view.analysisRevision, selectedOutageLineId: view.selectedOutageLineId,
+            monitoredLineId: view.analysis.monitored || null, mode: view.reference.mode, operation: view.reference.operation,
+            receipts: JSON.parse(JSON.stringify(view.reference.receipts)), notices: {...view.reference.notices}},
           map: {status: view.map.status, error: view.map.error || null, counts: model ? {buses: model.buses.length, lines: model.lines.length,
             transformers: model.transformers.length, plants: model.plants.length, gis: model.gis, straightFallback: model.straightFallback} : null},
           geometry: {status: view.geometry.status, parts: view.geometry.parts ?? null, invalid: view.geometry.invalid ?? null, error: view.geometry.error || null},
