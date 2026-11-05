@@ -13,7 +13,7 @@
   MAINT-03은 [PR #24](https://github.com/GangHyeokLee/ai-ems-agent/pull/24)로 통합됐으며, C-1에 일반 merge로 반영했다. 실제 통합 경로의 최종 회귀는 모두 통과했다. 과거 IEEE39 렌더링 불안정성을 해결한 것은 아니므로 병합 권고는 CONDITIONAL이다.
 - v1 capability는 어떤 계통에도 광고하지 않는다. C-1 UI는 광고가 있는 테스트 fixture에서만 활성화된다. MN v1·한국 OSM AI는 차단을 유지한다.
 - 실시간 브랜치·HEAD·커밋 여부·staged/unstaged/untracked 상태는 `dev_handoff.py` 출력으로 확인한다.
-- PH4-02C-2a: run 반영을 위한 공통 상태·commit 리팩터링을 `feature/ph4-02c2a-common-commit`(PR #23 위의 stacked Draft PR)에 구현했다.
+- PH4-02C-2a: run 반영을 위한 공통 상태·commit 리팩터링을 `feature/ph4-02c2a-common-commit`([PR #25](https://github.com/GangHyeokLee/ai-ems-agent/pull/25), PR #23 위의 stacked Draft)에 구현했다.
   동작 변경은 없고, run 모드·`mode=run` 전송·run 결과 반영은 구현하지 않았다.
 - 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C-2b(run 응답 검증)이며 자동 착수하지 않는다.
 
@@ -239,7 +239,7 @@
 - PR #23은 MAINT-03을 포함한 C-1 통합 검토 대상이다. Draft를 유지하고 Issue #14를 닫지 않는다. 최종 실행은 모두 통과했지만 과거 IEEE39 불안정성을 별도 항목으로 수용할지 판단한 뒤 병합한다.
 - 이번 IEEE39 비교는 일치했다. 과거 309/310 변동의 원인 확인·결정적 렌더링 검증은 별도 범위로 남는다. 기존 테스트를 skip/xfail하거나 단언을 완화하지 않는다.
 - F2 REST 오류 문구 범위 한정은 선택 사항이다. F4 브라우저 시계 의존과 F5 미확정 응답의 안내 없는 폐기 가능성도 후속 검토한다(이번 범위에서 새 결함으로 확정하지 않음).
-- C-2a(stacked Draft PR, base `feature/ph4-02c1-console-reference`)는 PR #23 다음에 검토·병합한다. PR #23이 바뀌면 그 위로 다시 맞춘다.
+- C-2a(stacked Draft PR #25, base `feature/ph4-02c1-console-reference`)는 PR #23 다음에 검토·병합한다. PR #23이 바뀌면 그 위로 다시 맞춘다.
 - C-2b(run envelope·agent receipt·`ui_updates` 순수 검증)와 C-2c(run 반영·잠금·상태별 UI)는 별도 요청 후 진행한다.
   C-2c는 `commitAnalysisResults`에 `epoch: bumpRevision`을 써야 한다. 확정 오류 시 세션 유지 여부와 run capability 분리는 PM 결정 사항이다.
 - C-2는 별도 요청 후 검증된 run receipt/update의 prepare→atomic commit, 실패/미실행/미평가 표시, 수동 분석 중재를 구현한다.
