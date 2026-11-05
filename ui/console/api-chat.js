@@ -1,7 +1,9 @@
-/* Grid-scoped basic chat and opt-in C-1 reference transport.
+/* Grid-scoped basic chat, opt-in C-1 reference and C-2c AI run transport.
  * The bridge owns analysis context and validates reference envelopes; this module never applies map updates.
  * C-2a: a v1 request keeps its frozen bridge snapshot in request.analysis (context.mode says which kind;
- * only 'reference' exists so far). Pending-request locks and cancellation use that one field.
+ * 'reference' or 'run'). Pending-request locks and cancellation use that one field.
+ * C-2c: a run response is validated and applied by the bridge (applyRun), all or nothing; a rejected or
+ * expired run response changes nothing and keeps the session, since the server already finished it.
  * Sessions live in this page only. Aborting HTTP does not cancel the server Agent:
  * every abandoned/failed request retires its session before another turn is sent.
  */
@@ -34,6 +36,12 @@ const KemsApiChat = (() => {
     ANALYSIS_CONTEXT_UNSUPPORTED: '이 계통은 기존 결과 설명을 지원하지 않습니다.',
     MODEL_REVISION_CHANGED: '계산 중 모델 상태가 변경되어 AI 참조용 결과로 등록하지 못했습니다. 수동 분석 결과는 표시하지만 기존 결과 설명은 사용할 수 없습니다.',
     RESULT_NOT_REGISTERED: '분석 결과를 AI 참조용으로 등록하지 못했습니다. 다시 분석해야 참조 가능합니다.',
+    ANALYSIS_RUN_NOT_READY: '서버가 AI 분석 실행을 허용하지 않는 상태입니다. 운영 준비(단일 worker·실행 예산)를 확인하세요.',
+    ANALYSIS_CONTEXT_INVALID: '분석 문맥 요청 형식이 올바르지 않아 실행하지 않았습니다.',
+    AGENT_UNAVAILABLE: 'AI 모델 연결 또는 응답 오류로 분석을 실행하지 못했습니다. 기존 분석 결과는 바뀌지 않았습니다.',
+    AGENT_TIMEOUT: 'AI 모델 응답 시간이 초과되어 분석을 실행하지 못했습니다. 기존 분석 결과는 바뀌지 않았습니다.',
+    AGENT_BUDGET_EXCEEDED: '분석 실행 예산(시간·단계)을 넘어 실행을 중단했습니다. 기존 분석 결과는 바뀌지 않았습니다.',
+    AGENT_FAILED: 'AI 분석 실행 중 오류가 발생했습니다. 기존 분석 결과는 바뀌지 않았습니다.',
   });
   const errorText = (detail) => {
     const code = typeof detail === 'string' ? detail : detail?.code;
@@ -88,11 +96,12 @@ const KemsApiChat = (() => {
     const send = node('button', {id: 'kemsChatSend', type: 'submit', class: 'btn pri'}, '보내기');
     const form = node('form', {id: 'kemsChatForm', class: 'kems-chatinput'});
     const modes = node('select', {id: 'kemsChatMode', 'aria-label': '채팅 모드'});
-    modes.append(node('option', {value: 'basic'}, '기본 채팅'), node('option', {value: 'reference'}, '기존 결과 설명'));
-    const operation = node('select', {id: 'kemsChatOperation', 'aria-label': '설명할 분석 결과'});
-    for (const [value, label] of [['security', 'N-1 결과'], ['sensitivity', 'Sensitivity 결과'], ['security_then_sensitivity', 'N-1 + Sensitivity 결과']]) {
-      operation.append(node('option', {value}, label));
-    }
+    const runMode = node('option', {value: 'run', hidden: true, disabled: true}, 'AI 분석 실행');
+    modes.append(node('option', {value: 'basic'}, '기본 채팅'), node('option', {value: 'reference'}, '기존 결과 설명'), runMode);
+    const operation = node('select', {id: 'kemsChatOperation', 'aria-label': '분석 종류'});
+    const OPERATION_LABELS = {security: ['N-1 결과', 'N-1 실행'], sensitivity: ['Sensitivity 결과', 'Sensitivity 실행'],
+      security_then_sensitivity: ['N-1 + Sensitivity 결과', 'N-1 → Sensitivity 실행']};
+    for (const [value, [label]] of Object.entries(OPERATION_LABELS)) operation.append(node('option', {value}, label));
     const referenceStatus = node('p', {id: 'kemsReferenceStatus', role: 'status'});
     const referenceControls = node('div', {class: 'kems-reference', hidden: true});
     referenceControls.append(modes, operation, referenceStatus);
@@ -114,10 +123,15 @@ const KemsApiChat = (() => {
       const reference = hooks.referenceState?.();
       clearTimeout(expiryTimer);
       referenceControls.hidden = !reference?.supported;
+      // The run mode is offered only with its own advertisement (never on reference support alone).
+      runMode.hidden = runMode.disabled = !reference?.modes?.run;
       modes.value = reference?.mode || 'basic';
       operation.value = reference?.operation || 'security';
-      operation.hidden = modes.value !== 'reference';
-      for (const option of operation.options) option.disabled = !reference?.options?.[option.value]?.ok;
+      operation.hidden = modes.value === 'basic';
+      for (const option of operation.options) {
+        option.disabled = !reference?.options?.[option.value]?.ok;
+        option.textContent = OPERATION_LABELS[option.value][modes.value === 'run' ? 1 : 0];
+      }
       // A choice moves the analysis context and would cancel a pending v1 request (retiring the
       // session and its receipts), so both selectors wait for its success, failure or timeout.
       modes.disabled = operation.disabled = Boolean(state?.pending?.analysis);
@@ -129,7 +143,7 @@ const KemsApiChat = (() => {
       host.dataset.busy = String(pending);
       title.textContent = context ? `${context.name} · AI 채팅` : 'AI 채팅';
       input.disabled = send.disabled = !enabled || pending;
-      if (reference?.mode === 'reference' && !reference.ready) send.disabled = true;
+      if ((reference?.mode === 'reference' || reference?.mode === 'run') && !reference.ready) send.disabled = true;
       reset.disabled = !enabled;
       if (input.value !== (state?.draft || '')) input.value = state?.draft || '';
       send.textContent = pending ? '응답 대기…' : '보내기';
@@ -146,6 +160,9 @@ const KemsApiChat = (() => {
           : state.error || '대화는 계통별로 유지되며 페이지를 새로 열면 초기화됩니다. Shift+Enter로 줄바꿈합니다.';
     }
 
+    // The bridge re-renders its manual controls when a run starts or ends (they are locked meanwhile).
+    const runChanged = (request) => { if (request?.analysis?.context.mode === 'run') hooks.runPendingChanged?.(); };
+
     function retire(state, notice) {
       const request = state.pending;
       state.pending = null;  // invalidate before abort/cancel callbacks run
@@ -157,6 +174,7 @@ const KemsApiChat = (() => {
         request.cancel();
       }
       if (notice) state.messages.push({role: 'system', text: notice});
+      runChanged(request);
     }
 
     async function submit(event) {
@@ -167,10 +185,11 @@ const KemsApiChat = (() => {
       if (!message) return;
       const gridId = context.gridId;
       const request = {sessionId: state.id, controller: new AbortController(), cancel: null, timer: null};
-      if (hooks.referenceState?.().mode === 'reference') {
+      const mode = hooks.referenceState?.().mode;
+      if (mode === 'reference' || mode === 'run') {
         try {
-          if (message.length > 8000) throw new Error('기존 결과 설명은 8000자 이내로 입력하세요.');
-          request.analysis = hooks.captureReference();
+          if (message.length > 8000) throw new Error(`${mode === 'run' ? 'AI 분석 실행 요청' : '기존 결과 설명'}은 8000자 이내로 입력하세요.`);
+          request.analysis = mode === 'run' ? hooks.captureRun() : hooks.captureReference();
           request.id = uuid();
         } catch (error) {
           state.error = error.message;
@@ -182,21 +201,38 @@ const KemsApiChat = (() => {
         request.cancel = () => reject(new ChatError('취소된 요청'));
         request.timer = setTimeout(() => {
           // Reject independently of fetch: stale transports cannot leave the UI waiting forever.
-          reject(new ChatError('AI 응답 시간이 초과되었습니다 (60초).'));
+          reject(new ChatError(request.analysis?.context.mode === 'run'
+            ? 'AI 분석 실행 응답 시간이 초과되었습니다 (60초). 서버 계산은 계속될 수 있으며 결과는 반영하지 않았습니다.'
+            : 'AI 응답 시간이 초과되었습니다 (60초).'));
           request.controller.abort();
         }, TIMEOUT_MS);
       });
       const current = () => context?.gridId === gridId && context.enabled && state.pending === request && state.id === request.sessionId
-        && (!request.analysis || hooks.referenceCurrent(request.analysis));
+        && (!request.analysis || (request.analysis.context.mode === 'run' ? hooks.runCurrent : hooks.referenceCurrent)(request.analysis));
       state.pending = request;
       state.error = '';
       state.draft = '';
       state.messages.push({role: 'user', text: message});
       render();
+      runChanged(request);
       try {
         const payload = await Promise.race([post(gridId, message, request), deadline]);
         if (!current()) return;
-        if (request.analysis) {  // a reference today; C-2 adds the run envelope check beside it
+        if (request.analysis?.context.mode === 'run') {
+          let outcome;
+          try {
+            outcome = hooks.applyRun(payload, request);
+          } catch (error) {
+            // Nothing was applied and the server already answered: report it and keep the session (and receipts).
+            state.error = error?.code === 'RECEIPT_EXPIRED' ? '분석 결과가 만료되었습니다. 기존 분석 결과를 유지했습니다.'
+              : 'AI 분석 실행 응답이 요청 문맥·Receipt 계약과 일치하지 않아 전체를 거부했습니다. 기존 분석 결과를 유지했습니다.';
+            state.messages.push({role: 'system', text: state.error});
+            return;
+          }
+          if (!outcome.stale) state.messages.push({role: 'assistant', text: `${outcome.label}\n${payload.answer}`});
+          return;
+        }
+        if (request.analysis) {  // a reference
           try { hooks.validateReference(payload, request); }
           catch (error) {
             // Both are rejections; only a receipt that expired in flight (checked after the full contract) is named as such.
@@ -213,7 +249,10 @@ const KemsApiChat = (() => {
         retire(state, `${description} 다음 질문은 새 서버 대화로 시작합니다.`);
       } finally {
         clearTimeout(request.timer);
-        if (state.pending === request) state.pending = null;
+        if (state.pending === request) {
+          state.pending = null;
+          runChanged(request);
+        }
         if (context?.gridId === gridId) render();
       }
     }
@@ -244,7 +283,7 @@ const KemsApiChat = (() => {
     function setContext(next) {
       const changed = context?.gridId !== next?.gridId || context?.enabled !== next?.enabled
         || context?.name !== next?.name || context?.reason !== next?.reason || context?.viewId !== next?.viewId
-        || context?.analysisRevision !== next?.analysisRevision;
+        || context?.analysisRevision !== next?.analysisRevision || context?.v1 !== next?.v1;
       if (!changed) return;  // analysis renders must not rebuild the composer or disturb its focus
       if (context && (context.gridId !== next?.gridId || !next?.enabled || context.viewId !== next?.viewId)) {
         const previous = currentSession();
@@ -255,11 +294,16 @@ const KemsApiChat = (() => {
     }
 
     render();
-    return Object.freeze({setContext,
+    return Object.freeze({setContext, refresh: () => render(),
       getSessionId: (gridId) => gridId === context?.gridId ? currentSession()?.id : null,
+      isRunPending: (gridId) => gridId === context?.gridId && currentSession()?.pending?.analysis?.context.mode === 'run',
       invalidateAnalysisContext: () => {
         const state = currentSession();
-        if (state?.pending?.analysis) retire(state, '분석 문맥 변경으로 기존 결과 설명 대기를 취소했습니다.');
+        if (state?.pending?.analysis) {
+          retire(state, state.pending.analysis.context.mode === 'run'
+            ? '분석 문맥 변경으로 AI 분석 실행 대기를 취소했습니다. 서버 계산은 계속될 수 있으며 결과는 반영하지 않습니다.'
+            : '분석 문맥 변경으로 기존 결과 설명 대기를 취소했습니다.');
+        }
       },
     });
   }

@@ -98,13 +98,16 @@ def test_clear_supersedes_every_request_of_the_view():
     assert "supersedeAnalysisRequests(a)" in body(BRIDGE, "clearAnalysis")
 
 
-def test_chat_tracks_one_pending_v1_snapshot_and_never_offers_run():
+def test_chat_tracks_one_pending_v1_snapshot_and_offers_run_only_when_advertised():
     chat = code(CHAT)
     assert "request.reference" not in chat and "pending?.reference" not in chat
-    assert "request.analysis = hooks.captureReference()" in chat
+    # C-2c replaced the C-2a "no run yet" guard: one snapshot field for both v1 modes, run only when advertised.
+    assert "request.analysis = mode === 'run' ? hooks.captureRun() : hooks.captureReference()" in chat
     assert chat.count("state?.pending?.analysis") == 2  # selector lock and invalidation
     assert "analysis_context: request.analysis.context" in chat
-    # C-2a adds no run mode: no 'run' option and no run context is ever built.
-    for source in (chat, code(BRIDGE)):
-        assert not re.search(r"""['"]run['"]""", source)
-    assert "mode: 'reference'" in code(BRIDGE)
+    assert "mode: 'run'" not in chat and "runMode.hidden = runMode.disabled = !reference?.modes?.run" in chat
+    bridge = code(BRIDGE)
+    assert bridge.count("mode: 'run'") == 1 and "mode: 'run'" in body(BRIDGE, "captureRun")
+    assert "mode: 'reference'" in bridge
+    supported = body(BRIDGE, "runSupported")
+    assert "referenceSupported(view)" in supported and "console_analysis_run_available === true" in supported
