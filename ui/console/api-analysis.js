@@ -333,15 +333,31 @@ const KemsApiAnalysis = (() => {
     return keys.length === Object.keys(b).length && keys.every((key) => Object.hasOwn(b, key) && sameJson(a[key], b[key]));
   }
 
+  // Shared by manual (C-1) and agent (C-2b) receipts: exact keys, server-issued IDs and the revision format.
+  const receiptShape = (r) => isObject(r) && Object.keys(r).length === RECEIPT_KEYS.length && RECEIPT_KEYS.every((key) => Object.hasOwn(r, key))
+    && UUID4.test(r.result_id) && UUID4.test(r.producer_request_id) && typeof r.model_revision === 'string' && /^[0-9a-f]{64}$/.test(r.model_revision);
+  // A receipt states what its canonical payload states: COMPLETED, or not evaluated with that status as the reason.
+  const assessmentMatches = (r, payload) => {
+    const completed = payload.analysis_status === 'COMPLETED';
+    return r.assessment === (completed ? 'completed' : 'not_evaluated') && r.reason_code === (completed ? null : payload.analysis_status);
+  };
+  const lineId = (value) => typeof value === 'string' && value.length > 0 && value.length <= 128 && value.trim() === value
+    && !/[\x00-\x1f\x7f]/.test(value);
+  function receiptTimes(r) {
+    for (const value of [r.created_at, r.expires_at]) {
+      if (typeof value !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value)
+          || !Number.isFinite(Date.parse(value))) reject('Receipt 시각 오류');
+    }
+    if (Date.parse(r.expires_at) <= Date.parse(r.created_at)) reject('Receipt 유효 기간 오류');
+  }
+
   function manualReceipt(payload, kind, request) {
     const r = payload.analysis_receipt;
     const completed = payload.analysis_status === 'COMPLETED';
-    if (!isObject(r) || Object.keys(r).length !== RECEIPT_KEYS.length || RECEIPT_KEYS.some((key) => !Object.hasOwn(r, key))
-        || payload.analysis_receipt_error !== undefined || !UUID4.test(r.result_id) || !UUID4.test(r.producer_request_id)
+    if (!receiptShape(r) || payload.analysis_receipt_error !== undefined
         || r.grid_id !== request.gridId || r.kind !== kind || r.outage_line_id !== request.line
         || r.producer !== 'manual' || r.tool_call_id !== null || r.producer_request_id !== request.requestId
-        || typeof r.model_revision !== 'string' || !/^[0-9a-f]{64}$/.test(r.model_revision)
-        || r.assessment !== (completed ? 'completed' : 'not_evaluated') || r.reason_code !== (completed ? null : payload.analysis_status)) {
+        || !assessmentMatches(r, payload)) {
       reject('Receipt가 수동 분석 요청·결과와 일치하지 않습니다');
     }
     if (kind === 'security') {
@@ -349,14 +365,35 @@ const KemsApiAnalysis = (() => {
     } else if (r.monitored_line_id !== (payload.monitored_line_id ?? null) || r.top_n !== TOP_N
         || r.monitored_selection !== (request.monitored ? 'explicit' : 'auto')
         || (request.monitored && r.monitored_line_id !== request.monitored)
-        || (r.monitored_line_id !== null && (typeof r.monitored_line_id !== 'string' || !r.monitored_line_id
-          || r.monitored_line_id.length > 128 || r.monitored_line_id.trim() !== r.monitored_line_id || /[\x00-\x1f\x7f]/.test(r.monitored_line_id)))
+        || (r.monitored_line_id !== null && !lineId(r.monitored_line_id))
         || (r.monitored_line_id === null && (completed || request.monitored))) reject('Sensitivity Receipt 조건 오류');
-    for (const value of [r.created_at, r.expires_at]) {
-      if (typeof value !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value)
-          || !Number.isFinite(Date.parse(value))) reject('Receipt 시각 오류');
+    receiptTimes(r);
+    return Object.freeze({...r});
+  }
+
+  /** C-2b: one receipt of a verified v1 run (B3-2 _register_published, the registry's _receipt_problem and the
+   *  ledger's _outcome_problem). expected: {kind, gridId, line, monitored: the requested target (null = automatic),
+   *  requestId, payload: the canonical result at the same position}. Expiry is left to the caller. */
+  function agentReceipt(r, expected) {
+    const {kind, payload} = expected;
+    if (!receiptShape(r) || r.grid_id !== expected.gridId || r.kind !== kind || r.outage_line_id !== expected.line
+        || r.producer !== 'agent_tool' || r.producer_request_id !== expected.requestId
+        || typeof r.tool_call_id !== 'string' || !r.tool_call_id || !isObject(payload) || !assessmentMatches(r, payload)) {
+      reject('AI 실행 Receipt가 요청·결과와 일치하지 않습니다');
     }
-    if (Date.parse(r.expires_at) <= Date.parse(r.created_at)) reject('Receipt 유효 기간 오류');
+    if (kind === 'security') {
+      if (r.monitored_line_id !== null || r.monitored_selection !== null || r.top_n !== null) reject('N-1 Receipt 조건 오류');
+    } else {
+      // An explicit target is the requested one; automatic selection names a target exactly when evaluated.
+      const evaluated = r.assessment === 'completed';
+      const target = expected.monitored ? r.monitored_line_id === expected.monitored
+        : (r.monitored_line_id === null) === !evaluated
+          && (r.monitored_line_id === null || (lineId(r.monitored_line_id) && r.monitored_line_id !== expected.line));
+      // An unevaluated sensitivity payload names no target (web_app _sensitivity_not_evaluated_for_ui).
+      if (r.top_n !== TOP_N || r.monitored_selection !== (expected.monitored ? 'explicit' : 'auto') || !target
+          || (payload.monitored_line_id ?? null) !== (evaluated ? r.monitored_line_id : null)) reject('Sensitivity Receipt 조건 오류');
+    }
+    receiptTimes(r);
     return Object.freeze({...r});
   }
 
@@ -377,6 +414,81 @@ const KemsApiAnalysis = (() => {
     if (!expected.every((r) => Date.parse(r.expires_at) > Date.now())) {
       throw Object.assign(new Invalid('참조한 분석 결과가 만료되었습니다'), {code: 'RECEIPT_EXPIRED'});
     }
+  }
+
+  /* C-2b: the v1 run envelope (web_app _execute_run). Validation only: nothing here stores, renders or calls. */
+  const RUN_KEYS = ['session_id', 'grid_id', 'request_id', 'analysis_context', 'answer', 'ui_updates', 'analysis'];
+  const RUN_ANALYSIS_KEYS = ['status', 'source', 'results', 'reason_code', 'message'];
+  const UPDATE_KEYS = ['type', 'grid_id', 'result_id', 'result'];
+  const RUN_PLANS = Object.freeze({security: ['security'], sensitivity: ['sensitivity'], security_then_sensitivity: ['security', 'sensitivity']});
+  const exactKeys = (value, keys) => isObject(value) && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+  const reasonCode = (value) => typeof value === 'string' && /^[A-Z][A-Z0-9_]*$/.test(value);
+  const deepFreeze = (value) => {
+    if (value && typeof value === 'object') Object.values(Object.freeze(value)).forEach(deepFreeze);
+    return value;
+  };
+
+  /** Validates one HTTP 200 run envelope against the request that was sent. snapshot: {gridId, context} with
+   *  context.mode 'run' and both references null. Pure: it only reads its arguments (and the clock for expiry).
+   *  Throws Invalid on any mismatch; one bad receipt or ui_update rejects the whole response. A receipt that
+   *  expired after the whole contract matched throws Invalid with code RECEIPT_EXPIRED.
+   *  Returns a frozen summary; items are [{kind, payload, line, monitored, receipt}] for prepareAnalysisResults,
+   *  with copied, frozen payloads. failed/not_run return no receipts and no items. */
+  function runResponse(payload, snapshot, requestId, sessionId) {
+    const context = snapshot?.context;
+    const plan = RUN_PLANS[context?.operation];
+    if (!isObject(context) || context.mode !== 'run' || !plan || !isObject(context.references)
+        || context.references.security !== null || context.references.sensitivity !== null) reject('run 요청 문맥 오류');
+    const analysis = payload?.analysis;
+    if (!exactKeys(payload, RUN_KEYS) || payload.grid_id !== snapshot.gridId || payload.session_id !== sessionId
+        || payload.request_id !== requestId || !sameJson(payload.analysis_context, context)
+        || typeof payload.answer !== 'string' || !payload.answer.trim() || !Array.isArray(payload.ui_updates)
+        || !exactKeys(analysis, RUN_ANALYSIS_KEYS) || !Array.isArray(analysis.results) || typeof analysis.message !== 'string') {
+      reject('AI 실행 응답 계약 불일치');
+    }
+    const {status, results} = analysis;
+    const updates = payload.ui_updates;
+    const summary = (receipts, items) => Object.freeze({status, reasonCode: analysis.reason_code, message: analysis.message,
+      answer: payload.answer, modelRevision: receipts[0]?.model_revision ?? null,
+      expiresAt: receipts.length ? Math.min(...receipts.map((r) => Date.parse(r.expires_at))) : null,
+      receipts: Object.freeze(receipts), items: Object.freeze(items)});
+    if (status === 'failed' || status === 'not_run') {
+      // Nothing approved, nothing published; the reason is always named (not_run has exactly one, verify_evidence).
+      if (results.length || updates.length || analysis.source !== 'none' || !reasonCode(analysis.reason_code)
+          || (status === 'not_run' && analysis.reason_code !== 'TOOL_NOT_EXECUTED')) reject('미승인 실행 응답 계약 불일치');
+      return summary([], []);
+    }
+    if (status !== 'completed' && status !== 'not_evaluated') reject('알 수 없는 실행 상태');
+    // A chain ends early only after an actual, unevaluated N-1 (B3-2 _condition_problems).
+    const early = context.operation === 'security_then_sensitivity' && results.length === 1;
+    if (analysis.source !== 'tool_execution' || updates.length !== results.length || !(results.length === plan.length || early)
+        || !results.every((r, i) => isObject(r) && r.kind === plan[i])) reject('실행 결과 구성 불일치');
+    const line = context.outage_line_id;
+    const receipts = results.map((r, i) => {
+      const update = updates[i];
+      const kind = plan[i];
+      if (!exactKeys(update, UPDATE_KEYS) || update.type !== kind || update.grid_id !== snapshot.gridId) reject('ui_updates 항목 불일치');
+      const monitored = kind === 'sensitivity' ? context.monitored_line_id : null;
+      const receipt = agentReceipt(r, {kind, gridId: snapshot.gridId, line, monitored, requestId, payload: update.result});
+      if (update.result_id !== receipt.result_id || update.result.outage_line_id !== line) reject('ui_updates와 Receipt 불일치');
+      // The canonical payload itself, with the structural checks of a manual result (the map is checked at prepare).
+      if (kind === 'security') securityCommon(update.result, {line}, () => ({}));
+      else sensitivityCommon(update.result, {line, monitored});
+      return receipt;
+    });
+    const pending = receipts.filter((r) => r.assessment !== 'completed');
+    if (new Set(receipts.map((r) => r.result_id)).size !== receipts.length
+        || new Set(receipts.map((r) => r.tool_call_id)).size !== receipts.length
+        || receipts.some((r) => r.model_revision !== receipts[0].model_revision)
+        || (receipts.length > 1 && receipts[0].assessment !== 'completed') || (early && pending[0] !== receipts[0])
+        || (status === 'completed') !== (pending.length === 0)
+        || analysis.reason_code !== (pending.length ? pending[0].reason_code : null)) reject('실행 결과 간 일관성 불일치');
+    // Only after the whole contract matched, so expiry never hides a mismatch (as in referenceResponse).
+    if (receipts.some((r) => !(Date.parse(r.expires_at) > Date.now()))) {
+      throw Object.assign(new Invalid('AI 실행 결과가 만료되었습니다'), {code: 'RECEIPT_EXPIRED'});
+    }
+    return summary(receipts, receipts.map((receipt, i) => Object.freeze({kind: plan[i], line, receipt,
+      monitored: plan[i] === 'sensitivity' ? context.monitored_line_id : null, payload: deepFreeze(structuredClone(updates[i].result))})));
   }
 
   /* ---------- map overlay ---------- */
@@ -656,6 +768,6 @@ const KemsApiAnalysis = (() => {
   }
 
   return Object.freeze({TIMEOUT_MS, Invalid, adapter: (gridId) => ADAPTERS[gridId] || null, support, security, sensitivity, overlay, legend,
-    manualReceipt, referenceResponse,
+    manualReceipt, referenceResponse, agentReceipt, runResponse,
     lineBlock, featureRows, panel});
 })();
