@@ -1,20 +1,37 @@
 # AI-EMS 작업 인수인계 상태
 
-갱신일: 2026-11-04 (Asia/Seoul). 최근 작업과 다음 작업만 유지한다.
+갱신일: 2026-11-05 (Asia/Seoul). 최근 작업과 다음 작업만 유지한다.
 
 ## 현재 단계
 
 - Phase 3 완료. Phase 4의 PH4-01 AI 채팅 통합 구현·로컬 검증 완료.
 - DOC-01: 개발 규칙과 출처·해시를 갖춘 개발팀 키트/Artifact 참고 자료를 정리하여 통합 브랜치에 반영했다.
 - PH4-02A·B0·B1·B2(+MAINT-02)·B3-1은 PR #17·#18·#19·#20·#21로 통합됐다(B3-1 squash `00f6edc`).
-- PH4-02B3-2: KPG `mode=run`을 요청별 B2 Agent·ledger·`verify_evidence`에 연결하고, 검증된 결과만 `producer=agent_tool` receipt로
-  한 network guard 안에서 원자 등록한다. legacy 채팅의 세션 gate 공유, provider timeout·실행 예산·단일 worker 단언까지 구현·로컬 검증 완료
-  (`feature/ph4-02b32-agent-run-api`, [Draft PR #22](https://github.com/GangHyeokLee/ai-ems-agent/pull/22) 검토 대상). 실제 LLM smoke는 endpoint HTTP 502로 **미실행**이다.
-- v1 capability(`console_analysis_context_versions`)는 여전히 어떤 계통에도 광고하지 않는다. 몽골·한국 OSM v1은 409로 거부하고 콘솔 UI는 바꾸지 않았다.
+- PH4-02B3-2는 [PR #22](https://github.com/GangHyeokLee/ai-ems-agent/pull/22)로 통합됐다(`15f634c`). 실제 LLM smoke는 당시 endpoint HTTP 502로 미실행이었다.
+- PH4-02-MAINT-03: 별도 worktree `~/Projects/ai-ems-agent-maint03`에서 KPG 초기 지도→PF 조회 순서만 수정했다. 목표 기존 5개와 신규 로딩 4개는 통과했다.
+  전체 Chrome은 Artifact 비교의 IEEE39 SVG 노드 수 차이 1건이 남아 **전체 회귀 통과로 보고하지 않는다**. 자세한 실행 결과는 아래와 MAINT-03 문서를 확인한다.
+- C-1은 별도 [Draft PR #23](https://github.com/GangHyeokLee/ai-ems-agent/pull/23)이며 이 브랜치에 가져오지 않았다. 원래 저장소·PR #23은 수정하지 않는다.
+- v1 capability(`console_analysis_context_versions`)는 여전히 어떤 계통에도 광고하지 않는다. 몽골·한국 OSM v1은 409로 거부한다. MAINT-03은 기존 콘솔의 초기 조회 순서만 보완한다.
 - 실시간 브랜치·HEAD·커밋 여부·staged/unstaged/untracked 상태는 `dev_handoff.py` 출력으로 확인한다.
-- 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C(콘솔) 단계이며 자동 착수하지 않는다.
+- [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)는 진행 중이다. MAINT-03/C-1 검토·통합 및 검증 이후의 C-2는 별도 요청으로만 진행한다.
 
-## 최근 완료 작업: PH4-02B3-2
+## 최근 작업: PH4-02-MAINT-03
+
+- 운영 코드 수정은 `ui/console/api-bridge.js:loadGrid()` 8줄 추가·2줄 제거다. KPG 지도 검증·표시 후 현재 view/Abort를 확인하고 PF를 시작한다.
+- 몽골 map/GIS/PF 병렬 조회와 한국 OSM 지도 전용 정책은 유지한다. map 실패 시 PF blocked, PF 오류·비수렴·timeout·취소·stale 처리는 기존 경로를 쓴다.
+- 서버 guard·모델/데이터·기존 테스트·검증 해시·원본 UI·C-1 receipt/reference를 변경하지 않았다. 별도 신규 Chrome 2파일과 검증 문서를 추가했다.
+- 수정 전 목표 5개: **4 failed, 1 passed (21.80s)**. 수정 후 동일 5개가 모두 통과했고, 신규 지연/오류/취소/timeout **4 passed (8.37s), 22개 검사, JS 오류 0**.
+- 기존 Phase 3(스크린샷 포함)+PH4-01 Chrome: 두 실행 각각 **1 failed, 26 passed (120.01s / 114.64s)**. 목표 5개·Security/Sensitivity·채팅 6개는 통과했다.
+  실패는 `test_console_matches_original_artifact_demo`의 IEEE39 SVG 노드 수 309↔310 차이다. 단언·데모 코드를 수정하거나 실패를 skip 처리하지 않았다.
+- Artifact 비교 단독은 정확한 기준 사본 **1 passed (23.37s)**, 수정본 **1 passed (21.02s)**. 전체 실행의 실패를 이 단독 통과로 대체하지 않는다.
+- 최종 전체 비브라우저(B1/B2/B3 포함): **965 passed, 107 skipped, 1 warning (83.14s)**. 기존 opt-in/환경 103개 + 신규 Chrome 4개이며 실패를 skip으로 바꾼 것이 아니다.
+- 기존 추적 파일 354개와 공급 데이터 62개의 SHA256을 보존했고 `git diff --check`를 통과했다. 전체 검증 판정은 Artifact 비교 불안정성 때문에 CONDITIONAL이다.
+- 초기 Chrome 경로 오류 5 failed, 새 취소 시나리오의 계산 완료 관찰 오류 1 failed/8 passed, 첫 비브라우저의 자료 부족 963 passed/109 skipped도 로그를 보존한다.
+- 환경: `.env`/비밀값 복사 없이 의존성은 읽기 전용 연결, 필요한 데이터·Artifact·번들·검토 입력만 worktree 내부 Git 제외 경로로 복사해 SHA256을 확인했다.
+  캐시·임시 파일·서버/Chrome 증거는 worktree 내부에 둔다. 각 테스트 210/240초와 전체 명령/프로세스 제한을 적용했다. 실제 LLM 호출 없음.
+- 증거: `.local/maint03/20261105-map-pf/`. 상세 계약·명령·PR #23 충돌 및 남은 위험: `docs/specs/PH4-02-MAINT-03_MAP_PF_READ_RACE.md`.
+
+## 보존된 구현: PH4-02B3-2
 
 - `web_app.py`: run = 단일 worker 단언·예산 확인 → 중복 확인 → 세션 gate → 요청별 `AnalysisJob`/`ExecutionLedger`/graph(기한·recursion 12)
   → `verify_evidence` → network guard 안에서 현재 revision 재검증·REST canonical 변환·`register_all` → 결정적 답변·`ui_updates`·artifact 없는 이력.
@@ -27,7 +44,7 @@
 - 해시 체인: `kems-console-ph402b32-code-hashes.json`(B3-1 기록 `104ecf38…`을 잇고 `web_app.py` `13c0e2cb…`→`f7bcaa61…`, edits 9개)과
   `tests/test_mn_pipeline.py` 확장(B3-1 테스트는 HEAD 대신 복원한 B3-1 바이트 사용, 단언 유지). 상세: `docs/specs/PH4-02B3-2_AGENT_RUN_API.md`.
 
-## PH4-02B3-2 실제 검증
+## 보존된 검증: PH4-02B3-2 (이번 실행 결과 아님)
 
 - 신규 run API: 최초 39개 통과 → 보강 후 **46 passed (12.00s)**. 신규 + 기존 관련 20개 파일: **443 passed (40.87s)**. 해시 체인 관련: **101 passed** (기존 75 + 신규 26).
 - 전체 비브라우저: 변경 전 `00f6edc` **893 passed, 103 skipped**, 최종 **965 passed, 103 skipped, 1 warning (80.23s)**, 실패 0.
@@ -147,7 +164,9 @@
   Security 감시 ID null·Sensitivity top_n=5, 취소/timeout은 결과 미확정으로 다루고 같은 `request_id`를 자동 재시도하지 않는다.
 - C 이전/병행 확인: 실제 LLM smoke(고정 Tool·인자 준수, 지연)와 예산 재조정, 배포 환경의 지원 launcher·단일 worker. MN v1은 model identity가 별도로 필요하다.
 - 위 연결과 Chrome 회귀를 마친 뒤에만 `console_analysis_context_versions: [1]`을 광고한다.
-- B3-2는 base=`feature/kems-multi-grid`인 `feature/ph4-02b32-agent-run-api`·Draft PR #22로 검토한다. 상위 #14는 완료 처리하지 않으며 C는 자동 착수하지 않는다.
+- MAINT-03은 base=`feature/kems-multi-grid`인 별도 Draft PR로 검토한다. PR #23은 수정·병합하지 않는다. C-1과 JS 공통 파일의 `loadGrid()` 변경 영역은 겹치지 않지만 STATE의 최근 작업은 수동 조정이 예상된다.
+- Artifact SVG 비교의 별도 실패를 확인한 후 전체 회귀 상태를 판단한다. C-1 통합 후에는 테스트 전용 초기 조회 순서 제어 없이 실제 통합 경로를 다시 검증한다.
+- 상위 #14는 닫지 않는다. C-2·기능 공개는 자동 착수하지 않는다.
 - 통합된 작업 브랜치(DOC-01, PH4-02A·B0·B1·B2·B3-1)는 이력 보존상 삭제 후보이며 실제 삭제와 PR/main 병합은 별도 승인 후 판단한다.
 - 다음 담당자는 `AGENTS.md`와 이 문서를 읽고 실시간 Git 상태와 기존 변경을 확인·보존한 뒤 지정된 범위만 수행한다.
 - 시작: `python3 scripts/dev_handoff.py`
