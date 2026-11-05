@@ -22,7 +22,7 @@
   (C-2c 병합 시 확인: INFRA-02 커밋 `d3b32d5`·`226fd50`은 통합 브랜치 `feature/kems-multi-grid`에 있다. 위 원 기록은 그대로 둔다.)
   현재 상태(INFRA-03 확인): INFRA-02 도구는 위 두 커밋으로 통합 브랜치에 직접 반영됐다. 위의 Push 실패·PR 미생성은 당시 기록이며 별도 INFRA-02 PR은 필요 없다.
 - PH4-02C-2c: 콘솔 AI run 연결과 원자적 화면 반영. [PR #27](https://github.com/GangHyeokLee/ai-ems-agent/pull/27)로 통합됐다(merge `ad2c1f8`). 운영 노출은 없다.
-- PH4-02-INFRA-03: smoke 도구의 fail-closed·인증 일치·판정 결함을 `feature/ph4-02-infra03-smoke-hardening`(Draft PR)에서 고쳤다. 실제 LLM은 실행하지 않았다.
+- PH4-02-INFRA-03: smoke 도구의 fail-closed·인증 일치·판정 결함을 `feature/ph4-02-infra03-smoke-hardening`([PR #28](https://github.com/GangHyeokLee/ai-ems-agent/pull/28), Draft)에서 고쳤다. 실제 LLM은 실행하지 않았다.
 - 다음 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 실제 LLM smoke 실행(사용자 승인 필요)과 C-3(run capability 서버 광고, 운영 공개 결정)이며 자동 착수하지 않는다.
 
 ## 최근 작업: PH4-02-INFRA-03 — 실제 LLM Smoke 도구 안정화
@@ -333,7 +333,7 @@
 - PR #23은 MAINT-03을 포함한 C-1 통합 검토 대상이다. Draft를 유지하고 Issue #14를 닫지 않는다. 최종 실행은 모두 통과했지만 과거 IEEE39 불안정성을 별도 항목으로 수용할지 판단한 뒤 병합한다.
 - 이번 IEEE39 비교는 일치했다. 과거 309/310 변동의 원인 확인·결정적 렌더링 검증은 별도 범위로 남는다. 기존 테스트를 skip/xfail하거나 단언을 완화하지 않는다.
 - F2 REST 오류 문구 범위 한정은 선택 사항이다. F4 브라우저 시계 의존과 F5 미확정 응답의 안내 없는 폐기 가능성도 후속 검토한다(이번 범위에서 새 결함으로 확정하지 않음).
-- C-2a·C-2b·C-2c는 통합됐다(C-2c merge `ad2c1f8`). INFRA-03은 Draft PR로 검토하며 자동 병합하지 않는다.
+- C-2a·C-2b·C-2c는 통합됐다(C-2c merge `ad2c1f8`). INFRA-03은 Draft [PR #28](https://github.com/GangHyeokLee/ai-ems-agent/pull/28)로 검토하며 자동 병합하지 않는다.
 - 실제 LLM smoke는 사용자 승인 후 별도로 실행한다. 실행 전 확인:
   - Tailscale HTTPS 8443 origin과 Caddy Bearer 설정, `OLLAMA_API_KEY` 미설정.
   - 대상 모델이 `/api/tags`에 있고 Caddy·Ollama가 기동돼 있음.
