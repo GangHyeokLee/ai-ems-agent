@@ -17,7 +17,7 @@
 - PH4-02C-2a: run 반영을 위한 공통 상태·commit 리팩터링. [PR #25](https://github.com/GangHyeokLee/ai-ems-agent/pull/25)로 통합됐다(merge `950de21`).
   동작 변경은 없고, run 모드·`mode=run` 전송·run 결과 반영은 구현하지 않았다.
 - PH4-02C-2b: run 응답·agent receipt·`ui_updates`의 순수 검증 함수. [PR #26](https://github.com/GangHyeokLee/ai-ems-agent/pull/26)으로 통합됐다(merge `aebf3d6`).
-- PH4-02C-2c: 콘솔 AI run 연결과 원자적 화면 반영을 `feature/ph4-02c2c-console-run`(Draft PR)에 구현했다. 운영 노출은 없다.
+- PH4-02C-2c: 콘솔 AI run 연결과 원자적 화면 반영을 `feature/ph4-02c2c-console-run`([PR #27](https://github.com/GangHyeokLee/ai-ems-agent/pull/27), Draft)에 구현했다. 운영 노출은 없다.
 - 다음 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C-3(run capability 서버 광고, 실제 LLM smoke, 운영 공개 결정)이며 자동 착수하지 않는다.
 
 ## 최근 작업: PH4-02C-2c — AI Run 콘솔 연결과 원자적 반영
@@ -277,7 +277,7 @@
 - PR #23은 MAINT-03을 포함한 C-1 통합 검토 대상이다. Draft를 유지하고 Issue #14를 닫지 않는다. 최종 실행은 모두 통과했지만 과거 IEEE39 불안정성을 별도 항목으로 수용할지 판단한 뒤 병합한다.
 - 이번 IEEE39 비교는 일치했다. 과거 309/310 변동의 원인 확인·결정적 렌더링 검증은 별도 범위로 남는다. 기존 테스트를 skip/xfail하거나 단언을 완화하지 않는다.
 - F2 REST 오류 문구 범위 한정은 선택 사항이다. F4 브라우저 시계 의존과 F5 미확정 응답의 안내 없는 폐기 가능성도 후속 검토한다(이번 범위에서 새 결함으로 확정하지 않음).
-- C-2a·C-2b는 통합됐다. C-2c는 Draft PR로 검토하며 자동 병합하지 않는다.
+- C-2a·C-2b는 통합됐다. C-2c는 Draft PR #27로 검토하며 자동 병합하지 않는다.
 - C-3은 별도 요청 후 진행한다: 서버의 `console_analysis_run_available` 광고(단일 worker·예산·smoke 조건), 실제 LLM smoke, 운영 공개 결정.
   확정 v1 오류 시 세션 유지와 timeout 뒤 결과 재확인은 PM 결정 사항이다(C-2c spec의 제안 절).
 - C-2는 별도 요청 후 검증된 run receipt/update의 prepare→atomic commit, 실패/미실행/미평가 표시, 수동 분석 중재를 구현한다.
