@@ -18,7 +18,7 @@
 - PH4-02C-2b: run 응답·agent receipt·`ui_updates`의 순수 검증 함수를 `feature/ph4-02c2b-run-validation`([PR #26](https://github.com/GangHyeokLee/ai-ems-agent/pull/26), Draft)에 구현했다.
   화면 연결은 없다(C-2c 미착수).
 - PH4-02-INFRA-02: `feature/ph4-02-infra-real-llm-smoke`에서 Gemini LLM smoke 도구를 인수·보완했다. 실제 LLM `--execute`는 실행하지 않았다.
-  Draft PR 생성과 최신 통합 브랜치 기준 diff/충돌 확인이 남아 있다.
+  로컬 커밋 `d3b32d5`는 있으나 Push가 인증 오류로 실패해 Draft PR은 생성되지 않았다. 원격 diff/mergeability 확인도 남아 있다.
 - 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C-2c(run 결과 반영·잠금·상태별 UI)이며 자동 착수하지 않는다.
 
 ## 최근 작업: PH4-02-INFRA-02 — LLM Smoke Test 인수
@@ -29,7 +29,8 @@
 - 최종 검증: `tests/test_smoke_test_llm.py` **12 passed, 1 기존 Starlette deprecation warning**.
   CLI Dry Run은 URL 미설정을 표시하고 실행을 건너뛰었다. CLI Mock은 **10/10 PASS**.
   첫 검증 보강 중 ToolMessage import 누락으로 3개 실패했으며 수정 후 최종 실행에서 모두 통과했다. 실제 LLM `--execute` 미실행.
-- 기준 통합 HEAD는 `aebf3d6`까지 fast-forward했다. Draft PR은 `feature/kems-multi-grid` 대상으로 생성 후 이 항목을 갱신한다.
+- 기준 통합 HEAD는 `aebf3d6`까지 fast-forward했다. `git push --set-upstream origin feature/ph4-02-infra-real-llm-smoke`는
+  `unable to get password from user`로 실패했다. 인증된 Push 후 `feature/kems-multi-grid` 대상 Draft PR을 생성하고 원격 diff/mergeability를 확인한다.
 
 ## 최근 작업: PH4-02C-2b — Run 응답·Receipt 순수 검증
 
