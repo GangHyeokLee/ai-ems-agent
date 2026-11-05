@@ -22,6 +22,8 @@
  * reference validates a server explanation and never applies map updates. No console run mode yet.
  * C-2a: revision epochs (bumpRevision) are separate from request cancellation (advanceAnalysis), and
  * verified results reach the screen only through prepareAnalysisResults -> commitAnalysisResults.
+ * C-2c: an advertised KPG run (console_analysis_run_available) is sent with a frozen context; only a whole,
+ * validated response (KemsApiAnalysis.runResponse) is committed, by the pending request itself (bumpRevision).
  * Everything lives in this IIFE so no app.js global lexical name can collide.
  */
 (() => {
@@ -717,19 +719,29 @@
 
   function referenceState() {
     const view = state.view;
-    if (!referenceSupported(view)) return {supported: false, mode: 'basic'};
-    const options = Object.fromEntries(['security', 'sensitivity', 'security_then_sensitivity'].map((op) => [op, referenceOption(view, op)]));
+    if (!referenceSupported(view)) return {supported: false, mode: 'basic', modes: {run: false}};
+    const run = runSupported(view);
+    const mode = view.reference.mode === 'run' && !run ? 'basic' : view.reference.mode;  // never a run without its advertisement
+    const option = mode === 'run' ? runOption : referenceOption;
+    const options = Object.fromEntries(['security', 'sensitivity', 'security_then_sensitivity'].map((op) => [op, option(view, op)]));
     const selected = options[view.reference.operation];
-    return {supported: true, mode: view.reference.mode, operation: view.reference.operation, options, ready: selected.ok,
-      expiresAt: Math.min(...Object.values(options).filter((item) => item.ok).map((item) => item.expiresAt)),
-      reason: selected.ok ? `기존 결과 설명 가능 · 사고 ${view.selectedOutageLineId} · 감시 ${view.reference.operation === 'security' ? '해당 없음' : view.analysis.monitored || '자동 선정'} · 새 계산 없음`
-        : selected.reason};
+    const pending = pendingRun(view);
+    // While a run is pending, name the outage it computes: the line card may have moved on since it was sent.
+    const reason = pending ? `${runTarget(pending)} · 지도에서 다른 선로를 골라도 이 요청은 이 사고로 계산·반영합니다`
+      : !selected.ok ? selected.reason : mode === 'run'
+      ? `AI 분석 실행 가능 · 사고 ${selected.outage} · 감시 ${view.reference.operation === 'security' ? '해당 없음' : selected.monitored || '자동 선정'} · 서버가 계산·검증한 결과만 반영`
+      : `기존 결과 설명 가능 · 사고 ${view.selectedOutageLineId} · 감시 ${view.reference.operation === 'security' ? '해당 없음' : view.analysis.monitored || '자동 선정'} · 새 계산 없음`;
+    return {supported: true, mode, operation: view.reference.operation, modes: {run}, options, ready: selected.ok,
+      expiresAt: Math.min(...Object.values(options).filter((item) => item.ok && Number.isFinite(item.expiresAt)).map((item) => item.expiresAt)),
+      reason};
   }
 
   function referenceChoice(mode, operation) {
     const view = state.view;
-    if (!referenceSupported(view) || !['basic', 'reference'].includes(mode) || !referenceKinds(operation)) return;
+    const modes = runSupported(view) ? ['basic', 'reference', 'run'] : ['basic', 'reference'];
+    if (!referenceSupported(view) || !modes.includes(mode) || !referenceKinds(operation)) return;
     if (view.reference.mode === mode && view.reference.operation === operation) return;
+    if (runPending(view)) return;  // a pending run owns the context (its selectors are also disabled)
     advanceAnalysis(view);
     Object.assign(view.reference, {mode, operation});
   }
@@ -757,6 +769,102 @@
       && view.reference.operation === snapshot.context.operation;
   }
 
+  /* C-2c: AI run. Exposed only with a run advertisement of its own (no production server sends one yet),
+   * never on reference support alone; the server still refuses a run it is not ready for. */
+  function runSupported(view) {
+    return referenceSupported(view) && view.entry.console_analysis_run_available === true;
+  }
+
+  // A pending run owns the analysis context: manual N-1/Sensitivity and the monitored line wait for it.
+  // The pending run's frozen context (its target never follows the line card chosen after sending).
+  const pendingRun = (view) => {
+    const snapshot = view ? apiChat.pendingAnalysis(view.gridId) : null;
+    return snapshot && snapshot.context.mode === 'run' ? snapshot.context : null;
+  };
+  const runPending = (view) => Boolean(pendingRun(view));
+  const runTarget = (c) => `AI 분석 실행 중 · 사고 ${c.outage_line_id} · 감시 ${c.operation === 'security' ? '해당 없음' : c.monitored_line_id || '자동 선정'}`;
+  const runLock = (c) => `${runTarget(c)} · 서버 계산과 검증이 끝날 때까지 수동 분석과 감시 선로 변경을 잠급니다.`;
+
+  // Targets: Security/chain use the line card on screen; Sensitivity alone uses the N-1 result on screen.
+  function runOption(view, operation) {
+    const no = (reason) => ({ok: false, reason});
+    const kinds = referenceKinds(operation);
+    if (!runSupported(view) || !kinds) return no('AI 분석 실행 미지원');
+    const a = view.analysis;
+    if (a.security.status === 'loading' || a.sensitivity.status === 'loading') return no('수동 분석이 끝난 뒤 실행할 수 있습니다.');
+    if (kinds.some((kind) => !analysisSupport(view)[kind].ok)) return no('해당 분석 기능을 사용할 수 없습니다.');
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(apiChat.getSessionId(view.gridId) || '')) return no('대화 세션을 확인할 수 없습니다.');
+    if (operation === 'sensitivity') {
+      if (a.security.status !== 'ready' || !a.line) return no('Sensitivity 단독 실행은 화면의 N-1 결과가 필요합니다.');
+      return {ok: true, outage: a.line, monitored: a.monitored || null};
+    }
+    const line = view.selection && view.selection.kind === 'line' ? view.selection.id : null;
+    if (!line || !view.map.model.lineById.has(line)) return no('지도에서 사고 선로를 선택하세요.');
+    // The monitored choice on screen belongs to the N-1 result's outage; another outage starts automatic.
+    const monitored = operation === 'security_then_sensitivity' && line === a.line && a.monitored && a.monitored !== line ? a.monitored : null;
+    return {ok: true, outage: line, monitored};
+  }
+
+  function captureRun() {
+    const view = state.view;
+    const operation = view?.reference.operation;
+    const option = runOption(view, operation);
+    if (!option.ok) throw new Error(option.reason);
+    const context = Object.freeze({version: 1, view_id: view.viewId, revision: view.analysisRevision, mode: 'run', operation,
+      outage_line_id: option.outage, monitored_line_id: option.monitored, references: Object.freeze({security: null, sensitivity: null})});
+    return Object.freeze({view, gridId: view.gridId, sessionId: apiChat.getSessionId(view.gridId), context,
+      monitored: view.analysis.monitored, seq: view.analysis.seq, sensSeq: view.analysis.sensSeq});
+  }
+
+  function runCurrent(snapshot) {
+    const view = state.view;
+    const a = view && view.analysis;
+    const c = snapshot.context;
+    return state.source === 'api' && view === snapshot.view && runSupported(view)
+      && view.viewId === c.view_id && view.analysisRevision === c.revision
+      && apiChat.getSessionId(view.gridId) === snapshot.sessionId && view.reference.mode === 'run' && view.reference.operation === c.operation
+      && a.seq === snapshot.seq && a.sensSeq === snapshot.sensSeq && a.monitored === snapshot.monitored
+      // Sensitivity alone explains the N-1 result on screen, which must still be the requested outage.
+      && (c.operation !== 'sensitivity' || (a.security.status === 'ready' && a.line === c.outage_line_id));
+  }
+
+  function runLabel(run) {
+    if (run.status === 'completed') return 'AI 분석 실행 · 서버 검증 · 분석 결과 반영 완료';
+    if (run.status === 'not_evaluated') return `AI 분석 실행 · 서버 검증 · 평가 불가 항목 있음 (${run.reasonCode}) · 검증된 결과만 반영`;
+    if (run.status === 'not_run') return 'AI 분석 실행 · Tool 미실행 · 기존 분석 결과 유지';
+    return `분석 실행 실패 (${run.reasonCode}) · 기존 분석 결과 유지`;
+  }
+
+  /** Applies one run response for the still-pending chat request, all or nothing.
+   *  Throws (Invalid, or Invalid with code RECEIPT_EXPIRED) before anything changes. */
+  function applyRun(payload, request) {
+    const snapshot = request.analysis;
+    // 1-2. The whole response (C-2b), then the map view models (C-2a): both pure.
+    const run = KemsApiAnalysis.runResponse(payload, {gridId: snapshot.gridId, context: snapshot.context}, request.id, request.sessionId);
+    if (run.status === 'failed' || run.status === 'not_run') return Object.freeze({applied: false, label: runLabel(run)});
+    if (!runCurrent(snapshot)) return Object.freeze({applied: false, stale: true});
+    const view = snapshot.view;
+    const prepared = prepareAnalysisResults(view, run.items);
+    const c = snapshot.context;
+    const a = view.analysis;
+    const newOutage = run.items.some((item) => item.kind === 'security');
+    const entries = run.items.map((item) => [item.kind, Object.freeze({receipt: item.receipt, sessionId: request.sessionId})]);
+    // 3. Synchronous commit by the pending request itself: bumpRevision, never advanceAnalysis, which would
+    //    cancel this very request and retire its session and receipts.
+    supersedeAnalysisRequests(a);
+    if (newOutage) {
+      // A new N-1 result: nothing of the previous outage (Sensitivity, receipts) stays attached to it.
+      Object.assign(a, {line: c.outage_line_id, monitored: c.monitored_line_id || '', sensitivity: {status: 'idle'}});
+      view.selectedOutageLineId = c.outage_line_id;
+      view.reference.receipts = {security: null, sensitivity: null};
+      view.reference.notices = {};
+    }
+    commitAnalysisResults(view, prepared, {epoch: bumpRevision, origin: 'run',
+      storeReceipts: () => entries.forEach(([kind, entry]) => storeReceipt(view, kind, entry))});
+    analysisChanged();
+    return Object.freeze({applied: true, label: runLabel(run)});
+  }
+
   // Lookups of the map on screen, used to check a response and to label it.
   function analysisCtx(view) {
     const model = view.map.model;
@@ -770,7 +878,7 @@
   function analysisInfo(view) {
     const pf = view.pf.status === 'ready' || view.pf.status === 'nonconverged' ? view.pf : null;
     return {gridId: view.gridId, support: analysisSupport(view), analysis: view.analysis, ctx: analysisCtx(view), clock,
-      excluded: pf ? pf.excluded.lines : null};
+      excluded: pf ? pf.excluded.lines : null, locked: runPending(view) ? runLock(pendingRun(view)) : null};
   }
 
   function abortAnalysis(a) {
@@ -814,11 +922,11 @@
    *  bumpRevision for a result committed by the pending chat request itself, which must not retire its
    *  own session. storeReceipts runs after the epoch, so it sees the session the epoch left in place.
    *  The caller renders once afterwards (analysisChanged). */
-  function commitAnalysisResults(view, prepared, {epoch, storeReceipts}) {
+  function commitAnalysisResults(view, prepared, {epoch, storeReceipts, origin = 'manual'}) {
     const a = view.analysis;
-    if (prepared.security) a.security = {status: 'ready', vm: prepared.security.vm, at: new Date()};
+    if (prepared.security) a.security = {status: 'ready', vm: prepared.security.vm, at: new Date(), origin};
     if (prepared.sensitivity) {
-      a.sensitivity = {status: 'ready', vm: prepared.sensitivity.vm, requested: prepared.sensitivity.requested, at: new Date()};
+      a.sensitivity = {status: 'ready', vm: prepared.sensitivity.vm, requested: prepared.sensitivity.requested, at: new Date(), origin};
     }
     epoch(view);
     storeReceipts();
@@ -842,6 +950,7 @@
     const view = state.view;
     if (state.source !== 'api' || !view || view.map.status !== 'ready' || !view.map.model.lineById.has(line)) return;
     if (!analysisSupport(view).security.ok) return;  // a false or missing flag is never forced, nor sent to another grid's API
+    if (runPending(view)) return;  // the pending AI run owns the analysis context
     const a = view.analysis;
     advanceAnalysis(view);
     view.selectedOutageLineId = line;
@@ -885,7 +994,7 @@
     const view = state.view;
     if (state.source !== 'api' || !view) return;
     const a = view.analysis;
-    if (a.security.status !== 'ready' || !analysisSupport(view).sensitivity.ok) return;
+    if (a.security.status !== 'ready' || !analysisSupport(view).sensitivity.ok || runPending(view)) return;
     advanceAnalysis(view);
     view.reference.receipts.sensitivity = null;
     delete view.reference.notices.sensitivity;
@@ -945,7 +1054,7 @@
     const view = state.view;
     if (state.source !== 'api' || !view) return;
     const a = view.analysis;
-    if (value === a.monitored) return;  // re-selecting the same line is not a change
+    if (value === a.monitored || runPending(view)) return;  // the same line is no change; a pending AI run owns the choice
     advanceAnalysis(view);
     view.reference.receipts.sensitivity = null;
     delete view.reference.notices.sensitivity;
@@ -1001,7 +1110,10 @@
   const chatHost = h('section', {class: 'kems-only kems-chat', id: 'kemsChat'});
   side.after(chatHost);
   const apiChat = KemsApiChat.create(chatHost, {referenceState, referenceChoice, captureReference, referenceCurrent, sessionRetired,
-    validateReference: (payload, request) => KemsApiAnalysis.referenceResponse(payload, request.analysis, request.id, request.sessionId)});
+    validateReference: (payload, request) => KemsApiAnalysis.referenceResponse(payload, request.analysis, request.id, request.sessionId),
+    captureRun, runCurrent, applyRun,
+    // The manual controls follow the run's start and end; rendered after the current task has finished.
+    runPendingChanged: () => queueMicrotask(() => { if (state.source === 'api' && state.view) { render(); refreshCard(); } })});
 
   // The Artifact zoom buttons drive the API map while an API grid is shown (their own handlers move the demo map).
   mapPanel.querySelector('.ph .zoom').addEventListener('click', (event) => {
@@ -1055,6 +1167,7 @@
     card.hidden = true;
     card.replaceChildren();
     if (state.view) state.view.selection = null;
+    apiChat.refresh();  // a run targets the line card on screen
   }
 
   const row = (key, value) => (value === null || value === undefined || value === '' ? null : h('div', {class: 'kems-kv'}, h('span', {}, key), h('b', {}, String(value))));
@@ -1063,6 +1176,7 @@
     const view = state.view;
     if (!view || !hit) { closeCard(); return; }
     view.selection = {kind: hit.kind, id: hit.item.id};
+    apiChat.refresh();  // a run targets the line card on screen
     const pf = view.pf.status === 'ready' || view.pf.status === 'nonconverged' ? view.pf : null;
     const item = hit.item;
     const rows = [];
@@ -1386,6 +1500,8 @@
     apiChat.setContext(view ? {
       gridId: view.gridId, name: API_ALIASES[view.gridId] || view.gridId,
       viewId: view.viewId, analysisRevision: view.analysisRevision,
+      // Reference/run support follows the map being ready, not only the catalog: the selectors re-render then.
+      v1: referenceSupported(view) ? (runSupported(view) ? 'run' : 'reference') : 'none',
       enabled: view.status === 'ready' && KemsApiChat.supported(view.gridId, view.entry),
       reason: view.status !== 'ready' ? '계통의 채팅 지원 상태를 확인하지 못했습니다.'
         : view.gridId === 'kr-osm-transmission' ? '한국 OSM은 지도 전용 계통으로 AI 채팅을 지원하지 않습니다.'
@@ -1431,7 +1547,8 @@
           gridId: view.gridId, status: view.status, error: view.error || null, mode: view.mode, selection: view.selection,
           reference: {viewId: view.viewId, revision: view.analysisRevision, selectedOutageLineId: view.selectedOutageLineId,
             monitoredLineId: view.analysis.monitored || null, mode: view.reference.mode, operation: view.reference.operation,
-            receipts: JSON.parse(JSON.stringify(view.reference.receipts)), notices: {...view.reference.notices}},
+            receipts: JSON.parse(JSON.stringify(view.reference.receipts)), notices: {...view.reference.notices},
+            runAvailable: runSupported(view), runPending: runPending(view)},
           map: {status: view.map.status, error: view.map.error || null, counts: model ? {buses: model.buses.length, lines: model.lines.length,
             transformers: model.transformers.length, plants: model.plants.length, gis: model.gis, straightFallback: model.straightFallback} : null},
           geometry: {status: view.geometry.status, parts: view.geometry.parts ?? null, invalid: view.geometry.invalid ?? null, error: view.geometry.error || null},
@@ -1450,10 +1567,10 @@
     const sens = a.sensitivity;
     return {
       line: a.line, seq: a.seq, monitored: a.monitored,
-      security: {status: sec.status, error: sec.error || null, verdict: sec.vm ? sec.vm.verdict : null, count: sec.vm ? sec.vm.count : null,
+      security: {status: sec.status, origin: sec.origin || null, error: sec.error || null, verdict: sec.vm ? sec.vm.verdict : null, count: sec.vm ? sec.vm.count : null,
         violations: sec.vm ? sec.vm.violations.map((v) => ({id: v.equipmentId, type: v.type, mapKind: v.mapKind, mapId: v.mapId})) : null,
         island: sec.vm && sec.vm.island ? {detected: sec.vm.island.detected, buses: sec.vm.island.buses.length} : null},
-      sensitivity: {status: sens.status, error: sens.error || null, requested: sens.requested ?? null,
+      sensitivity: {status: sens.status, origin: sens.origin || null, error: sens.error || null, requested: sens.requested ?? null,
         state: sens.vm ? sens.vm.state : null, analysisStatus: sens.vm ? sens.vm.analysisStatus : null, monitored: sens.vm ? sens.vm.monitored : null,
         candidates: sens.vm ? sens.vm.candidates.map((c) => ({rank: c.rank, generator: c.generator, value: c.value, mapBus: c.mapBus})) : null},
     };

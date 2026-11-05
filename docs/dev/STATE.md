@@ -11,15 +11,41 @@
 - PH4-02C-1: KPG 수동 receipt와 기존 결과 설명(reference) UI를 구현했다. 실제 FastAPI/registry/계산을 사용하는 신규 Chrome 검증을 마쳤다.
   [PR #23](https://github.com/GangHyeokLee/ai-ems-agent/pull/23)으로 통합됐다(merge `a77ef8c`). 리뷰 후속 F1·F3 보완을 포함한다.
   MAINT-03은 [PR #24](https://github.com/GangHyeokLee/ai-ems-agent/pull/24)로 통합됐으며, C-1에 일반 merge로 반영했다. 실제 통합 경로의 최종 회귀는 모두 통과했다. 과거 IEEE39 렌더링 불안정성을 해결한 것은 아니므로 병합 권고는 CONDITIONAL이다.
-- v1 capability는 어떤 계통에도 광고하지 않는다. C-1 UI는 광고가 있는 테스트 fixture에서만 활성화된다. MN v1·한국 OSM AI는 차단을 유지한다.
+- v1 capability는 어떤 계통에도 광고하지 않는다. C-1 reference와 C-2c run UI는 광고가 있는 테스트 fixture에서만 활성화된다.
+  run은 reference와 별도로 `console_analysis_run_available`이 필요하며, 서버는 아직 이 필드를 보내지 않는다. MN v1·한국 OSM AI는 차단을 유지한다.
 - 실시간 브랜치·HEAD·커밋 여부·staged/unstaged/untracked 상태는 `dev_handoff.py` 출력으로 확인한다.
 - PH4-02C-2a: run 반영을 위한 공통 상태·commit 리팩터링. [PR #25](https://github.com/GangHyeokLee/ai-ems-agent/pull/25)로 통합됐다(merge `950de21`).
   동작 변경은 없고, run 모드·`mode=run` 전송·run 결과 반영은 구현하지 않았다.
-- PH4-02C-2b: run 응답·agent receipt·`ui_updates`의 순수 검증 함수를 `feature/ph4-02c2b-run-validation`([PR #26](https://github.com/GangHyeokLee/ai-ems-agent/pull/26), Draft)에 구현했다.
-  화면 연결은 없다(C-2c 미착수).
+- PH4-02C-2b: run 응답·agent receipt·`ui_updates`의 순수 검증 함수. [PR #26](https://github.com/GangHyeokLee/ai-ems-agent/pull/26)으로 통합됐다(merge `aebf3d6`).
 - PH4-02-INFRA-02: `feature/ph4-02-infra-real-llm-smoke`에서 Gemini LLM smoke 도구를 인수·보완했다. 실제 LLM `--execute`는 실행하지 않았다.
   로컬 커밋 `d3b32d5`는 있으나 Push가 인증 오류로 실패해 Draft PR은 생성되지 않았다. 원격 diff/mergeability 확인도 남아 있다.
-- 다음 기능 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C-2c(run 결과 반영·잠금·상태별 UI)이며 자동 착수하지 않는다.
+  (C-2c 병합 시 확인: INFRA-02 커밋 `d3b32d5`·`226fd50`은 통합 브랜치 `feature/kems-multi-grid`에 있다. 위 원 기록은 그대로 둔다.)
+- PH4-02C-2c: 콘솔 AI run 연결과 원자적 화면 반영을 `feature/ph4-02c2c-console-run`([PR #27](https://github.com/GangHyeokLee/ai-ems-agent/pull/27), Draft)에 구현했다. 운영 노출은 없다.
+- 다음 작업은 [PH4-02 #14](https://github.com/GangHyeokLee/ai-ems-agent/issues/14)의 C-3(run capability 서버 광고, 실제 LLM smoke, 운영 공개 결정)이며 자동 착수하지 않는다.
+
+## 최근 작업: PH4-02C-2c — AI Run 콘솔 연결과 원자적 반영
+
+- 기준은 `aebf3d6`이며 별도 worktree에서 작업했다. 변경 파일은 `api-bridge.js`·`api-chat.js`·`api-analysis.js`와 신규 테스트, 문서다.
+  서버·`web_app.py`·데이터·검증 해시·CSS는 그대로다.
+- 채팅 모드 `AI 분석 실행`은 `runSupported`(reference 지원 + `console_analysis_run_available === true`)일 때만 나타난다.
+  대상은 Security·연쇄면 선로 카드, Sensitivity 단독이면 화면 N-1 결과다. `captureRun`이 B3-2 계약 그대로 문맥을 고정한다.
+- 반영 순서(`applyRun`): `runResponse` → `runCurrent` → `prepareAnalysisResults`(여기까지 상태 변경 없음)
+  → `supersedeAnalysisRequests` → 새 사고면 이전 Sensitivity·receipt 정리 → `commitAnalysisResults({epoch: bumpRevision, origin: 'run'})` → render 1회.
+  failed/not_run과 계약 위반·만료는 화면·receipt·revision·세션을 바꾸지 않는다. timeout·HTTP 오류는 기존 세션 폐기 정책을 따른다.
+- run 대기 중에는 수동 N-1·Sensitivity·감시 선로·대안·채팅 모드·분석 종류를 잠그고(강제 조작도 무효), 종료 시 해제한다.
+  지도 준비와 카드 선택 때 chat을 다시 그리도록 고쳐, 모드 선택과 run 대상 안내가 늦게 갱신되던 C-1 잠재 문제도 해결했다.
+- 검증(worktree `.local/ph4-02c2c/20261105-164754/`)
+  - 신규 Chrome **12 passed, 검사 61개**. 첫 실행 6 failed는 probe 검사 방식 1건과 위 UI 갱신 결함 1건이 원인이었고 로그를 보존했다.
+  - 정적 **39 passed**(C-2a/C-2b 범위 가드 2개는 C-2c 계약 단언으로 교체). C-1 + `commit_contract` **11**, C-2b **1**, MAINT-03 **4**, PH4-01 + Phase 3 **26** passed.
+  - 비브라우저 **985 passed, 131 skipped**. 구현 변이 Chrome **10/10** 검출.
+- 제안(미구현): C-3 서버의 run 광고 필드, 확정 v1 오류 시 세션 유지, timeout 뒤 결과 수동 재확인. 상세: `docs/specs/PH4-02C2C_CONSOLE_RUN.md`.
+- 통합 후속: 통합 브랜치 `226fd50`(INFRA-02 smoke 도구)을 일반 merge했다(`b4ee746`). STATE 충돌은 두 기록을 모두 보존해 해결했고, smoke 도구 파일은 변경하지 않았다.
+  run 대기 중 다른 선로 카드 선택은 가능하며, 결과는 고정 대상으로 반영된다(C-1 선택 중립 계약).
+  다만 상태 줄이 새 카드를 "실행 가능"으로 보여 혼동을 줄 수 있어, 대기 중에는 상태 줄과 잠금 안내에 고정 대상을 표시하도록 고쳤다.
+  신규 Chrome `run_selection`을 추가했다. 고치기 전 코드에서는 표시 검사 2개만 실패했다.
+- 통합 후 검증(worktree `.local/ph4-02c2c/20261105-173955-merge/`)
+  - C-2c Chrome **13 passed(검사 69)**. C-1 + `commit_contract` **11**, C-2b **1**, MAINT-03 **4**, PH4-01 + Phase 3 **26** passed. 정적 **39 passed**.
+  - 비브라우저 **997 passed, 132 skipped**. IEEE39 309/310 변동은 재현되지 않았다.
 
 ## 최근 작업: PH4-02-INFRA-02 — LLM Smoke Test 인수
 
@@ -32,7 +58,7 @@
 - 기준 통합 HEAD는 `aebf3d6`까지 fast-forward했다. `git push --set-upstream origin feature/ph4-02-infra-real-llm-smoke`는
   `unable to get password from user`로 실패했다. 인증된 Push 후 `feature/kems-multi-grid` 대상 Draft PR을 생성하고 원격 diff/mergeability를 확인한다.
 
-## 최근 작업: PH4-02C-2b — Run 응답·Receipt 순수 검증
+## 보존된 작업: PH4-02C-2b — Run 응답·Receipt 순수 검증
 
 - 기준은 `950de21`이며 별도 worktree에서 작업했다. 변경 파일은 `ui/console/api-analysis.js`와 신규 테스트, 문서다.
   bridge·chat·서버·`web_app.py`·데이터·검증 해시는 그대로다.
@@ -272,10 +298,9 @@
 - PR #23은 MAINT-03을 포함한 C-1 통합 검토 대상이다. Draft를 유지하고 Issue #14를 닫지 않는다. 최종 실행은 모두 통과했지만 과거 IEEE39 불안정성을 별도 항목으로 수용할지 판단한 뒤 병합한다.
 - 이번 IEEE39 비교는 일치했다. 과거 309/310 변동의 원인 확인·결정적 렌더링 검증은 별도 범위로 남는다. 기존 테스트를 skip/xfail하거나 단언을 완화하지 않는다.
 - F2 REST 오류 문구 범위 한정은 선택 사항이다. F4 브라우저 시계 의존과 F5 미확정 응답의 안내 없는 폐기 가능성도 후속 검토한다(이번 범위에서 새 결함으로 확정하지 않음).
-- C-2a(PR #25)는 통합됐다. C-2b(run 응답·agent receipt·`ui_updates` 순수 검증)는 Draft PR #26으로 검토한다. 자동 병합하지 않는다.
-- C-2c(run 반영·잠금·상태별 UI)는 별도 요청 후 진행한다. `runResponse` → `prepareAnalysisResults(view, run.items)` →
-  `commitAnalysisResults(..., {epoch: bumpRevision, storeReceipts})` 순서를 쓴다(C-2b spec의 인터페이스 절).
-  확정 오류 시 세션 유지 여부와 run capability 분리는 PM 결정 사항이다.
+- C-2a·C-2b는 통합됐다. C-2c는 Draft PR #27로 검토하며 자동 병합하지 않는다.
+- C-3은 별도 요청 후 진행한다: 서버의 `console_analysis_run_available` 광고(단일 worker·예산·smoke 조건), 실제 LLM smoke, 운영 공개 결정.
+  확정 v1 오류 시 세션 유지와 timeout 뒤 결과 재확인은 PM 결정 사항이다(C-2c spec의 제안 절).
 - C-2는 별도 요청 후 검증된 run receipt/update의 prepare→atomic commit, 실패/미실행/미평가 표시, 수동 분석 중재를 구현한다.
   `completed/not_evaluated/not_run/failed`와 사유 코드, 취소/timeout 결과 미확정, 같은 요청 자동 재시도 금지 조건을 보존한다. C-1 reference는 새 계산·지도 적용 없이 유지한다.
 - 실제 LLM smoke(고정 Tool/인자 준수·지연), provider 예산, 지원 launcher·단일 worker와 Chrome 검증 후에만 capability 공개를 별도로 결정한다. MN v1에는 별도 model identity가 필요하다.

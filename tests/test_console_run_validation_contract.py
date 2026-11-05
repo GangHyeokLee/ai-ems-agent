@@ -43,7 +43,14 @@ def test_manual_and_agent_receipts_share_the_core_checks():
     assert "r.producer !== 'agent_tool'" in agent and "typeof r.tool_call_id !== 'string' || !r.tool_call_id" in agent
 
 
-def test_validators_are_exported_but_not_wired_into_the_console():
+def test_validators_are_exported_and_wired_only_through_apply_run():
     assert "manualReceipt, referenceResponse, agentReceipt, runResponse," in ANALYSIS
-    for source in (BRIDGE, CHAT):
-        assert not re.search(r"\b(runResponse|agentReceipt)\b", code(source))
+    # C-2c replaced the C-2b "not wired yet" guard: the chat never validates, the bridge only in applyRun.
+    assert not re.search(r"\b(runResponse|agentReceipt)\b", code(CHAT))
+    bridge = code(BRIDGE)
+    assert len(re.findall(r"\brunResponse\b", bridge)) == 1 and "agentReceipt" not in bridge
+    apply = body(BRIDGE, "applyRun")
+    order = [apply.index(token) for token in ("KemsApiAnalysis.runResponse(", "runCurrent(snapshot)", "prepareAnalysisResults(view, run.items)",
+                                               "supersedeAnalysisRequests(a)", "commitAnalysisResults(view, prepared, {epoch: bumpRevision")]
+    assert order == sorted(order)
+    assert not re.search(r"\b(advanceAnalysis|invalidateAnalysisContext)\b", apply)

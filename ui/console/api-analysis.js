@@ -565,8 +565,8 @@ const KemsApiAnalysis = (() => {
     else if (mine && sec.status === 'invalid') { stat = `N-1 응답 검증 실패 · ${sec.error}`; tone = ' kems-err'; }
     else if (a.line && sec.status !== 'idle') stat = `표시 중인 결과: ${a.line} 사고 · 이 선로로 실행하면 이전 결과는 지웁니다`;
     return h('div', {class: 'kems-an-block', 'data-an': mine ? sec.status : 'idle'}, head,
-      h('button', {type: 'button', class: 'btn pri kems-an-run', 'data-line': line, disabled: mine && sec.status === 'loading',
-        onclick: () => act.runSecurity(line)}, mine && sec.status === 'ready' ? 'N-1 다시 실행' : 'N-1 분석 실행'),
+      h('button', {type: 'button', class: 'btn pri kems-an-run', 'data-line': line, disabled: Boolean(info.locked) || (mine && sec.status === 'loading'),
+        title: info.locked || null, onclick: () => act.runSecurity(line)}, mine && sec.status === 'ready' ? 'N-1 다시 실행' : 'N-1 분석 실행'),
       h('p', {class: `kems-an-stat${tone}`, role: 'status'}, stat));
   }
 
@@ -611,7 +611,7 @@ const KemsApiAnalysis = (() => {
     if (sec.status === 'invalid') return wrap(message('kems-err', `N-1 응답 검증 실패 (${a.line}) · ${sec.error} · 결과를 표시하지 않습니다.`), clearButton(act));
     const vm = sec.vm;
     const ctx = info.ctx;
-    const badges = [verdictPill(vm),
+    const badges = [verdictPill(vm), sec.origin === 'run' ? pill('loading', 'AI 분석 실행 · 서버 검증') : null,
       vm.island && vm.island.detected ? pill('warn', `계통 분리 · 모선 ${vm.island.buses.length}`) : null,
       vm.scenario && vm.scenario.synthetic ? pill('loading', '합성 시나리오') : null,
       vm.scenario && vm.scenario.actual === false ? pill('loading', '실운영 데이터 아님') : null];
@@ -671,7 +671,8 @@ const KemsApiAnalysis = (() => {
         row('발전기 Q 기준', limits && Array.isArray(limits.generator_q_mvar) ? `${limits.generator_q_mvar.join(' – ')} Mvar` : null)),
       vm.caveats.length ? h('ul', {class: 'kems-an-ul'}, vm.caveats.map((item) => h('li', {}, item))) : null));
     }
-    parts.push(h('p', {class: 'kems-sub'}, `${ADAPTERS[vm.gridId].notice} · EMS API 계산 결과 (조회 시각 ${info.clock(sec.at)})`), clearButton(act));
+    parts.push(h('p', {class: 'kems-sub'}, `${ADAPTERS[vm.gridId].notice} · ${sec.origin === 'run'
+      ? `AI 분석 실행 · 서버 검증 결과 (반영 시각 ${info.clock(sec.at)})` : `EMS API 계산 결과 (조회 시각 ${info.clock(sec.at)})`}`), clearButton(act));
     return wrap(...parts);
   }
 
@@ -684,7 +685,8 @@ const KemsApiAnalysis = (() => {
     for (const item of a.security.vm.monitoredOptions) options.set(item.line, `${item.line} · ${item.note}`);
     if (sens) for (const alt of sens.alternatives) if (!options.has(alt.line)) options.set(alt.line, `${alt.line} · 대안 (ΔP ${fixed(alt.dp, 3, 'MW')}${alt.radial ? ' · 방사형' : ''})`);
     if (a.monitored && !options.has(a.monitored)) options.set(a.monitored, a.monitored);
-    const select = h('select', {class: 'kems-an-mon', 'aria-label': '감시 선로', onchange: (event) => act.setMonitored(event.target.value)},
+    const select = h('select', {class: 'kems-an-mon', 'aria-label': '감시 선로', disabled: Boolean(info.locked), title: info.locked || null,
+      onchange: (event) => act.setMonitored(event.target.value)},
       [...options].map(([value, label]) => h('option', {value}, label)));
     select.value = a.monitored || '';
     return h('label', {class: 'kems-an-field'}, h('span', {}, '감시 선로'), select);
@@ -702,7 +704,8 @@ const KemsApiAnalysis = (() => {
         runButton('Sensitivity 실행', {disabled: true, 'data-action': 'sensitivity'}, null));
     }
     const parts = [h('div', {class: 'kems-an-controls'}, monitoredSelect(info, act),
-      runButton(sens.status === 'ready' ? 'Sensitivity 다시 실행' : 'Sensitivity 실행', {disabled: sens.status === 'loading', 'data-action': 'sensitivity'}, () => act.runSensitivity())),
+      runButton(sens.status === 'ready' ? 'Sensitivity 다시 실행' : 'Sensitivity 실행', {disabled: Boolean(info.locked) || sens.status === 'loading',
+        title: info.locked || null, 'data-action': 'sensitivity'}, () => act.runSensitivity())),
     h('p', {class: 'kems-sub'}, `사고 선로 ${a.line} · 감시 선로를 비우면 EMS API가 선정합니다 · 바꾸면 이전 Sensitivity 결과를 지웁니다 · 상위 ${TOP_N}개 후보`)];
     if (sens.status === 'loading') parts.push(message('kems-an-loading', spinner(), `Sensitivity 계산 중… (감시 선로 ${sens.requested || 'EMS API 자동 선정'})`));
     else if (sens.status === 'error') parts.push(message('kems-err', `Sensitivity 실패 · ${sens.error} · 데모 결과로 대체하지 않습니다.`));
@@ -713,8 +716,9 @@ const KemsApiAnalysis = (() => {
 
   function sensitivityResult(vm, info, act) {
     const ctx = info.ctx;
+    const run = info.analysis.sensitivity.origin === 'run';
     const badges = h('div', {class: 'kems-badges'}, pill(vm.completed ? 'ok' : vm.state === 'no_target' ? 'loading' : 'warn', vm.completed ? '계산 완료' : vm.label),
-      pill('loading', '소신호 민감도 · 재급전 실행 아님'));
+      run ? pill('loading', 'AI 분석 실행 · 서버 검증') : null, pill('loading', '소신호 민감도 · 재급전 실행 아님'));
     const facts = [row('상태', `${vm.label} (${vm.analysisStatus})`), row('사고 선로', vm.line)];
     if (!vm.completed) {
       facts.push(row('메시지', vm.message), row('감시 선로', vm.requested ? `${vm.requested} (요청)` : '선정되지 않음'),
@@ -754,17 +758,20 @@ const KemsApiAnalysis = (() => {
     if (vm.alternatives.length) {
       parts.push(h('h4', {class: 'kems-an-h4'}, '대안 감시 선로 · 누르면 감시 선로로 지정하고 이 결과는 지웁니다 (실행은 버튼으로)'),
         h('div', {class: 'kems-an-list', 'data-list': 'alternatives'}, vm.alternatives.map((alt) => h('button', {type: 'button', class: 'kems-rank', 'data-line': alt.line,
-          onclick: () => act.setMonitored(alt.line)}, h('span', {}, h('b', {}, alt.line), h('em', {}, alt.radial ? '사고 후 방사형' : '사고 후 메시')),
+          disabled: Boolean(info.locked), title: info.locked || null, onclick: () => act.setMonitored(alt.line)}, h('span', {}, h('b', {}, alt.line), h('em', {}, alt.radial ? '사고 후 방사형' : '사고 후 메시')),
           h('i', {}, `ΔP ${fixed(alt.dp, 3, 'MW')}`)))));
     }
     if (vm.caveats.length) parts.push(h('details', {class: 'kems-an-more'}, h('summary', {}, '모델 주의사항'), h('ul', {class: 'kems-an-ul'}, vm.caveats.map((item) => h('li', {}, item)))));
-    parts.push(h('p', {class: 'kems-sub'}, `EMS API 계산 결과 (조회 시각 ${info.clock(info.analysis.sensitivity.at)})`));
+    parts.push(h('p', {class: 'kems-sub'}, run ? `AI 분석 실행 · 서버 검증 결과 (반영 시각 ${info.clock(info.analysis.sensitivity.at)})`
+      : `EMS API 계산 결과 (조회 시각 ${info.clock(info.analysis.sensitivity.at)})`));
     return parts;
   }
 
   /** The 의사결정지원 sections for the grid on screen. */
   function panel(info, act) {
-    return [securitySection(info, act), sensitivitySection(info, act)];
+    // While an AI run owns the analysis context, say why the manual controls below are locked.
+    return [info.locked ? h('p', {class: 'kems-msg kems-an-loading', role: 'status', 'data-lock': 'run'}, spinner(), info.locked) : null,
+      securitySection(info, act), sensitivitySection(info, act)];
   }
 
   return Object.freeze({TIMEOUT_MS, Invalid, adapter: (gridId) => ADAPTERS[gridId] || null, support, security, sensitivity, overlay, legend,
